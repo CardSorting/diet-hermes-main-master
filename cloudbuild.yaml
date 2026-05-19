@@ -1,0 +1,32 @@
+steps:
+  # Build Operator API Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/operator-api:$COMMIT_SHA', '-f', 'Dockerfile.operator-api', '.']
+  
+  # Build Operator Worker Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/operator-worker:$COMMIT_SHA', '-f', 'Dockerfile.operator-worker', '.']
+
+  # Push API Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/operator-api:$COMMIT_SHA']
+
+  # Push Worker Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/operator-worker:$COMMIT_SHA']
+
+  # Deploy Operator API to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'operator-api'
+      - '--image=gcr.io/$PROJECT_ID/operator-api:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars=PROJECT_ID=$PROJECT_ID,WORKER_IMAGE=gcr.io/$PROJECT_ID/operator-worker:$COMMIT_SHA,QUEUE_NAME=operator-queue,TASK_REGION=us-central1,USE_CLOUD_TASKS=false'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
