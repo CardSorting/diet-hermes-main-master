@@ -1,4 +1,5 @@
 import type { ServiceContext } from './types.js';
+import { getDb } from '../../infrastructure/db/Config.js';
 
 /**
  * MutexService provides fault-tolerant distributed locking.
@@ -19,117 +20,125 @@ export class MutexService {
   async acquireLock(resource: string): Promise<number | null> {
     console.log(`[Mutex] 🛡️ Attempting to acquire lock: ${resource}...`);
     
-    const existingResults = await this.ctx.db.selectWhere('swarm_locks' as any, { column: 'resource', value: resource }) as any[];
-    const existing = existingResults.length > 0 ? existingResults[0] : null;
+    const db = await getDb();
     
-    if (existing) {
+    // Execute lock acquisition atomically inside a transaction to guarantee serialized isolation
+    return await db.transaction().execute(async (trx) => {
+      const existing = await trx
+        .selectFrom('swarm_locks')
+        .selectAll()
+        .where('resource', '=', resource)
+        .executeTakeFirst();
+      
+      if (existing) {
         const pid = Number(existing.ownerId);
         const expiresAt = Number(existing.expiresAt);
         const isExpired = Date.now() > expiresAt;
         const isDead = !this._isProcessAlive(pid);
         
         if (isDead || isExpired) {
-            console.log(`[Mutex] 💀 Detected ${isDead ? 'stale' : 'expired'} lock from Owner ${pid}. Annexing...`);
-            await this.ctx.db.push({
-                type: 'delete',
-                table: 'swarm_locks',
-                where: { column: 'resource', value: resource }
-            });
+          console.log(`[Mutex] 💀 Detected ${isDead ? 'stale' : 'expired'} lock from Owner ${pid}. Annexing...`);
+          await trx
+            .deleteFrom('swarm_locks')
+            .where('resource', '=', resource)
+            .execute();
         } else {
-            console.warn(`[Mutex] 🔒 Resource ${resource} is locked by active PID ${pid}.`);
-            return null;
+          console.warn(`[Mutex] 🔒 Resource ${resource} is locked by active PID ${pid}.`);
+          return null;
         }
-    }
+      }
 
-    // Acquire lock
-    this._fencingToken++;
-    const token = this._fencingToken;
-    
-    try {
-        await this.ctx.db.push({
-            type: 'insert',
-            table: 'swarm_locks',
-            values: {
-                resource,
-                ownerId: process.pid.toString(),
-                expiresAt: Date.now() + 60000, // 60s initial TTL
-                createdAt: Date.now()
-            }
-        });
-    } catch (err) {
+      // Increment fencing token
+      this._fencingToken++;
+      const token = this._fencingToken;
+      
+      try {
+        await trx
+          .insertInto('swarm_locks')
+          .values({
+            resource,
+            ownerId: process.pid.toString(),
+            expiresAt: Date.now() + 60000, // 60s initial TTL
+            createdAt: Date.now()
+          })
+          .execute();
+      } catch (err) {
         console.error(`[Mutex] ❌ Failed to insert lock for ${resource}. Likely a race condition.`, err);
         return null;
-    }
+      }
 
-    this._startHeartbeat(resource);
-    return token;
+      this._startHeartbeat(resource);
+      return token;
+    });
   }
 
   /**
    * Releases a lock and stops heartbeats.
    */
   async releaseLock(resource: string): Promise<void> {
-      console.log(`[Mutex] 🔓 Releasing lock: ${resource}`);
-      const hb = this._heartbeats.get(resource);
-      if (hb) {
-          clearInterval(hb);
-          this._heartbeats.delete(resource);
-      }
+    console.log(`[Mutex] 🔓 Releasing lock: ${resource}`);
+    const hb = this._heartbeats.get(resource);
+    if (hb) {
+      clearInterval(hb);
+      this._heartbeats.delete(resource);
+    }
 
-      await this.ctx.db.push({
-          type: 'delete',
-          table: 'swarm_locks',
-          where: { column: 'resource', value: resource }
-      });
+    const db = await getDb();
+    await db
+      .deleteFrom('swarm_locks')
+      .where('resource', '=', resource)
+      .execute();
   }
 
   private _startHeartbeat(resource: string) {
-      if (this._heartbeats.has(resource)) return;
+    if (this._heartbeats.has(resource)) return;
 
-      const interval = setInterval(async () => {
-          try {
-              // Verify we still own the lock before heartbeat
-              const existingResults = await this.ctx.db.selectWhere('swarm_locks' as any, { column: 'resource', value: resource }) as any[];
-              const existing = existingResults.length > 0 ? existingResults[0] : null;
-              
-              if (!existing || existing.ownerId !== process.pid.toString()) {
-                  console.error(`[Mutex] ⚠️ Lost lock ownership for ${resource}. Stopping heartbeat.`);
-                  this._stopHeartbeat(resource);
-                  return;
-              }
+    const interval = setInterval(async () => {
+      try {
+        const db = await getDb();
+        // Verify we still own the lock before heartbeat
+        const existing = await db
+          .selectFrom('swarm_locks')
+          .selectAll()
+          .where('resource', '=', resource)
+          .executeTakeFirst();
+        
+        if (!existing || existing.ownerId !== process.pid.toString()) {
+          console.error(`[Mutex] ⚠️ Lost lock ownership for ${resource}. Stopping heartbeat.`);
+          this._stopHeartbeat(resource);
+          return;
+        }
 
-              console.log(`[Mutex] 💓 Heartbeat for ${resource}...`);
-              await this.ctx.db.push({
-                  type: 'update',
-                  table: 'swarm_locks',
-                  where: { column: 'resource', value: resource },
-                  values: { expiresAt: Date.now() + 60000 }
-              });
-          } catch (err) {
-              console.error(`[Mutex] ❌ Heartbeat failed for ${resource}`, err);
-          }
-      }, 20000); // Pulse every 20s
+        console.log(`[Mutex] 💓 Heartbeat for ${resource}...`);
+        await db
+          .updateTable('swarm_locks')
+          .set({ expiresAt: Date.now() + 60000 })
+          .where('resource', '=', resource)
+          .execute();
+      } catch (err) {
+        console.error(`[Mutex] ❌ Heartbeat failed for ${resource}`, err);
+      }
+    }, 20000); // Pulse every 20s
 
-      this._heartbeats.set(resource, interval);
+    this._heartbeats.set(resource, interval);
   }
 
   private _stopHeartbeat(resource: string) {
-      const hb = this._heartbeats.get(resource);
-      if (hb) {
-          clearInterval(hb);
-          this._heartbeats.delete(resource);
-      }
+    const hb = this._heartbeats.get(resource);
+    if (hb) {
+      clearInterval(hb);
+      this._heartbeats.delete(resource);
+    }
   }
 
   private _isProcessAlive(pid: number): boolean {
     try {
       if (pid === process.pid) return true;
-      // On some systems, process.kill(pid, 0) might throw if we don't have permissions
-      // even if the process is alive. But for local swarm agents it should be fine.
+      // Signal 0 probes process existence without sending signals
       process.kill(pid, 0);
       return true;
     } catch (err: any) {
-      return err.code === 'EPERM'; // If EPERM, the process is alive but we can't signal it
+      return err.code === 'EPERM'; // Alive but permission denied
     }
   }
 
@@ -138,9 +147,9 @@ export class MutexService {
   }
 
   public shutdown() {
-      for (const hb of this._heartbeats.values()) {
-          clearInterval(hb);
-      }
-      this._heartbeats.clear();
+    for (const hb of this._heartbeats.values()) {
+      clearInterval(hb);
+    }
+    this._heartbeats.clear();
   }
 }

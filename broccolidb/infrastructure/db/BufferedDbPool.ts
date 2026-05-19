@@ -1,4 +1,6 @@
 import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type Database from 'better-sqlite3';
 import { type Kysely, sql, type Transaction } from 'kysely';
 import { getDb, getRawDb, type Schema } from './Config.js';
@@ -113,6 +115,7 @@ export type WriteOp = {
   // Level 6: Pre-calculated Metadata
   hasIncrements?: boolean;
   dedupKey?: string;
+  seq?: number;
 };
 
 const LAYER_PRIORITY: Record<DbLayer, number> = {
@@ -129,6 +132,24 @@ const TYPE_PRIORITY: Record<string, number> = {
   delete: 3,
 };
 
+const TABLE_PRIORITY: Record<string, number> = {
+  users: 0,
+  workspaces: 1,
+  repositories: 2,
+  agents: 1,
+  knowledge: 1,
+  tasks: 2,
+  decisions: 2,
+  logical_constraints: 2,
+  knowledge_edges: 2,
+  agent_streams: 1,
+  agent_tasks: 2,
+  agent_memory: 2,
+  agent_cognitive_snapshots: 2,
+  agent_knowledge: 2,
+  agent_knowledge_edges: 3,
+};
+
 function normalizeWhere(where: WhereCondition | WhereCondition[] | undefined): WhereCondition[] {
   if (!where) return [];
   return Array.isArray(where) ? where : [where];
@@ -140,6 +161,7 @@ function normalizeWhere(where: WhereCondition | WhereCondition[] | undefined): W
  * and ensures data consistency between in-memory buffers and on-disk storage.
  */
 export class BufferedDbPool {
+  private nextSeq = 0;
   private bufferA = new Map<keyof Schema, WriteOp[]>();
   private bufferB = new Map<keyof Schema, WriteOp[]>();
   private activeBuffer: Map<keyof Schema, WriteOp[]> = this.bufferA;
@@ -341,6 +363,7 @@ export class BufferedDbPool {
     let currentBufferLength = 0;
 
     for (const op of ops) {
+      op.seq = this.nextSeq++;
       if (agentId) op.agentId = agentId;
 
       // Level 6: Pre-calculate metadata to avoid hot-path scans
@@ -532,13 +555,30 @@ export class BufferedDbPool {
           opsToFlush = Array.from(dirtyBuffer.values())
             .flat()
             .sort((a, b) => {
+              // 1. Sort by Operation Type Priority first (Inserts/Upserts -> Updates -> Deletes)
+              const typeA = TYPE_PRIORITY[a.type] ?? 99;
+              const typeB = TYPE_PRIORITY[b.type] ?? 99;
+              if (typeA !== typeB) return typeA - typeB;
+
+              // 2. Sort by Table Dependency Priority second
+              const tA = TABLE_PRIORITY[a.table as string] ?? 5;
+              const tB = TABLE_PRIORITY[b.table as string] ?? 5;
+              if (tA !== tB) {
+                // For deletes, children/dependents must be removed before parents (reverse topological order)
+                if (a.type === 'delete') {
+                  return tB - tA;
+                }
+                // For inserts/updates, parents/dependencies must exist before children (topological order)
+                return tA - tB;
+              }
+
+              // 3. Layer Priority as a logical third tier
               const pA = (LAYER_PRIORITY as any)[a.layer ?? 'plumbing'];
               const pB = (LAYER_PRIORITY as any)[b.layer ?? 'plumbing'];
               if (pA !== pB) return pA - pB;
-              if (a.table !== b.table) return (a.table as string).localeCompare(b.table as string);
-              const typeA = TYPE_PRIORITY[a.type] ?? 99;
-              const typeB = TYPE_PRIORITY[b.type] ?? 99;
-              return typeA - typeB;
+
+              // 4. Stable tie-breaker using original insertion sequence index
+              return (a.seq ?? 0) - (b.seq ?? 0);
             });
         } else if (this.inFlightOps.size > 0) {
           opsToFlush = Array.from(this.inFlightOps.values()).flat();
@@ -623,6 +663,26 @@ export class BufferedDbPool {
       } else {
         // Fatal errors should still be logged for forensic analysis
         Logger.error(`[DbPool] ❌ Flush failed (FATAL):`, e);
+        try {
+          const recoveryFile = path.resolve(process.cwd(), `broccolidb-failed-flush-${Date.now()}.json`);
+          fs.writeFileSync(
+            recoveryFile,
+            JSON.stringify(
+              {
+                timestamp: new Date().toISOString(),
+                error: e instanceof Error ? e.stack || e.message : String(e),
+                ops: opsToFlush,
+              },
+              null,
+              2
+            )
+          );
+          console.error(
+            `[DbPool] 🛡️ EMERGENCY JOURNALING: Saved ${opsToFlush.length} failed operations to ${recoveryFile}. Audit this file to recover context!`
+          );
+        } catch (writeErr) {
+          Logger.error(`[DbPool] Failed to write emergency recovery journal:`, writeErr);
+        }
       }
       this.inFlightOps.clear();
         this.inFlightSize = 0;

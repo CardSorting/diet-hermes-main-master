@@ -29,6 +29,18 @@ from typing import List, Dict, Any, Set, Optional
 # Shared tool list for CLI and all messaging platform toolsets.
 # Edit this once to update all platforms simultaneously.
 _HERMES_CORE_TOOLS = [
+    # BroccoliDB Forensic Ecosystem & Architectural Reality Anchoring
+    "broccolidb_init", "broccolidb_audit", "broccolidb_refactor", "broccolidb_status",
+    # JoyZoning layer enforcement & targeted validation
+    "broccolidb_joyzoning_audit", "broccolidb_joyzoning_refactor",
+    "broccolidb_validate_file", "broccolidb_suggest_layer", "broccolidb_check_layering",
+    # Structural analysis (blast radius, entropy, cycles, integrity, violations)
+    "broccolidb_blast_radius", "broccolidb_study_pack", "broccolidb_entropy",
+    "broccolidb_detect_cycles", "broccolidb_verify_integrity", "broccolidb_heal",
+    "broccolidb_violations",
+    # Knowledge graph & shared memory
+    "broccolidb_add_knowledge", "broccolidb_query_graph", "broccolidb_get_task_context",
+    "broccolidb_append_shared_memory", "broccolidb_verify_sovereignty",
     # Web
     "web_search", "web_extract",
     # Terminal + process management
@@ -81,6 +93,26 @@ TOOLSETS = {
         "description": "Web research and content extraction tools",
         "tools": ["web_search", "web_extract"],
         "includes": []  # No other toolsets included
+    },
+
+    "broccolidb": {
+        "description": "BroccoliDB context-graph, JoyZoning forensic analysis, and structural intelligence tools",
+        "tools": [
+            # Core operations
+            "broccolidb_init", "broccolidb_audit", "broccolidb_refactor", "broccolidb_status",
+            # JoyZoning layer enforcement
+            "broccolidb_joyzoning_audit", "broccolidb_joyzoning_refactor",
+            "broccolidb_validate_file", "broccolidb_suggest_layer", "broccolidb_check_layering",
+            # Structural analysis
+            "broccolidb_blast_radius", "broccolidb_study_pack", "broccolidb_entropy",
+            "broccolidb_detect_cycles", "broccolidb_verify_integrity", "broccolidb_heal",
+            "broccolidb_violations",
+            # Knowledge graph
+            "broccolidb_add_knowledge", "broccolidb_query_graph",
+            "broccolidb_get_task_context", "broccolidb_append_shared_memory",
+            "broccolidb_verify_sovereignty",
+        ],
+        "includes": []
     },
     
     "search": {

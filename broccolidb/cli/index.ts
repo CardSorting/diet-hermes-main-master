@@ -54,6 +54,10 @@ async function main() {
     showHelp();
     process.exit(1);
   }
+  
+  if (command !== 'serve') {
+    process.exit(0);
+  }
 }
 
 function showHelp() {
