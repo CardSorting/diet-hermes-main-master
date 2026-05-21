@@ -67,6 +67,7 @@ import ProfilesPage from "@/pages/ProfilesPage";
 import SkillsPage from "@/pages/SkillsPage";
 import PluginsPage from "@/pages/PluginsPage";
 import ChatPage from "@/pages/ChatPage";
+import DietCodePage from "@/pages/DietCodePage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { useI18n } from "@/i18n";
@@ -78,7 +79,7 @@ import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 import { api } from "@/lib/api";
 
 function RootRedirect() {
-  return <Navigate to="/sessions" replace />;
+  return <Navigate to="/dietcode" replace />;
 }
 
 function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
@@ -86,7 +87,7 @@ function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
     // Render nothing during the plugin-load window — a spinner here would just flash.
     return null;
   }
-  return <Navigate to="/sessions" replace />;
+  return <Navigate to="/dietcode" replace />;
 }
 
 const CHAT_NAV_ITEM: NavItem = {
@@ -107,6 +108,7 @@ const CHAT_NAV_ITEM: NavItem = {
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
+  "/dietcode": DietCodePage,
   "/sessions": SessionsPage,
   "/analytics": AnalyticsPage,
   "/models": ModelsPage,
@@ -129,6 +131,12 @@ function ChatRouteSink() {
 }
 
 const BUILTIN_NAV_REST: NavItem[] = [
+  {
+    path: "/dietcode",
+    labelKey: "dietcode",
+    label: "DietCode",
+    icon: Shield,
+  },
   {
     path: "/sessions",
     labelKey: "sessions",

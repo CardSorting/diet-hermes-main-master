@@ -152,6 +152,39 @@ See `hermes claw migrate --help` for all options, or use the `openclaw-migration
 
 ---
 
+## Fork maintenance (diet-hermes)
+
+This repository is **diet-hermes** — a specialized fork of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) with **BroccoliDB**, **JoyZoning**, and the **DietCode** control plane. It is not the vanilla upstream project.
+
+**Do not deploy** `NousResearch/hermes-agent` artifacts or images directly to diet-hermes infrastructure. Sync upstream into this repo, then build and deploy from here.
+
+### Integration overlay (must survive every upstream sync)
+
+| Layer | Paths |
+|-------|--------|
+| TypeScript engine | `broccolidb/` |
+| Python tools | `tools/broccolidb.py`, `tools/broccolidb_tools/` |
+| Governance plugin | `plugins/joyzoning_governance/` |
+| Tool exposure | `toolsets.py` (`_HERMES_CORE_TOOLS` + `"broccolidb"` toolset) |
+| CLI helper | `scripts/joy_check.py` |
+| DietCode UI | `web/src/pages/DietCodePage.tsx`, `/dietcode` route in `web/src/App.tsx` |
+
+### Syncing upstream main
+
+```bash
+git fetch upstream main
+git tag diet-integrations-$(date +%Y-%m-%d)   # backup before sync
+git checkout -B sync/upstream-main upstream/main
+git checkout diet-integrations-<date> -- broccolidb/ tools/broccolidb.py tools/broccolidb_tools/ plugins/joyzoning_governance/ scripts/joy_check.py
+# Re-merge broccolidb blocks into toolsets.py and DietCode routes in web/src/App.tsx (see tag)
+cd broccolidb && npm ci && cd ..
+python -c "from tools.registry import discover_builtin_tools, registry; discover_builtin_tools(); assert len(registry.get_tool_names_for_toolset('broccolidb')) >= 20"
+```
+
+CI runs `.github/workflows/diet-integrations-check.yml` on every PR to guard these paths.
+
+---
+
 ## Contributing
 
 We welcome contributions! See the [Contributing Guide](https://hermes-agent.nousresearch.com/docs/developer-guide/contributing) for development setup, code style, and PR process.
