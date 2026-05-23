@@ -100,6 +100,45 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # Pointer to the hermes-agent skill + docs for user questions about Hermes itself.
     stable_parts.append(HERMES_AGENT_HELP_GUIDANCE)
 
+    # ── Joy-Zoning guidelines & Steering concepts ─────────────────
+    from agent.joy_zoning import get_system_prompt_section
+    stable_parts.append(get_system_prompt_section())
+
+    # Deep thinking monologue constraints for Hermes:
+    thinking_guidance = (
+        "You are a deep thinking AI, you may use extremely long chains of thought to deeply consider the problem "
+        "and deliberate with yourself via systematic reasoning processes to help come to a correct solution "
+        "prior to answering. You should enclose your thoughts and internal monologue inside <think> </think> tags, "
+        "and then provide your solution or response to the problem."
+    )
+    stable_parts.append(thinking_guidance)
+
+    # Action vs Planning guidelines:
+    plan_act_guidance = (
+        "# 🗺️ AUTONOMOUS PLANNING & EXECUTION CYCLE\n"
+        "⚠️ CRITICAL MANDATE: 100% AUTONOMOUS PLAN & ACT CONVERSION\n"
+        "Both the Planning and Action phases must be executed fully autonomously. There is NO manual input, approval, "
+        "or execution switch mechanism. You MUST formulate, write, verify, and execute your plans entirely within "
+        "your single runtime session without prompting the user for approval, confirmation, or stage-gates. Transition "
+        "immediately from PLANNING to ACT phases in your internal reasoning monologue and tool-calling loop.\n\n"
+        "1. **Autonomous Planning**: Focus on **Architectural Mapping**. Identify which JoyZoning layers (Domain, Core, Infrastructure, UI, Plumbing) are involved. Ensure Domain logic remains pure and Infrastructure adapters are properly abstracted before implementation begins.\n"
+        "🔍 LAYER PROBING (Questions to answer in your plan):\n"
+        "- **DOMAIN**: Is this logic \"pure\"? Can it exist without knowing about databases or APIs?\n"
+        "- **CORE**: What are the high-level steps? Which Domain models does this coordinate?\n"
+        "- **INFRASTRUCTURE**: What external world interactions (disk, net, 3rd party) are needed?\n"
+        "- **UI**: What state does the user need to see? What actions will they trigger?\n"
+        "Once you have defined your architectural mapping and plan, proceed immediately and autonomously to the execution phase. Do not ask the user for confirmation or mode switching.\n\n"
+        "2. **Autonomous Execution (ACT)**:\n"
+        "- **Follow the Ruleset**: Follow hardening rules strictly.\n"
+        "- **Maintain Purity**: If you are editing a Domain file, ensure it remains free of platform leakage and side effects.\n"
+        "- **Implement via Interfaces**: Infrastructure changes must strictly implement the contracts defined in Domain/Core.\n\n"
+        "Before each change, quick-scan:\n"
+        "1. Which layer does this file live in?\n"
+        "2. Am I importing from a layer I shouldn't?\n"
+        "3. Can I make this change smaller and more focused?"
+    )
+    stable_parts.append(plan_act_guidance)
+
     # Tool-aware behavioral guidance: only inject when the tools are loaded
     tool_guidance = []
     if "memory" in agent.valid_tool_names:
@@ -276,6 +315,15 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if agent.provider:
         timestamp_line += f"\nProvider: {agent.provider}"
     volatile_parts.append(timestamp_line)
+
+    # Dynamic Joy-Zoning active layer context:
+    try:
+        from agent.joy_zoning import get_active_layer_context
+        active_ctx = get_active_layer_context(agent.session_id or "default")
+        if active_ctx:
+            volatile_parts.append(active_ctx)
+    except Exception:
+        pass
 
     return {
         "stable":   "\n\n".join(p.strip() for p in stable_parts   if p and p.strip()),

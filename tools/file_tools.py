@@ -756,6 +756,8 @@ def _update_read_timestamp(filepath: str, task_id: str) -> None:
         task_data = _read_tracker.get(task_id)
         if task_data is not None:
             task_data.setdefault("read_timestamps", {})[resolved] = current_mtime
+            # Record file as modified for active layer context:
+            task_data.setdefault("modified_files", set()).add(resolved)
             _cap_read_tracker_data(task_data)
 
 
@@ -790,6 +792,53 @@ def _check_file_staleness(filepath: str, task_id: str) -> str | None:
     return None
 
 
+def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> None:
+    try:
+        from agent.joy_zoning import get_layer, generate_layer_comment, parse_layer_tag, is_layer_tag_supported
+        # Read the file content from the terminal environment using file_ops
+        read_res = file_ops.read_file_raw(filepath)
+        if not read_res.error and read_res.content:
+            content = read_res.content
+            try:
+                resolved_abs_path = str(_resolve_path_for_task(filepath, task_id))
+            except Exception:
+                resolved_abs_path = filepath
+                
+            if is_layer_tag_supported(resolved_abs_path, content) and not parse_layer_tag(content):
+                layer = get_layer(resolved_abs_path, content)
+                new_content = generate_layer_comment(resolved_abs_path, layer, content)
+                file_ops.write_file(filepath, new_content)
+                _invalidate_dedup_for_path(filepath, task_id)
+    except Exception as e:
+        logger.debug("Failed to run autonomous header injection: %s", e)
+
+
+def _run_joy_zoning_audit(filepath: str, result_dict: dict) -> None:
+    try:
+        from agent.joy_zoning import validate_joy_zoning
+        resolved = str(_resolve_path(filepath))
+        if not result_dict.get("error") and os.path.exists(resolved):
+            with open(resolved, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            audit = validate_joy_zoning(resolved, content)
+            if not audit["success"]:
+                violations = audit["errors"]
+                violations_msg = "JOY-ZONING VIOLATION: " + " | ".join(violations)
+                existing_warning = result_dict.get("_warning")
+                if existing_warning:
+                    result_dict["_warning"] = f"{existing_warning} | {violations_msg}"
+                else:
+                    result_dict["_warning"] = violations_msg
+                result_dict["_hint"] = (
+                    "Your change introduced architectural or layering violations. "
+                    "Please verify that imports flow in the correct direction (Domain -> nothing, "
+                    "Core -> Domain/Infra/Plumbing, Infra -> Domain/Plumbing, UI -> Domain/Plumbing/Core/Infra, "
+                    "Plumbing -> nothing) and that each file has a [LAYER: TYPE] tag matching its path layer."
+                )
+    except Exception as e:
+        logger.debug("Failed to run Joy-Zoning validation: %s", e)
+
+
 def write_file_tool(path: str, content: str, task_id: str = "default") -> str:
     """Write content to a file."""
     sensitive_err = _check_sensitive_path(path, task_id)
@@ -800,6 +849,19 @@ def write_file_tool(path: str, content: str, task_id: str = "default") -> str:
             "Refusing to write internal read_file status text as file content. "
             "Re-read the file or reconstruct the intended file contents before writing."
         )
+    # Autonomous header tag injection:
+    try:
+        from agent.joy_zoning import get_layer, generate_layer_comment, parse_layer_tag, is_layer_tag_supported
+        try:
+            resolved_abs_path = str(_resolve_path_for_task(path, task_id))
+        except Exception:
+            resolved_abs_path = path
+            
+        if is_layer_tag_supported(resolved_abs_path, content) and not parse_layer_tag(content):
+            layer = get_layer(resolved_abs_path, content)
+            content = generate_layer_comment(resolved_abs_path, layer, content)
+    except Exception as e:
+        logger.debug("Failed to auto-generate layer comment: %s", e)
     try:
         # Resolve once for the registry lock + stale check.  Failures here
         # fall back to the legacy path — write proceeds, per-task staleness
@@ -817,6 +879,7 @@ def write_file_tool(path: str, content: str, task_id: str = "default") -> str:
             if stale_warning:
                 result_dict["_warning"] = stale_warning
             _update_read_timestamp(path, task_id)
+            _run_joy_zoning_audit(path, result_dict)
             return json.dumps(result_dict, ensure_ascii=False)
 
         # Serialize the read→modify→write region per-path so concurrent
@@ -838,6 +901,7 @@ def write_file_tool(path: str, content: str, task_id: str = "default") -> str:
             _update_read_timestamp(path, task_id)
             if not result_dict.get("error"):
                 file_state.note_write(task_id, _resolved)
+            _run_joy_zoning_audit(path, result_dict)
         return json.dumps(result_dict, ensure_ascii=False)
     except Exception as e:
         if _is_expected_write_exception(e):
@@ -928,6 +992,8 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
                     _r = _path_to_resolved.get(_p)
                     if _r:
                         file_state.note_write(task_id, _r)
+                    _run_autonomous_header_injection(_p, task_id, file_ops)
+                    _run_joy_zoning_audit(_p, result_dict)
         # Hint when old_string not found — saves iterations where the agent
         # retries with stale content instead of re-reading the file.
         # Suppressed when patch_replace already attached a rich "Did you mean?"
