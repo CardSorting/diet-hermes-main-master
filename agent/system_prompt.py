@@ -1,4 +1,7 @@
-"""System-prompt assembly for :class:`AIAgent`.
+"""
+[LAYER: CORE]
+
+System-prompt assembly for :class:`AIAgent`.
 
 The agent's system prompt is built once per session and reused across all
 turns — only context compression triggers a rebuild.  This keeps the
@@ -121,7 +124,14 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         "or execution switch mechanism. You MUST formulate, write, verify, and execute your plans entirely within "
         "your single runtime session without prompting the user for approval, confirmation, or stage-gates. Transition "
         "immediately from PLANNING to ACT phases in your internal reasoning monologue and tool-calling loop.\n\n"
-        "1. **Autonomous Planning**: Focus on **Architectural Mapping**. Identify which JoyZoning layers (Domain, Core, Infrastructure, UI, Plumbing) are involved. Ensure Domain logic remains pure and Infrastructure adapters are properly abstracted before implementation begins.\n"
+        "1. **Autonomous Planning & Sovereign Drafting**:\n"
+        "- Before implementing any non-trivial changes, you MUST write a design draft to `scratchpad.md` in the workspace using the `write_file_tool`.\n"
+        "- Perform a **Sovereign Triad Audit** on your draft inside `scratchpad.md` using the following format:\n"
+        "  - **THE ARCHITECT (Boundary Probe)**: Where is the layer boundary or axiom most vulnerable to leakage or violation? Cite specific file paths.\n"
+        "  - **THE CRITIC (Assumption Probe)**: What design assumption, if wrong, would cause failure? How is it hardened?\n"
+        "  - **THE SRE (Atomic Probe)**: If system execution fails mid-task, what is the recovery path to atomic consistency (rollbacks, cleanup)?\n"
+        "- Conclude your draft with the **Mantra**: *Double down on this concept, audit and revise in its entirety.*\n"
+        "- Focus on **Architectural Mapping**. Identify which JoyZoning layers (Domain, Core, Infrastructure, UI, Plumbing) are involved. Ensure Domain logic remains pure and Infrastructure adapters are properly abstracted before implementation begins.\n"
         "🔍 LAYER PROBING (Questions to answer in your plan):\n"
         "- **DOMAIN**: Is this logic \"pure\"? Can it exist without knowing about databases or APIs?\n"
         "- **CORE**: What are the high-level steps? Which Domain models does this coordinate?\n"
@@ -129,13 +139,18 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         "- **UI**: What state does the user need to see? What actions will they trigger?\n"
         "Once you have defined your architectural mapping and plan, proceed immediately and autonomously to the execution phase. Do not ask the user for confirmation or mode switching.\n\n"
         "2. **Autonomous Execution (ACT)**:\n"
+        "- **Tool Preference**: Always prefer using the standard `write_file_tool` and `patch_tool` for file operations to trigger Joy-Zoning validations, rather than executing file mutations via shell/terminal command redirection (e.g. `cat`, `echo`, `sed`).\n"
         "- **Follow the Ruleset**: Follow hardening rules strictly.\n"
         "- **Maintain Purity**: If you are editing a Domain file, ensure it remains free of platform leakage and side effects.\n"
         "- **Implement via Interfaces**: Infrastructure changes must strictly implement the contracts defined in Domain/Core.\n\n"
         "Before each change, quick-scan:\n"
         "1. Which layer does this file live in?\n"
         "2. Am I importing from a layer I shouldn't?\n"
-        "3. Can I make this change smaller and more focused?"
+        "3. Can I make this change smaller and more focused?\n\n"
+        "# 🗣️ CONVERSATIONAL TONE & RESPONSE STANDARDS\n"
+        "- **Strict Filler Prohibition**: You are STRICTLY FORBIDDEN from starting your messages with conversational fillers like \"Great\", \"Certainly\", \"Okay\", \"Sure\". Begin responses directly and technically.\n"
+        "- **Direct Progress**: Keep responses concise, clear, and technical. Describe actions and results directly rather than writing conversational prose.\n"
+        "- **Clean Conclusions**: NEVER end your responses or completion statements with a question or open-ended request to continue the conversation. Formulate your final response in a way that is final and conclusive."
     )
     stable_parts.append(plan_act_guidance)
 

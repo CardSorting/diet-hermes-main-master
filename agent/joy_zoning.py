@@ -114,6 +114,12 @@ def is_layer_tag_supported(file_path: str, content: Optional[str] = None) -> boo
     if not style:
         return False
         
+    # Exclude common documentation, license, and planning files
+    basename = os.path.basename(file_path).lower()
+    exclude_files = {"scratchpad.md", "implementation_plan.md", "task.md", "walkthrough.md", "readme.md", "claude.md", "contributing.md", "license", "changelog.md"}
+    if basename in exclude_files:
+        return False
+
     exclude_dirs = ["node_modules/", ".venv/", "venv/", "tests/", ".git/", ".github/", "dist/", "build/"]
     if any(d in normalized for d in exclude_dirs):
         return False
