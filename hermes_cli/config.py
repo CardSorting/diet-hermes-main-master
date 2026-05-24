@@ -1560,6 +1560,20 @@ DEFAULT_CONFIG = {
         # worker process (if still running host-locally) is terminated
         # before the reclaim.  0 disables stale detection entirely.
         "dispatch_stale_timeout_seconds": 14400,
+        # BroccoliQ / BroccoliDB hive sync for kanban orchestration.
+        # When broccolidb/ is present in the worker workspace, task rows
+        # mirror into hive_tasks and lifecycle events enqueue BroccoliQ signals.
+        "broccolidb": {
+            "enabled": True,
+            "auto_sync": True,
+            "async_sync": True,
+            "root": "",
+            "db_path": "",
+            "shard_id": "kanban",
+            "sync_debounce_seconds": 2,
+            "max_sync_workers": 4,
+            "signal_events": ["create", "complete", "block", "start"],
+        },
     },
 
     # execute_code settings — controls the tool used for programmatic tool calls.

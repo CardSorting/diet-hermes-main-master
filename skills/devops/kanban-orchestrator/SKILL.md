@@ -56,6 +56,14 @@ Your job description says "route, don't execute." The rules that enforce that:
 
 ## Decomposition playbook
 
+### Step 0b — BroccoliQ board intelligence (diet-hermes / broccolidb workspaces)
+
+When `broccolidb/` is present in the repo, call `kanban_broccolidb_board_intel()` **before** fan-out. It returns a combined snapshot of kanban task counts by status plus BroccoliQ queue/shard health — use it to decide whether the hive layer is keeping up with dispatch pressure.
+
+Run `kanban_broccolidb_drift()` periodically (or read the `drift` block inside `board_intel`) to catch kanban vs `hive_tasks` mismatches before they compound.
+
+After creating child tasks, the `kanban_broccolidb` plugin auto-syncs rows into `hive_tasks` (config: `kanban.broccolidb.auto_sync`). Workers should call `kanban_broccolidb_context()` after `kanban_show()` and `kanban_broccolidb_record(summary=...)` before `kanban_complete()` so downstream specialists retrieve durable decisions from the knowledge graph.
+
 ### Step 1 — Understand the goal
 
 Ask clarifying questions if the goal is ambiguous. Cheap to ask; expensive to spawn the wrong fleet.

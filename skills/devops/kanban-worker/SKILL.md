@@ -30,6 +30,18 @@ If `$HERMES_TENANT` is set, the task belongs to a tenant namespace. When reading
 - Good: `business-a: Acme is our biggest customer`
 - Bad (leaks): `Acme is our biggest customer`
 
+## BroccoliQ integration (diet-hermes / broccolidb workspaces)
+
+When `broccolidb/` is discoverable (repo root, `kanban.broccolidb.root`, or env vars injected by the dispatcher), follow this lifecycle **in addition to** the standard kanban steps:
+
+1. **`kanban_show()`** — orient as usual.
+2. **`kanban_broccolidb_context()`** — syncs your task into `hive_tasks` and loads BroccoliDB epistemic context (prior handoffs, knowledge graph).
+3. Do the work.
+4. **`kanban_broccolidb_record(summary=...)`** — persist durable decisions before completion so downstream workers can retrieve them.
+5. **`kanban_complete(...)`** — standard handoff.
+
+The `kanban_broccolidb` plugin auto-syncs on session start and lifecycle events (debounced heartbeats; config: `kanban.broccolidb.*`). Use `kanban_broccolidb_sync(event=...)` only when auto-sync is disabled.
+
 ## Good summary + metadata shapes
 
 The `kanban_complete(summary=..., metadata=...)` handoff is how downstream workers read what you did. Patterns that work:

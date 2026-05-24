@@ -162,9 +162,11 @@ This repository is **diet-hermes** — a specialized fork of [NousResearch/herme
 
 | Layer | Paths |
 |-------|--------|
-| TypeScript engine | `broccolidb/` |
+| TypeScript engine | `broccolidb/` (includes `broccolidb/infrastructure/` — vendored **BroccoliQ** sharded queue + hive layer) |
 | Python tools | `tools/broccolidb.py`, `tools/broccolidb_tools/` |
 | Governance plugin | `plugins/joyzoning_governance/` |
+| Kanban ↔ BroccoliQ plugin | `plugins/kanban_broccolidb/` |
+| Kanban orchestration tools | `tools/kanban_broccolidb_tools.py`, `tools/kanban_broccolidb_bridge.py` |
 | Tool exposure | `toolsets.py` (`_HERMES_CORE_TOOLS` + `"broccolidb"` toolset) |
 | CLI helper | `scripts/joy_check.py` |
 | DietCode UI | `web/src/pages/DietCodePage.tsx`, `/dietcode` route in `web/src/App.tsx` |
@@ -175,7 +177,7 @@ This repository is **diet-hermes** — a specialized fork of [NousResearch/herme
 git fetch upstream main
 git tag diet-integrations-$(date +%Y-%m-%d)   # backup before sync
 git checkout -B sync/upstream-main upstream/main
-git checkout diet-integrations-<date> -- broccolidb/ tools/broccolidb.py tools/broccolidb_tools/ plugins/joyzoning_governance/ scripts/joy_check.py
+git checkout diet-integrations-<date> -- broccolidb/ tools/broccolidb.py tools/broccolidb_tools/ plugins/joyzoning_governance/ plugins/kanban_broccolidb/ tools/kanban_broccolidb_tools.py tools/kanban_broccolidb_bridge.py scripts/joy_check.py
 # Re-merge broccolidb blocks into toolsets.py and DietCode routes in web/src/App.tsx (see tag)
 cd broccolidb && npm ci && cd ..
 python -c "from tools.registry import discover_builtin_tools, registry; discover_builtin_tools(); assert len(registry.get_tool_names_for_toolset('broccolidb')) >= 20"

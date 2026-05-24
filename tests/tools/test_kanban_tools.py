@@ -25,6 +25,7 @@ def test_kanban_tools_hidden_without_env_var(monkeypatch, tmp_path):
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.chdir(tmp_path)
 
     import tools.kanban_tools  # ensure registered
     from tools.registry import invalidate_check_fn_cache, registry
@@ -45,6 +46,7 @@ def test_kanban_tools_visible_with_env_var(monkeypatch, tmp_path):
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.chdir(tmp_path)
 
     import tools.kanban_tools  # ensure registered
     from tools.registry import invalidate_check_fn_cache, registry
@@ -124,6 +126,7 @@ def test_kanban_tools_visible_with_toolset_config(monkeypatch, tmp_path):
     home.mkdir()
     (home / "config.yaml").write_text("toolsets:\n  - kanban\n")
     monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.chdir(tmp_path)
 
     import tools.kanban_tools  # ensure registered
     from tools.registry import invalidate_check_fn_cache, registry

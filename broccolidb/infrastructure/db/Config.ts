@@ -1,317 +1,185 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import Database from 'better-sqlite3';
-import { CompiledQuery, Kysely, SqliteDialect } from 'kysely';
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { CompiledQuery, Kysely, SqliteDialect } from "kysely";
+import type { Schema } from "./DatabaseSchema.js";
+export type { Schema };
 
-export interface Schema {
-  users: {
-    id: string;
-    createdAt: number;
-  };
-  workspaces: {
-    id: string;
-    userId: string;
-    sharedMemoryLayer: string; // JSON array string
-    createdAt: number;
-  };
-  repositories: {
-    id: string;
-    workspaceId: string;
-    repoId: string;
-    repoPath: string;
-    forkedFrom?: string;
-    forkedFromRemote?: string;
-    defaultBranch: string;
-    createdAt: number;
-  };
-  branches: {
-    repoPath: string; // Composite key part: {repoPath}/{name}
-    name: string;
-    head: string;
-    isEphemeral: number; // boolean as 0/1
-    createdAt: number;
-    expiresAt: number | null;
-  };
-  tags: {
-    repoPath: string;
-    name: string;
-    head: string;
-    createdAt: number;
-  };
-  nodes: {
-    id: string;
-    repoPath: string;
-    parentId: string | null;
-    data: string; // JSON string
-    message: string;
-    timestamp: number;
-    author: string;
-    type: 'snapshot' | 'summary' | 'diff';
-    tree: string | null; // JSON string (legacy flat tree)
-    usage: string | null; // JSON string
-    metadata: string | null; // JSON string
-  };
-  trees: {
-    repoPath: string;
-    id: string; // Renamed from hash for consistency
-    entries: string; // JSON string of Record<string, TreeEntry>
-    createdAt: number;
-  };
-  files: {
-    id: string; // CAS hash
-    path: string;
-    content: string;
-    encoding: string;
-    size: number;
-    updatedAt: number;
-    author: string;
-  };
-  reflog: {
-    id: string;
-    repoPath: string;
-    ref: string;
-    oldHead: string | null;
-    newHead: string;
-    author: string;
-    message: string;
-    timestamp: number;
-    operation: string;
-  };
-  stashes: {
-    id: string;
-    repoPath: string;
-    branch: string;
-    nodeId: string;
-    data: string; // JSON string
-    tree: string; // JSON string
-    label: string;
-    createdAt: number;
-  };
-  claims: {
-    repoPath: string;
-    branch: string;
-    path: string; // encoded path
-    author: string;
-    timestamp: number;
-    expiresAt: number;
-  };
-  telemetry: {
-    id: string;
-    repoPath: string;
-    agentId: string;
-    taskId: string | null;
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-    modelId: string;
-    cost: number;
-    timestamp: number;
-    environment: string; // JSON string
-  };
-  telemetry_aggregates: {
-    repoPath: string;
-    id: string; // 'global', 'agent_{id}', 'task_{id}'
-    totalCommits: number;
-    totalTokens: number;
-    totalCost: number;
-  };
-  agents: {
-    id: string; // agentId
-    userId: string;
-    name: string;
-    role: string;
-    permissions: string; // JSON string
-    memoryLayer: string; // JSON string
-    createdAt: number;
-    lastActive: number;
-  };
-  knowledge: {
-    id: string; // itemId
-    userId: string;
-    type: string;
-    content: string;
-    tags: string; // JSON string
-    edges: string; // JSON string
-    inboundEdges: string; // JSON string
-    embedding: string | null; // JSON string
-    confidence: number;
-    hubScore: number;
-    expiresAt: number | null;
-    metadata: string; // JSON string
-    createdAt: number;
-  };
-  tasks: {
-    id: string; // taskId
-    userId: string;
-    agentId: string;
-    status: string;
-    description: string;
-    complexity: number;
-    linkedKnowledgeIds: string; // JSON string
-    result: string | null; // JSON string
-    createdAt: number;
-    updatedAt: number;
-  };
-  audit_events: {
-    id: string;
-    userId: string;
-    agentId: string | null;
-    type: string;
-    data: string;
-    createdAt: number;
-  };
-  settings: {
-    key: string;
-    value: string;
-    updatedAt: number;
-  };
-  logical_constraints: {
-    id: string;
-    repoPath: string;
-    pathPattern: string; // glob pattern
-    knowledgeId: string;
-    severity: 'blocking' | 'warning';
-    createdAt: number;
-  };
-  knowledge_edges: {
-    sourceId: string;
-    targetId: string;
-    type: string;
-    weight: number;
-  };
-  decisions: {
-    id: string;
-    repoPath: string;
-    agentId: string;
-    taskId: string | null;
-    decision: string;
-    rationale: string;
-    knowledgeIds: string; // JSON array of contributing knowledge
-    timestamp: number;
-  };
-  agent_streams: {
-    id: string; 
-    externalId: string | null;
-    parentId: string | null; 
-    focus: string; 
-    status: 'active' | 'completed' | 'failed'; 
-    sharedMemoryLayer: string | null;
-    createdAt: number;
-  };
-  agent_tasks: {
-    id: string; 
-    streamId: string; 
-    description: string; 
-    status: 'pending' | 'running' | 'completed' | 'failed'; 
-    result: string | null;
-    complexity: number;
-    linkedKnowledgeIds: string | null;
-    metadata: string | null;
-    createdAt: number;
-  };
-  agent_memory: {
-    streamId: string;
-    key: string;
-    value: string;
-    updatedAt: number;
-  };
-  agent_cognitive_snapshots: {
-    id: string;
-    streamId: string;
-    content: string;
-    embedding: string;
-    metadata: string | null;
-    createdAt: number;
-  };
-  agent_knowledge: {
-    id: string;
-    userId: string;
-    streamId: string;
-    type: string;
-    content: string;
-    tags: string;
-    embedding: string | null;
-    confidence: number;
-    hubScore: number;
-    expiresAt: number | null;
-    metadata: string | null;
-    createdAt: number;
-  };
-  agent_knowledge_edges: {
-    sourceId: string;
-    targetId: string;
-    type: string;
-    weight: number;
-    createdAt: number;
-  };
-  swarm_locks: {
-    resource: string;
-    ownerId: string;
-    expiresAt: number;
-    createdAt: number;
-  };
-  queue_jobs: {
-    id: string;
-    payload: string;
-    status: 'pending' | 'processing' | 'done' | 'failed';
-    priority: number;
-    attempts: number;
-    maxAttempts: number;
-    runAt: number;
-    error: string | null;
-    createdAt: number;
-    updatedAt: number;
-  };
-  queue_settings: {
-    key: string;
-    value: string;
-    updatedAt: number;
-  };
-  system_metadata: {
-    key: string;
-    value: string;
-  };
-}
+const isBun = !!(globalThis as { Bun?: unknown }).Bun;
 
-let _db: Kysely<Schema> | null = null;
-let _rawDb: Database.Database | null = null;
+
+const _dbs = new Map<string, Kysely<Schema>>();
+const _rawDbs = new Map<string, unknown>();
+const _initPromises = new Map<string, Promise<Kysely<Schema>>>();
 let _dbPath: string | null = null;
+const _isInitialized = new Set<string>();
 
 export function setDbPath(dbPath: string) {
-  _dbPath = dbPath;
+	_dbPath = dbPath;
 }
 
-export async function getDb(): Promise<Kysely<Schema>> {
-  if (_db) return _db;
-  if (!_dbPath) {
-    // Default path if not set
-    _dbPath = path.resolve(process.cwd(), 'broccolidb.db');
-  }
+export async function getDb(shardId: string = "main"): Promise<Kysely<Schema>> {
+	const existing = _dbs.get(shardId);
+	if (existing) return existing;
 
-  const dbDir = path.dirname(_dbPath);
-  if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+	// Level 10: Atomic Initialization Lock (Prevents Schema Race Conditions)
+	let initPromise = _initPromises.get(shardId);
+	if (!initPromise) {
+		initPromise = (async () => {
+			if (!_dbPath) {
+				_dbPath = path.resolve(process.cwd(), "broccolidb.db");
+			}
 
-  _rawDb = new Database(_dbPath);
-  _db = new Kysely<Schema>({
-    dialect: new SqliteDialect({
-      database: _rawDb,
-    }),
-  });
+			const dbDir = path.dirname(_dbPath);
+			if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
 
-  const execute = (q: string) => _db?.executeQuery(CompiledQuery.raw(q));
+			const shardPath =
+				shardId === "main"
+					? _dbPath
+					: path.join(dbDir, `${path.basename(_dbPath, ".db")}_${shardId}.db`);
 
-  // Performance Tweaks (WAL Mode)
-  await execute('PRAGMA journal_mode = WAL;');
-  await execute('PRAGMA synchronous = NORMAL;');
-  await execute('PRAGMA foreign_keys = ON;');
+			let dialect: import("kysely").Dialect;
+			let rawDb: unknown;
 
-  // Schema Initialization
-  await execute(`CREATE TABLE IF NOT EXISTS users (
+			if (isBun) {
+				// Native Bun Support: O(1) N-API Overhead reduction
+				// @ts-ignore
+				const { Database } = await import("bun:sqlite");
+				// @ts-ignore
+				const { BunSqliteDialect } = await import("kysely-bun-sqlite");
+				rawDb = new Database(shardPath);
+				dialect = new BunSqliteDialect({
+					database: rawDb,
+				});
+			} else {
+				// Production-grade Node Support
+				// biome-ignore lint/suspicious/noExplicitAny: Dynamic import requires any
+				const Database = (await import("better-sqlite3") as any).default;
+				rawDb = new Database(shardPath);
+				dialect = new SqliteDialect({
+					// biome-ignore lint/suspicious/noExplicitAny: Kysely database type mismatch
+					database: rawDb as any,
+				});
+			}
+
+			const db = new Kysely<Schema>({
+				dialect,
+			});
+
+			_rawDbs.set(shardId, rawDb);
+			_dbs.set(shardId, db);
+
+			if (!_isInitialized.has(shardId)) {
+				await initializeSchema(db);
+				_isInitialized.add(shardId);
+			}
+
+			return db;
+		})();
+		_initPromises.set(shardId, initPromise);
+	}
+
+	return initPromise;
+}
+
+export async function getRawDb(
+	shardId: string = "main",
+): Promise<unknown> {
+	const existing = _rawDbs.get(shardId);
+	if (existing) return existing;
+
+	// Initialize if missing
+	await getDb(shardId);
+	const initialized = _rawDbs.get(shardId);
+	if (!initialized)
+		throw new Error(`Failed to initialize raw DB for shard: ${shardId}`);
+	return initialized;
+}
+
+export function getActiveShards(): string[] {
+	return Array.from(_dbs.keys());
+}
+
+/**
+ * Level 11: Atomic Termination Engine.
+ * Physically closes all SQLite connection handles to ensure zero resource leakage.
+ */
+export async function closeAllShards() {
+	for (const [shardId, db] of _dbs.entries()) {
+		try {
+			// Ensure WAL checkpointing before hard closure if possible
+			// (Though BufferedDbPool should have done it already)
+			await db.destroy();
+			_dbs.delete(shardId);
+			_rawDbs.delete(shardId);
+			_initPromises.delete(shardId);
+			_isInitialized.delete(shardId);
+		} catch (e) {
+			console.error(`[Config] Failed to close shard ${shardId}:`, e);
+		}
+	}
+}
+
+async function applyPragmas(db: Kysely<Schema>) {
+	const execute = (q: string) => db.executeQuery(CompiledQuery.raw(q));
+	await execute("PRAGMA journal_mode = WAL;");
+	await execute("PRAGMA synchronous = NORMAL;");
+	await execute("PRAGMA foreign_keys = ON;");
+	await execute("PRAGMA cache_size = -128000;");
+	await execute("PRAGMA temp_store = MEMORY;");
+	await execute("PRAGMA mmap_size = 2147483648;");
+	await execute("PRAGMA threads = 4;");
+}
+
+async function ensureColumn(db: Kysely<Schema>, table: string, column: string, definition: string) {
+	try {
+		const info = await db.executeQuery(CompiledQuery.raw(`PRAGMA table_info(${table})`));
+		const exists = info.rows.some((row) => (row as { name: string }).name === column);
+		if (!exists) {
+			console.warn(`[DbPool] 🛡️ Self-Healing: Missing column detected. Adding '${column}' to '${table}'...`);
+			await db.executeQuery(CompiledQuery.raw(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`));
+			
+			// Verify again for peace of mind
+			const verify = await db.executeQuery(CompiledQuery.raw(`PRAGMA table_info(${table})`));
+			const nowExists = verify.rows.some((row: any) => row.name === column);
+			if (nowExists) {
+				console.log(`[DbPool] ✅ Column '${column}' successfully injected into '${table}'.`);
+			} else {
+				throw new Error(`Column injection verification failed for ${table}.${column}`);
+			}
+		}
+	} catch (e) {
+		console.error(`[DbPool] ❌ Critical Self-Healing failure for ${table}.${column}:`, e);
+	}
+}
+
+async function initializeSchema(db: Kysely<Schema>) {
+	await applyPragmas(db);
+	const execute = (q: string) => db.executeQuery(CompiledQuery.raw(q));
+
+	// Level 2: Self-Healing Column Migration (Legacy Support)
+	try {
+		for (const table of ["settings", "queue_settings"]) {
+			const info = await db.executeQuery(CompiledQuery.raw(`PRAGMA table_info(${table})`));
+			const hasName = info.rows.some((row) => (row as { name: string }).name === "name");
+			const hasKey = info.rows.some((row) => (row as { name: string }).name === "key");
+			if (hasName && !hasKey) {
+				console.warn(`[DbPool] 🛡️ Self-Healing: Migrating column 'name' to 'key' in '${table}'...`);
+				await db.executeQuery(CompiledQuery.raw(`ALTER TABLE ${table} RENAME COLUMN name TO key`));
+				console.log(`[DbPool] ✅ Column 'name' successfully renamed to 'key' in '${table}'.`);
+			}
+		}
+	} catch (e) {
+		console.warn("[DbPool] Self-healing migration skipped or failed:", e);
+	}
+
+	// Schema Initialization
+
+	await execute(`CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     createdAt BIGINT
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS workspaces (
+	await execute(`CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     userId TEXT NOT NULL,
     sharedMemoryLayer TEXT,
@@ -319,7 +187,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     FOREIGN KEY(userId) REFERENCES users(id)
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS repositories (
+	await execute(`CREATE TABLE IF NOT EXISTS repositories (
     id TEXT PRIMARY KEY,
     workspaceId TEXT NOT NULL,
     repoId TEXT NOT NULL,
@@ -331,7 +199,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     FOREIGN KEY(workspaceId) REFERENCES workspaces(id)
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS branches (
+	await execute(`CREATE TABLE IF NOT EXISTS branches (
     repoPath TEXT NOT NULL,
     name TEXT NOT NULL,
     head TEXT NOT NULL,
@@ -341,7 +209,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     PRIMARY KEY(repoPath, name)
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS tags (
+	await execute(`CREATE TABLE IF NOT EXISTS tags (
     repoPath TEXT NOT NULL,
     name TEXT NOT NULL,
     head TEXT NOT NULL,
@@ -349,7 +217,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     PRIMARY KEY(repoPath, name)
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS nodes (
+	await execute(`CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY,
     repoPath TEXT NOT NULL,
     parentId TEXT,
@@ -363,7 +231,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     metadata TEXT
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS trees (
+	await execute(`CREATE TABLE IF NOT EXISTS trees (
     repoPath TEXT NOT NULL,
     id TEXT NOT NULL,
     entries TEXT NOT NULL,
@@ -371,7 +239,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     PRIMARY KEY(repoPath, id)
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS files (
+	await execute(`CREATE TABLE IF NOT EXISTS files (
     id TEXT PRIMARY KEY,
     path TEXT NOT NULL,
     content TEXT NOT NULL,
@@ -381,7 +249,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     author TEXT NOT NULL
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS reflog (
+	await execute(`CREATE TABLE IF NOT EXISTS reflog (
     id TEXT PRIMARY KEY,
     repoPath TEXT NOT NULL,
     ref TEXT NOT NULL,
@@ -393,7 +261,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     operation TEXT NOT NULL
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS stashes (
+	await execute(`CREATE TABLE IF NOT EXISTS stashes (
     id TEXT PRIMARY KEY,
     repoPath TEXT NOT NULL,
     branch TEXT NOT NULL,
@@ -404,17 +272,16 @@ export async function getDb(): Promise<Kysely<Schema>> {
     createdAt BIGINT NOT NULL
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS claims (
+	await execute(`CREATE TABLE IF NOT EXISTS claims (
+    path TEXT PRIMARY KEY,
     repoPath TEXT NOT NULL,
     branch TEXT NOT NULL,
-    path TEXT NOT NULL,
     author TEXT NOT NULL,
     timestamp BIGINT NOT NULL,
-    expiresAt BIGINT NOT NULL,
-    PRIMARY KEY(repoPath, branch, path)
+    expiresAt BIGINT NOT NULL
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS telemetry (
+	await execute(`CREATE TABLE IF NOT EXISTS telemetry (
     id TEXT PRIMARY KEY,
     repoPath TEXT NOT NULL,
     agentId TEXT NOT NULL,
@@ -428,22 +295,29 @@ export async function getDb(): Promise<Kysely<Schema>> {
     environment TEXT NOT NULL
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS telemetry_aggregates (
+	await execute(`CREATE TABLE IF NOT EXISTS telemetry_aggregates (
+    id TEXT PRIMARY KEY,
     repoPath TEXT NOT NULL,
-    id TEXT NOT NULL,
     totalCommits INTEGER DEFAULT 0,
     totalTokens INTEGER DEFAULT 0,
-    totalCost REAL DEFAULT 0,
-    PRIMARY KEY(repoPath, id)
+    totalCost REAL DEFAULT 0
   )`);
 
-  // Indices
-  await execute(`CREATE INDEX IF NOT EXISTS idx_nodes_repo ON nodes(repoPath)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_branches_repo ON branches(repoPath)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_telemetry_repo ON telemetry(repoPath)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_telemetry_task ON telemetry(taskId)`);
+	// Indices
+	await execute(`CREATE INDEX IF NOT EXISTS idx_nodes_repo ON nodes(repoPath)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parentId)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_nodes_repo_parent ON nodes(repoPath, parentId)`);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_branches_repo ON branches(repoPath)`,
+	);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_telemetry_repo ON telemetry(repoPath)`,
+	);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_telemetry_task ON telemetry(taskId)`,
+	);
 
-  await execute(`CREATE TABLE IF NOT EXISTS agents (
+	await execute(`CREATE TABLE IF NOT EXISTS agents (
     id TEXT PRIMARY KEY,
     userId TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -455,7 +329,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     FOREIGN KEY(userId) REFERENCES users(id)
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS knowledge (
+	await execute(`CREATE TABLE IF NOT EXISTS knowledge (
     id TEXT PRIMARY KEY,
     userId TEXT NOT NULL,
     type TEXT NOT NULL,
@@ -472,7 +346,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     FOREIGN KEY(userId) REFERENCES users(id)
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS tasks (
+	await execute(`CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     userId TEXT NOT NULL,
     agentId TEXT NOT NULL,
@@ -487,7 +361,7 @@ export async function getDb(): Promise<Kysely<Schema>> {
     FOREIGN KEY(agentId) REFERENCES agents(id)
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS audit_events (
+	await execute(`CREATE TABLE IF NOT EXISTS audit_events (
     id TEXT PRIMARY KEY,
     userId TEXT NOT NULL,
     agentId TEXT,
@@ -497,13 +371,14 @@ export async function getDb(): Promise<Kysely<Schema>> {
     FOREIGN KEY(userId) REFERENCES users(id)
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
+	await execute(`CREATE TABLE IF NOT EXISTS settings (
+    id TEXT PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
     value TEXT NOT NULL,
     updatedAt BIGINT NOT NULL
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS logical_constraints (
+	await execute(`CREATE TABLE IF NOT EXISTS logical_constraints (
     id TEXT PRIMARY KEY,
     repoPath TEXT NOT NULL,
     pathPattern TEXT NOT NULL,
@@ -513,22 +388,24 @@ export async function getDb(): Promise<Kysely<Schema>> {
     FOREIGN KEY(knowledgeId) REFERENCES knowledge(id)
   )`);
 
-  await execute(`CREATE INDEX IF NOT EXISTS idx_logical_repo ON logical_constraints(repoPath)`);
-  await execute(
-    `CREATE INDEX IF NOT EXISTS idx_logical_pattern ON logical_constraints(pathPattern)`
-  );
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_logical_repo ON logical_constraints(repoPath)`,
+	);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_logical_pattern ON logical_constraints(pathPattern)`,
+	);
 
-  await execute(`CREATE TABLE IF NOT EXISTS knowledge_edges (
+	await execute(`CREATE TABLE IF NOT EXISTS knowledge_edges (
+    id TEXT PRIMARY KEY,
     sourceId TEXT NOT NULL,
     targetId TEXT NOT NULL,
     type TEXT NOT NULL,
     weight REAL DEFAULT 1.0,
-    PRIMARY KEY(sourceId, targetId, type),
     FOREIGN KEY(sourceId) REFERENCES knowledge(id),
     FOREIGN KEY(targetId) REFERENCES knowledge(id)
   )`);
 
-  await execute(`CREATE TABLE IF NOT EXISTS decisions (
+	await execute(`CREATE TABLE IF NOT EXISTS decisions (
     id TEXT PRIMARY KEY,
     repoPath TEXT NOT NULL,
     agentId TEXT NOT NULL,
@@ -540,13 +417,21 @@ export async function getDb(): Promise<Kysely<Schema>> {
     FOREIGN KEY(agentId) REFERENCES agents(id)
   )`);
 
-  await execute(`CREATE INDEX IF NOT EXISTS idx_edges_source ON knowledge_edges(sourceId)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_edges_target ON knowledge_edges(targetId)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_decisions_repo ON decisions(repoPath)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_decisions_task ON decisions(taskId)`);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_edges_source ON knowledge_edges(sourceId)`,
+	);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_edges_target ON knowledge_edges(targetId)`,
+	);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_decisions_repo ON decisions(repoPath)`,
+	);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_decisions_task ON decisions(taskId)`,
+	);
 
-  // Queue Tables
-  await execute(`CREATE TABLE IF NOT EXISTS queue_jobs (
+	// Queue Tables
+	await execute(`CREATE TABLE IF NOT EXISTS queue_jobs (
     id TEXT PRIMARY KEY,
     payload TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -559,125 +444,341 @@ export async function getDb(): Promise<Kysely<Schema>> {
     updatedAt BIGINT
   )`);
 
-  await execute(
-    `CREATE INDEX IF NOT EXISTS idx_poll_order ON queue_jobs(status, runAt, priority DESC, createdAt ASC)`
-  );
-  await execute(`CREATE INDEX IF NOT EXISTS idx_cleanup ON queue_jobs(status, updatedAt)`);
-
-  await execute(`CREATE TABLE IF NOT EXISTS queue_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT,
-    updatedAt BIGINT
+	await execute(`CREATE TABLE IF NOT EXISTS queue_settings (
+    id TEXT PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    value TEXT NOT NULL,
+    updatedAt BIGINT NOT NULL
   )`);
 
-  await execute(`CREATE INDEX IF NOT EXISTS idx_audit_agent ON audit_events(agentId)`);
+	// Level 2: Sovereing Hive Tables (DietCode integration)
+	await execute(`CREATE TABLE IF NOT EXISTS hive_kb (
+    id TEXT PRIMARY KEY,
+    knowledge_key TEXT NOT NULL,
+    knowledge_value TEXT NOT NULL,
+    type TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    tags TEXT NOT NULL,
+    metadata TEXT,
+    created_at TEXT NOT NULL
+  )`);
 
-  // Agent Stream and Swarm Initialization
-  await execute(
-    `CREATE TABLE IF NOT EXISTS agent_streams (
-      id TEXT PRIMARY KEY, 
-      externalId TEXT,
-      parentId TEXT, 
-      focus TEXT, 
-      status TEXT, 
-      sharedMemoryLayer TEXT,
-      createdAt BIGINT,
-      FOREIGN KEY(parentId) REFERENCES agent_streams(id)
-    )`
-  );
-  await execute(
-    `CREATE TABLE IF NOT EXISTS agent_tasks (
-      id TEXT PRIMARY KEY, 
-      streamId TEXT NOT NULL, 
-      description TEXT NOT NULL, 
-      status TEXT NOT NULL DEFAULT 'pending', 
-      result TEXT,
-      complexity REAL DEFAULT 1.0,
-      linkedKnowledgeIds TEXT,
-      metadata TEXT,
-      createdAt BIGINT NOT NULL,
-      FOREIGN KEY(streamId) REFERENCES agent_streams(id)
-    )`
-  );
-  await execute(
-    `CREATE TABLE IF NOT EXISTS agent_memory (
-      streamId TEXT,
-      key TEXT,
-      value TEXT,
-      updatedAt BIGINT,
-      PRIMARY KEY(streamId, key),
-      FOREIGN KEY(streamId) REFERENCES agent_streams(id)
-    )`
-  );
-  await execute(
-    `CREATE TABLE IF NOT EXISTS agent_cognitive_snapshots (
-      id TEXT PRIMARY KEY,
-      streamId TEXT NOT NULL,
-      content TEXT NOT NULL,
-      embedding TEXT NOT NULL,
-      metadata TEXT,
-      createdAt BIGINT NOT NULL,
-      FOREIGN KEY(streamId) REFERENCES agent_streams(id)
-    )`
-  );
-  await execute(
-    `CREATE TABLE IF NOT EXISTS agent_knowledge (
-      id TEXT PRIMARY KEY,
-      userId TEXT NOT NULL,
-      streamId TEXT NOT NULL,
-      type TEXT NOT NULL,
-      content TEXT NOT NULL,
-      tags TEXT,
-      embedding TEXT,
-      confidence REAL DEFAULT 1.0,
-      hubScore INTEGER DEFAULT 0,
-      expiresAt BIGINT,
-      metadata TEXT,
-      createdAt BIGINT NOT NULL,
-      FOREIGN KEY(streamId) REFERENCES agent_streams(id)
-    )`
-  );
-  await execute(
-    `CREATE TABLE IF NOT EXISTS agent_knowledge_edges (
-      sourceId TEXT NOT NULL,
-      targetId TEXT NOT NULL,
-      type TEXT NOT NULL,
-      weight REAL DEFAULT 1.0,
-      createdAt BIGINT NOT NULL,
-      PRIMARY KEY(sourceId, targetId, type),
-      FOREIGN KEY(sourceId) REFERENCES agent_knowledge(id),
-      FOREIGN KEY(targetId) REFERENCES agent_knowledge(id)
-    )`
-  );
-  await execute(
-    `CREATE TABLE IF NOT EXISTS swarm_locks (
-      resource TEXT PRIMARY KEY,
-      ownerId TEXT NOT NULL,
-      expiresAt BIGINT NOT NULL,
-      createdAt BIGINT NOT NULL
-    )`
-  );
+	await execute(`CREATE TABLE IF NOT EXISTS hive_healing_proposals (
+    id TEXT PRIMARY KEY,
+    violation_id TEXT NOT NULL,
+    violation TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    proposed_code TEXT NOT NULL,
+    status TEXT NOT NULL,
+    confidence REAL DEFAULT 1.0,
+    created_at TEXT NOT NULL,
+    applied_at TEXT
+  )`);
 
-  // Additional Indices
-  await execute(`CREATE INDEX IF NOT EXISTS idx_swarm_locks_owner ON swarm_locks(ownerId)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_swarm_locks_expires ON swarm_locks(expiresAt)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_agent_tasks_stream ON agent_tasks(streamId)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_agent_streams_status ON agent_streams(status)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_agent_memory_stream ON agent_memory(streamId)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_streams_external ON agent_streams(externalId)`);
-  await execute(
-    `CREATE INDEX IF NOT EXISTS idx_cognitive_snapshots_stream ON agent_cognitive_snapshots(streamId)`
-  );
-  await execute(`CREATE INDEX IF NOT EXISTS idx_agent_knowledge_stream ON agent_knowledge(streamId)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_agent_knowledge_type ON agent_knowledge(type)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_agent_edges_source ON agent_knowledge_edges(sourceId)`);
-  await execute(`CREATE INDEX IF NOT EXISTS idx_agent_edges_target ON agent_knowledge_edges(targetId)`);
+	await execute(`CREATE TABLE IF NOT EXISTS hive_snapshots (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    hash TEXT NOT NULL,
+    mtime INTEGER
+  )`);
 
-  return _db;
-}
+	await execute(`CREATE TABLE IF NOT EXISTS hive_file_context (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL,
+    source TEXT NOT NULL,
+    last_read_date INTEGER,
+    last_edit_date INTEGER,
+    signature TEXT,
+    external_edit_detected INTEGER DEFAULT 0
+  )`);
 
-export async function getRawDb(): Promise<Database.Database> {
-  if (!_rawDb) await getDb();
-  return _rawDb!;
+	await execute(`CREATE TABLE IF NOT EXISTS hive_audit (
+    id TEXT PRIMARY KEY,
+    session_id TEXT,
+    user_id TEXT,
+    agent_id TEXT,
+    type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    data TEXT,
+    timestamp INTEGER NOT NULL
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_agent_sessions (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    start_time INTEGER NOT NULL,
+    end_time INTEGER
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_joy_imports (
+    id TEXT PRIMARY KEY,
+    source_path TEXT NOT NULL,
+    imported_path TEXT NOT NULL
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_joy_history (
+    id TEXT PRIMARY KEY,
+    violation_count INTEGER NOT NULL,
+    file_count INTEGER NOT NULL,
+    timestamp INTEGER NOT NULL
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_metabolic_telemetry (
+    id TEXT PRIMARY KEY,
+    task_id TEXT,
+    reads INTEGER NOT NULL,
+    writes INTEGER NOT NULL,
+    lines_added INTEGER NOT NULL,
+    lines_deleted INTEGER NOT NULL,
+    tokens_processed INTEGER NOT NULL,
+    verifications_success INTEGER NOT NULL,
+    timestamp INTEGER NOT NULL
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_tasks (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL UNIQUE,
+    user_id TEXT,
+    agent_id TEXT,
+    title TEXT NOT NULL,
+    objective TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL,
+    priority INTEGER NOT NULL,
+    vitals_heartbeat TEXT,
+    v_token TEXT,
+    initial_context TEXT,
+    result TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    started_at INTEGER,
+    completed_at INTEGER,
+    user_agent TEXT NOT NULL
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_llm_telemetry (
+    id TEXT PRIMARY KEY,
+    repo_path TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    task_id TEXT,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    total_tokens INTEGER,
+    model_id TEXT,
+    cost REAL,
+    timestamp INTEGER NOT NULL,
+    environment TEXT
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_joy_metrics (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    violation_count INTEGER NOT NULL,
+    hash TEXT NOT NULL,
+    last_scanned INTEGER NOT NULL
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_joy_bypasses (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    violation_type TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_locks (
+    id TEXT PRIMARY KEY,
+    resource TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    lock_code TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    acquired_at INTEGER NOT NULL
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_queue (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    total_shards INTEGER NOT NULL,
+    completed_shards INTEGER DEFAULT 0,
+    metadata TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_job_results (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    shard_id INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    payload TEXT,
+    error TEXT,
+    priority INTEGER DEFAULT 0,
+    timestamp INTEGER NOT NULL
+  )`);
+
+	await execute(`CREATE TABLE IF NOT EXISTS hive_scoring_cache (
+    id TEXT PRIMARY KEY,
+    hash TEXT NOT NULL UNIQUE,
+    result TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+  )`);
+
+	// BroccoliDB agent swarm tables (preserved from broccolidb core)
+	await execute(`CREATE TABLE IF NOT EXISTS agent_streams (
+    id TEXT PRIMARY KEY,
+    externalId TEXT,
+    parentId TEXT,
+    focus TEXT,
+    status TEXT,
+    sharedMemoryLayer TEXT,
+    createdAt BIGINT,
+    FOREIGN KEY(parentId) REFERENCES agent_streams(id)
+  )`);
+	await execute(`CREATE TABLE IF NOT EXISTS agent_tasks (
+    id TEXT PRIMARY KEY,
+    streamId TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    result TEXT,
+    complexity REAL DEFAULT 1.0,
+    linkedKnowledgeIds TEXT,
+    metadata TEXT,
+    createdAt BIGINT NOT NULL,
+    FOREIGN KEY(streamId) REFERENCES agent_streams(id)
+  )`);
+	await execute(`CREATE TABLE IF NOT EXISTS agent_memory (
+    streamId TEXT,
+    key TEXT,
+    value TEXT,
+    updatedAt BIGINT,
+    PRIMARY KEY(streamId, key),
+    FOREIGN KEY(streamId) REFERENCES agent_streams(id)
+  )`);
+	await execute(`CREATE TABLE IF NOT EXISTS agent_cognitive_snapshots (
+    id TEXT PRIMARY KEY,
+    streamId TEXT NOT NULL,
+    content TEXT NOT NULL,
+    embedding TEXT NOT NULL,
+    metadata TEXT,
+    createdAt BIGINT NOT NULL,
+    FOREIGN KEY(streamId) REFERENCES agent_streams(id)
+  )`);
+	await execute(`CREATE TABLE IF NOT EXISTS agent_knowledge (
+    id TEXT PRIMARY KEY,
+    userId TEXT NOT NULL,
+    streamId TEXT NOT NULL,
+    type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tags TEXT,
+    embedding TEXT,
+    confidence REAL DEFAULT 1.0,
+    hubScore INTEGER DEFAULT 0,
+    expiresAt BIGINT,
+    metadata TEXT,
+    createdAt BIGINT NOT NULL,
+    FOREIGN KEY(streamId) REFERENCES agent_streams(id)
+  )`);
+	await execute(`CREATE TABLE IF NOT EXISTS agent_knowledge_edges (
+    sourceId TEXT NOT NULL,
+    targetId TEXT NOT NULL,
+    type TEXT NOT NULL,
+    weight REAL DEFAULT 1.0,
+    createdAt BIGINT NOT NULL,
+    PRIMARY KEY(sourceId, targetId, type),
+    FOREIGN KEY(sourceId) REFERENCES agent_knowledge(id),
+    FOREIGN KEY(targetId) REFERENCES agent_knowledge(id)
+  )`);
+	await execute(`CREATE TABLE IF NOT EXISTS swarm_locks (
+    resource TEXT PRIMARY KEY,
+    ownerId TEXT NOT NULL,
+    expiresAt BIGINT NOT NULL,
+    createdAt BIGINT NOT NULL
+  )`);
+	await execute(`CREATE TABLE IF NOT EXISTS system_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`);
+
+	await execute(`CREATE INDEX IF NOT EXISTS idx_swarm_locks_owner ON swarm_locks(ownerId)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_swarm_locks_expires ON swarm_locks(expiresAt)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_agent_tasks_stream ON agent_tasks(streamId)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_agent_streams_status ON agent_streams(status)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_agent_memory_stream ON agent_memory(streamId)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_streams_external ON agent_streams(externalId)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_cognitive_snapshots_stream ON agent_cognitive_snapshots(streamId)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_agent_knowledge_stream ON agent_knowledge(streamId)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_agent_knowledge_type ON agent_knowledge(type)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_agent_edges_source ON agent_knowledge_edges(sourceId)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_agent_edges_target ON agent_knowledge_edges(targetId)`);
+
+	// Level 2: Self-Healing Column Injection (Legacy Support)
+	// Note: We use TEXT instead of TEXT PRIMARY KEY here because SQLite 
+	// does not support adding PRIMARY KEY columns via ALTER TABLE.
+	await ensureColumn(db, "users", "id", "TEXT");
+	await ensureColumn(db, "workspaces", "id", "TEXT");
+	await ensureColumn(db, "repositories", "id", "TEXT");
+	await ensureColumn(db, "branches", "id", "TEXT");
+	await ensureColumn(db, "tags", "id", "TEXT");
+	await ensureColumn(db, "nodes", "id", "TEXT");
+	await ensureColumn(db, "trees", "id", "TEXT");
+	await ensureColumn(db, "files", "id", "TEXT");
+	await ensureColumn(db, "reflog", "id", "TEXT");
+	await ensureColumn(db, "stashes", "id", "TEXT");
+	await ensureColumn(db, "claims", "id", "TEXT");
+	await ensureColumn(db, "telemetry", "id", "TEXT");
+	await ensureColumn(db, "telemetry_aggregates", "id", "TEXT");
+	await ensureColumn(db, "agents", "id", "TEXT");
+	await ensureColumn(db, "knowledge", "id", "TEXT");
+	await ensureColumn(db, "tasks", "id", "TEXT");
+	await ensureColumn(db, "audit_events", "id", "TEXT");
+	await ensureColumn(db, "settings", "id", "TEXT");
+	await ensureColumn(db, "logical_constraints", "id", "TEXT");
+	await ensureColumn(db, "knowledge_edges", "id", "TEXT");
+	await ensureColumn(db, "decisions", "id", "TEXT");
+	await ensureColumn(db, "queue_jobs", "id", "TEXT");
+	await ensureColumn(db, "queue_settings", "id", "TEXT");
+
+	// Self-Healing for Hive Tables
+	await ensureColumn(db, "hive_kb", "id", "TEXT");
+	await ensureColumn(db, "hive_healing_proposals", "id", "TEXT");
+	await ensureColumn(db, "hive_snapshots", "id", "TEXT");
+	await ensureColumn(db, "hive_file_context", "id", "TEXT");
+	await ensureColumn(db, "hive_audit", "id", "TEXT");
+	await ensureColumn(db, "hive_agent_sessions", "id", "TEXT");
+	await ensureColumn(db, "hive_joy_imports", "id", "TEXT");
+	await ensureColumn(db, "hive_joy_history", "id", "TEXT");
+	await ensureColumn(db, "hive_metabolic_telemetry", "id", "TEXT");
+	await ensureColumn(db, "hive_tasks", "id", "TEXT");
+	await ensureColumn(db, "hive_llm_telemetry", "id", "TEXT");
+	await ensureColumn(db, "hive_joy_metrics", "id", "TEXT");
+	await ensureColumn(db, "hive_joy_bypasses", "id", "TEXT");
+	await ensureColumn(db, "hive_locks", "id", "TEXT");
+	await ensureColumn(db, "hive_queue", "id", "TEXT");
+	await ensureColumn(db, "hive_job_results", "id", "TEXT");
+
+	// Hive Indices
+	await execute(`CREATE INDEX IF NOT EXISTS idx_hive_telemetry_task ON hive_llm_telemetry (task_id)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_hive_metabolic_task ON hive_metabolic_telemetry (task_id)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_hive_kb_key ON hive_kb (knowledge_key)`);
+
+	await execute(`CREATE INDEX IF NOT EXISTS idx_agents_user ON agents(userId)`);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_knowledge_user ON knowledge(userId)`,
+	);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(userId)`);
+	await execute(`CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agentId)`);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_events(type)`,
+	);
+	await execute(
+		`CREATE INDEX IF NOT EXISTS idx_audit_agent ON audit_events(agentId)`,
+	);
+
+	console.log("[DbPool] 🏛️ Sovereign Hive Schema baseline established and hardened.");
+	return db;
 }

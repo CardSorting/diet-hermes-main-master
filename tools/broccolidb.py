@@ -19,6 +19,7 @@ import tools.broccolidb_tools.core_tools        # noqa: F401
 import tools.broccolidb_tools.joyzoning_tools    # noqa: F401
 import tools.broccolidb_tools.graph_tools        # noqa: F401
 import tools.broccolidb_tools.structural_tools   # noqa: F401
+import tools.broccolidb_tools.queue_tools        # noqa: F401
 
 # Re-export check_requirements for toolset-level availability checking
 from tools.broccolidb_tools.runner import check_requirements  # noqa: F401

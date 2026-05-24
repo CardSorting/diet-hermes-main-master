@@ -16,7 +16,8 @@ import re
 import subprocess
 import tempfile
 import time
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +27,106 @@ _DEFAULT_TIMEOUT = 60       # 60s for targeted operations
 _AUDIT_TIMEOUT = 300        # 5 min for full-repo scans
 _BOOTSTRAP_TIMEOUT = 120    # 2 min for bootstrap/warmup operations
 _BROCCOLIDB_ROOT = "broccolidb"
+_HIVE_SYNC_SCRIPT = "infrastructure/kanban/hive_sync.ts"
+_HIVE_DRIFT_SCRIPT = "infrastructure/kanban/hive_drift.ts"
+_HIVE_BOARD_INTEL_SCRIPT = "infrastructure/kanban/hive_board_intel.ts"
 
 # Maximum output size to prevent memory exhaustion from runaway processes
 _MAX_OUTPUT_BYTES = 512 * 1024  # 512KB
+
+
+def resolve_broccolidb_root() -> Optional[str]:
+    """Locate broccolidb/ for the active process (workspace-aware).
+
+    Resolution order:
+      1. ``HERMES_BROCCOLIDB_ROOT`` env (set by kanban dispatcher)
+      2. ``kanban.broccolidb.root`` in config.yaml
+      3. Walk parents from ``HERMES_KANBAN_WORKSPACE`` then ``cwd``
+      4. Relative ``broccolidb/`` when cwd already contains it
+    """
+    env_root = os.environ.get("HERMES_BROCCOLIDB_ROOT", "").strip()
+    if env_root:
+        candidate = Path(env_root).expanduser()
+        if (candidate / "package.json").is_file() and (candidate / "core").is_dir():
+            return str(candidate.resolve())
+
+    try:
+        from hermes_cli.config import load_config
+        cfg = load_config()
+        kanban_cfg = cfg.get("kanban", {}) if isinstance(cfg, dict) else {}
+        bdb = kanban_cfg.get("broccolidb", {})
+        if isinstance(bdb, dict):
+            cfg_root = str(bdb.get("root") or "").strip()
+            if cfg_root:
+                candidate = Path(cfg_root).expanduser()
+                if not candidate.is_absolute():
+                    candidate = Path.cwd() / candidate
+                if (candidate / "package.json").is_file() and (candidate / "core").is_dir():
+                    return str(candidate.resolve())
+    except Exception:
+        pass
+
+    seeds = []
+    ws = os.environ.get("HERMES_KANBAN_WORKSPACE", "").strip()
+    if ws:
+        seeds.append(Path(ws))
+    seeds.append(Path.cwd())
+
+    seen: set[str] = set()
+    for seed in seeds:
+        try:
+            resolved_seed = seed.resolve()
+        except OSError:
+            continue
+        for parent in [resolved_seed, *resolved_seed.parents]:
+            key = str(parent)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidate = parent / "broccolidb"
+            if (candidate / "package.json").is_file() and (candidate / "core").is_dir():
+                return str(candidate.resolve())
+
+    rel = Path(_BROCCOLIDB_ROOT)
+    if (rel / "package.json").is_file() and (rel / "core").is_dir():
+        return str(rel.resolve())
+    return None
+
+
+def resolve_broccolidb_db_path(root: Optional[str] = None) -> Optional[str]:
+    """Resolve broccolidb.db path for hive sync (profile/workspace aware)."""
+    env_db = os.environ.get("HERMES_BROCCOLIDB_DB", "").strip()
+    if env_db:
+        return str(Path(env_db).expanduser().resolve())
+
+    try:
+        from hermes_cli.config import load_config
+        cfg = load_config()
+        kanban_cfg = cfg.get("kanban", {}) if isinstance(cfg, dict) else {}
+        bdb = kanban_cfg.get("broccolidb", {})
+        if isinstance(bdb, dict):
+            cfg_db = str(bdb.get("db_path") or "").strip()
+            if cfg_db:
+                p = Path(cfg_db).expanduser()
+                if not p.is_absolute() and root:
+                    p = Path(root) / p
+                return str(p.resolve())
+    except Exception:
+        pass
+
+    broot = root or resolve_broccolidb_root()
+    if broot:
+        ws = os.environ.get("HERMES_KANBAN_WORKSPACE", "").strip()
+        if ws:
+            ws_db = Path(ws) / "broccolidb.db"
+            if ws_db.is_file():
+                return str(ws_db.resolve())
+        return str((Path(broot).parent / "broccolidb.db").resolve())
+    return None
+
+
+def _broccolidb_root() -> str:
+    return resolve_broccolidb_root() or _BROCCOLIDB_ROOT
 
 
 def check_requirements() -> bool:
@@ -37,11 +135,26 @@ def check_requirements() -> bool:
     Validates both the package.json and a core module to prevent
     partial installation false-positives.
     """
-    root = _BROCCOLIDB_ROOT
+    root = resolve_broccolidb_root()
+    if not root:
+        return False
+    sync_script = Path(root) / _HIVE_SYNC_SCRIPT
+    drift_script = Path(root) / _HIVE_DRIFT_SCRIPT
+    intel_script = Path(root) / _HIVE_BOARD_INTEL_SCRIPT
     return (
-        os.path.exists(os.path.join(root, "package.json"))
-        and os.path.isdir(os.path.join(root, "core"))
+        Path(root, "package.json").is_file()
+        and Path(root, "core").is_dir()
+        and sync_script.is_file()
+        and drift_script.is_file()
+        and intel_script.is_file()
     )
+
+
+_TS_DB_PREAMBLE = """\
+import { setDbPath } from './infrastructure/db/Config.js';
+const __hermesDb = process.env.HERMES_BROCCOLIDB_DB;
+if (__hermesDb) setDbPath(__hermesDb);
+"""
 
 
 def _get_env() -> dict:
@@ -51,8 +164,15 @@ def _get_env() -> dict:
     accidental leakage of sensitive env vars.
     """
     env = os.environ.copy()
+    root = resolve_broccolidb_root()
+    if root:
+        env.setdefault("HERMES_BROCCOLIDB_ROOT", root)
+    db_path = resolve_broccolidb_db_path(root)
+    if db_path:
+        env.setdefault("HERMES_BROCCOLIDB_DB", db_path)
+    root = _broccolidb_root()
     # Ensure Node can find broccolidb's dependencies
-    node_path = os.path.join(os.path.abspath(_BROCCOLIDB_ROOT), "node_modules")
+    node_path = os.path.join(os.path.abspath(root), "node_modules")
     if os.path.isdir(node_path):
         existing = env.get("NODE_PATH", "")
         env["NODE_PATH"] = f"{node_path}:{existing}" if existing else node_path
@@ -121,7 +241,8 @@ def run_cli(args: list, timeout: int = _DEFAULT_TIMEOUT) -> str:
     Returns:
         JSON string with {success, output, error?, error_code?, duration_ms}
     """
-    cmd = ["npx", "-y", "tsx", f"{_BROCCOLIDB_ROOT}/cli/index.ts"] + args
+    root = _broccolidb_root()
+    cmd = ["npx", "-y", "tsx", f"{root}/cli/index.ts"] + args
     start = time.monotonic()
     try:
         result = subprocess.run(
@@ -171,8 +292,12 @@ def run_ts_script(script_content: str, timeout: int = _DEFAULT_TIMEOUT) -> str:
     Returns:
         JSON string (extracted from output) or error JSON
     """
-    scratch_dir = os.path.join(_BROCCOLIDB_ROOT, "scratch")
+    root = _broccolidb_root()
+    scratch_dir = os.path.join(root, "scratch")
     os.makedirs(scratch_dir, exist_ok=True)
+
+    if "setDbPath" not in script_content:
+        script_content = _TS_DB_PREAMBLE + "\n" + script_content
 
     temp_path = None
     start = time.monotonic()
@@ -183,14 +308,14 @@ def run_ts_script(script_content: str, timeout: int = _DEFAULT_TIMEOUT) -> str:
             f.write(script_content)
             temp_path = f.name
 
-        rel_path = os.path.relpath(temp_path, _BROCCOLIDB_ROOT)
+        rel_path = os.path.relpath(temp_path, root)
         result = subprocess.run(
             ["npx", "-y", "tsx", rel_path],
             capture_output=True,
             text=True,
             timeout=timeout,
             env=_get_env(),
-            cwd=_BROCCOLIDB_ROOT,
+            cwd=root,
         )
         duration_ms = int((time.monotonic() - start) * 1000)
 
@@ -251,7 +376,8 @@ def run_cli_interactive(args: list, stdin_input: str = "n\n", timeout: int = _DE
     Returns:
         JSON string with {success, output, error?}
     """
-    cmd = ["npx", "-y", "tsx", f"{_BROCCOLIDB_ROOT}/cli/index.ts"] + args
+    root = _broccolidb_root()
+    cmd = ["npx", "-y", "tsx", f"{root}/cli/index.ts"] + args
     start = time.monotonic()
     process = None
     try:
@@ -345,6 +471,118 @@ async function run() {
 }
 run();
 """
+
+
+def _run_kanban_ts_module(
+    script_rel: str,
+    env_var: str,
+    payload: dict[str, Any],
+    *,
+    timeout: int = _DEFAULT_TIMEOUT,
+    missing_code: str,
+    not_found_code: str = "BROCCOLIDB_NOT_FOUND",
+) -> str:
+    """Execute a kanban infrastructure TypeScript module with a JSON env payload."""
+    root = resolve_broccolidb_root()
+    if not root:
+        return _make_result(
+            False,
+            skipped=True,
+            reason="broccolidb package not found",
+            error_code=not_found_code,
+        )
+
+    script_path = Path(root) / script_rel
+    if not script_path.is_file():
+        return _make_result(
+            False,
+            error=f"missing module: {script_rel}",
+            error_code=missing_code,
+        )
+
+    env = _get_env()
+    env[env_var] = json.dumps(payload, ensure_ascii=False)
+    db_path = resolve_broccolidb_db_path(root)
+    if db_path:
+        env["HERMES_BROCCOLIDB_DB"] = db_path
+
+    start = time.monotonic()
+    try:
+        result = subprocess.run(
+            ["npx", "-y", "tsx", script_rel],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+            cwd=root,
+        )
+        duration_ms = int((time.monotonic() - start) * 1000)
+        if result.returncode != 0:
+            error_text = result.stderr.strip() or result.stdout.strip()
+            parsed = _extract_json(error_text)
+            if parsed:
+                parsed["duration_ms"] = duration_ms
+                return json.dumps(parsed, ensure_ascii=False)
+            return _make_result(
+                False,
+                error=_truncate_output(error_text) or f"Exit code {result.returncode}",
+                error_code=f"{missing_code}_EXIT",
+                duration_ms=duration_ms,
+            )
+
+        stdout = result.stdout.strip()
+        parsed = _extract_json(stdout)
+        if parsed:
+            if "duration_ms" not in parsed:
+                parsed["duration_ms"] = duration_ms
+            return json.dumps(parsed, ensure_ascii=False)
+        return _make_result(True, output=_truncate_output(stdout), duration_ms=duration_ms)
+    except subprocess.TimeoutExpired:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        return _make_result(
+            False,
+            error=f"Operation timed out after {timeout}s",
+            error_code="TIMEOUT",
+            duration_ms=duration_ms,
+        )
+    except FileNotFoundError:
+        return _make_result(False, error="npx/tsx not found.", error_code="MISSING_RUNTIME")
+    except Exception as e:
+        logger.exception("[BroccoliDB] Kanban module failed: %s", script_rel)
+        return _make_result(False, error=str(e), error_code=missing_code)
+
+
+def run_hive_sync(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> str:
+    """Execute the canonical Kanban-to-hive sync TypeScript module."""
+    return _run_kanban_ts_module(
+        _HIVE_SYNC_SCRIPT,
+        "KANBAN_HIVE_SYNC_PAYLOAD",
+        payload,
+        timeout=timeout,
+        missing_code="SYNC_MODULE_MISSING",
+    )
+
+
+def run_hive_drift(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> str:
+    """Fetch hive_tasks statuses for kanban drift detection."""
+    return _run_kanban_ts_module(
+        _HIVE_DRIFT_SCRIPT,
+        "KANBAN_HIVE_DRIFT_PAYLOAD",
+        payload,
+        timeout=timeout,
+        missing_code="DRIFT_MODULE_MISSING",
+    )
+
+
+def run_hive_board_intel(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> str:
+    """Fetch bounded BroccoliQ queue/hive metrics for orchestrator board intel."""
+    return _run_kanban_ts_module(
+        _HIVE_BOARD_INTEL_SCRIPT,
+        "KANBAN_HIVE_BOARD_INTEL_PAYLOAD",
+        payload,
+        timeout=timeout,
+        missing_code="BOARD_INTEL_MODULE_MISSING",
+    )
 
 
 def run_standalone_script(body: str, timeout: int = _DEFAULT_TIMEOUT) -> str:

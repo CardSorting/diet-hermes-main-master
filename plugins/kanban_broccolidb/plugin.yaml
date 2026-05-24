@@ -1,0 +1,5 @@
+name: kanban_broccolidb
+version: 1.0.0
+description: Sync Hermes Kanban tasks with BroccoliQ hive orchestration and auto-sync lifecycle hooks.
+author: DietCode
+kind: backend

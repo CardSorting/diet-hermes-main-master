@@ -35,9 +35,24 @@ jobs:
           from tools.registry import discover_builtin_tools, registry
           discover_builtin_tools()
           tools = registry.get_tool_names_for_toolset('broccolidb')
-          assert len(tools) >= 20, tools
+          assert len(tools) >= 23, tools
           print('broccolidb tools:', len(tools))
           "
+
+      - name: BroccoliQ infrastructure overlay
+        run: |
+          set -euo pipefail
+          test -f broccolidb/infrastructure/index.ts
+          test -f broccolidb/infrastructure/queue/Signaling.ts
+          test -f broccolidb/infrastructure/db/IntegrityWorker.ts
+          test -f broccolidb/infrastructure/db/DatabaseSchema.ts
+          test -d broccolidb/infrastructure/db/pool
+          test -f plugins/kanban_broccolidb/plugin.yaml
+          test -f tools/kanban_broccolidb_tools.py
+          test -f broccolidb/infrastructure/kanban/hive_sync.ts
+          test -f broccolidb/infrastructure/kanban/hive_drift.ts
+          test -f broccolidb/infrastructure/kanban/hive_board_intel.ts
+          grep -q 'kanban_broccolidb_drift' toolsets.py
 
       - name: JoyZoning governance plugin loads
         run: |
@@ -52,3 +67,18 @@ jobs:
               assert p.enabled, f'{k} not enabled: {getattr(p, \"error\", None)}'
           print('ok:', loaded)
           "
+
+      - name: Kanban BroccoliQ plugin loads
+        run: |
+          python -c "
+          from hermes_cli.plugins import discover_plugins, get_plugin_manager
+          discover_plugins(force=True)
+          pm = get_plugin_manager()
+          assert 'kanban_broccolidb' in pm._plugins, list(pm._plugins.keys())
+          p = pm._plugins['kanban_broccolidb']
+          assert p.enabled, getattr(p, 'error', None)
+          print('ok: kanban_broccolidb')
+          "
+
+      - name: Kanban BroccoliQ bridge tests
+        run: scripts/run_tests.sh tests/tools/test_kanban_broccolidb_tools.py -q

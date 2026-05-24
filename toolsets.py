@@ -41,6 +41,8 @@ _HERMES_CORE_TOOLS = [
     # Knowledge graph & shared memory
     "broccolidb_add_knowledge", "broccolidb_query_graph", "broccolidb_get_task_context",
     "broccolidb_append_shared_memory", "broccolidb_verify_sovereignty",
+    # BroccoliQ sharded queue & hive integrity
+    "broccolidb_queue_status", "broccolidb_shard_status", "broccolidb_hive_integrity",
     # Web
     "web_search", "web_extract",
     # Terminal + process management
@@ -80,6 +82,9 @@ _HERMES_CORE_TOOLS = [
     "kanban_complete", "kanban_block", "kanban_heartbeat",
     "kanban_comment", "kanban_create", "kanban_link",
     "kanban_unblock",
+    # BroccoliQ hive orchestration (gated: kanban mode + broccolidb in workspace)
+    "kanban_broccolidb_context", "kanban_broccolidb_sync", "kanban_broccolidb_record",
+    "kanban_broccolidb_board_intel", "kanban_broccolidb_drift",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
 ]
@@ -111,6 +116,8 @@ TOOLSETS = {
             "broccolidb_add_knowledge", "broccolidb_query_graph",
             "broccolidb_get_task_context", "broccolidb_append_shared_memory",
             "broccolidb_verify_sovereignty",
+            # BroccoliQ sharded queue & hive integrity
+            "broccolidb_queue_status", "broccolidb_shard_status", "broccolidb_hive_integrity",
         ],
         "includes": []
     },
@@ -286,6 +293,10 @@ TOOLSETS = {
             "kanban_heartbeat", "kanban_comment",
             "kanban_create", "kanban_link",
             "kanban_unblock",
+            # BroccoliQ hive orchestration
+            "kanban_broccolidb_context", "kanban_broccolidb_sync",
+            "kanban_broccolidb_record", "kanban_broccolidb_board_intel",
+            "kanban_broccolidb_drift",
         ],
         "includes": [],
     },

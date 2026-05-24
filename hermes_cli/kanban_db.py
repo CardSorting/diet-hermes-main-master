@@ -5264,6 +5264,31 @@ def _worker_terminal_timeout_env(
     return str(desired)
 
 
+def _inject_broccolidb_env(env: dict) -> None:
+    """Pin BroccoliDB paths for kanban workers when broccolidb is discoverable."""
+    try:
+        from tools.broccolidb_tools.runner import (
+            resolve_broccolidb_db_path,
+            resolve_broccolidb_root,
+        )
+    except ImportError:
+        return
+
+    try:
+        from tools.kanban_broccolidb_bridge import broccolidb_enabled
+        if not broccolidb_enabled():
+            return
+    except ImportError:
+        pass
+
+    root = resolve_broccolidb_root()
+    if root:
+        env["HERMES_BROCCOLIDB_ROOT"] = root
+    db_path = resolve_broccolidb_db_path(root)
+    if db_path:
+        env["HERMES_BROCCOLIDB_DB"] = db_path
+
+
 def _default_spawn(
     task: Task,
     workspace: str,
@@ -5346,6 +5371,7 @@ def _default_spawn(
     # board slug still forces it to the right directory.
     resolved_board = _normalize_board_slug(board) or get_current_board()
     env["HERMES_KANBAN_BOARD"] = resolved_board
+    _inject_broccolidb_env(env)
     # HERMES_PROFILE is the author the kanban_comment tool defaults to.
     # `hermes -p <assignee>` activates the profile, but the env var is
     # what the tool reads — set it explicitly here so comments are

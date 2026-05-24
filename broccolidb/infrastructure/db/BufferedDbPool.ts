@@ -3,8 +3,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type Database from 'better-sqlite3';
 import { type Kysely, sql, type Transaction } from 'kysely';
-import { getDb, getRawDb, type Schema } from './Config.js';
+import { getDb, getRawDb, getActiveShards, type Schema } from './Config.js';
 import { Logger } from '../../shared/services/Logger.js';
+import { Locker } from './pool/Locker.js';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -111,6 +112,7 @@ export type WriteOp = {
   where?: WhereCondition | WhereCondition[];
   conflictTarget?: string | string[]; // For upserts
   agentId?: string;
+  shardId?: string; // Level 8: BroccoliQ shard partitioning
   layer?: DbLayer;
   // Level 6: Pre-calculated Metadata
   hasIncrements?: boolean;
@@ -185,6 +187,7 @@ export class BufferedDbPool {
   private activeIndex = new Map<keyof Schema, Map<string, Set<WriteOp>>>();
   private inFlightIndex = new Map<keyof Schema, Map<string, Set<WriteOp>>>();
   private warmedIndices = new Set<string>(); // Level 9: Authoritative Memory Indices
+  private locker = new Locker(this as import('./pool/types.js').IBufferedDbPool);
   private integrityMetrics = { brokenImports: 0, orphanedNodes: 0 };
   private SCHEMA_VERSION = 2; // Pass 4 hardening baseline
   private schemaVerified = false;
@@ -325,7 +328,7 @@ export class BufferedDbPool {
       await sql`PRAGMA threads = 4;`.execute(db);
       await sql`PRAGMA auto_vacuum = NONE;`.execute(db);
       this.db = db;
-      this.rawDb = await getRawDb();
+      this.rawDb = (await getRawDb()) as Database.Database;
       await this.verifySchemaVersion();
       return this.db;
     });
@@ -760,11 +763,13 @@ export class BufferedDbPool {
     options?: {
       orderBy?: { column: keyof Schema[T]; direction: 'asc' | 'desc' };
       limit?: number;
+      offset?: number;
+      shardId?: string;
     }
   ): Promise<Schema[T][]> {
     const release = await this.stateMutex.acquire();
     try {
-      const db = await this.ensureDb();
+      const db = options?.shardId ? await getDb(options.shardId) : await this.ensureDb();
       const conditions = normalizeWhere(where);
       const statusCond = conditions.find(
         (c) => (c.column === 'status' || c.column === 'type') && (c.operator === '=' || !c.operator)
@@ -964,10 +969,30 @@ export class BufferedDbPool {
   public async selectOne<T extends keyof Schema>(
     table: T,
     where: WhereCondition | WhereCondition[],
-    agentId?: string
+    agentId?: string,
+    options?: { shardId?: string; limit?: number; offset?: number },
   ): Promise<Schema[T] | null> {
-    const results = await this.selectWhere(table, where, agentId);
+    const results = await this.selectWhere(table, where, agentId, options);
     return results.length > 0 ? (results[results.length - 1] as Schema[T]) : null;
+  }
+
+  /** BroccoliQ Level 8: resolve a sharded database handle. */
+  public async getDb(shardId: string = 'main'): Promise<Kysely<Schema>> {
+    return getDb(shardId);
+  }
+
+  /** BroccoliQ Level 5: distributed lock via claims table. */
+  public async acquireLock(
+    resource: string,
+    author: string,
+    shardId: string = 'main',
+    ttlMs: number = 30000,
+  ): Promise<boolean> {
+    return this.locker.acquireLock(resource, author, shardId, ttlMs);
+  }
+
+  public async releaseLock(resource: string, author: string, shardId: string = 'main'): Promise<void> {
+    await this.locker.releaseLock(resource, author, shardId);
   }
 
   public static increment(value: number): Increment {
@@ -1194,6 +1219,7 @@ export class BufferedDbPool {
         },
       },
       integrity: { ...this.integrityMetrics },
+      shards: getActiveShards().length ? getActiveShards() : ['main'],
     };
   }
 
