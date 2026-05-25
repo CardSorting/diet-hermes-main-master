@@ -23,6 +23,7 @@ merge in the Watch/desktop UI.
 - Kanban worker spawned with `JOYZONING_SCOPE_ID` / habitat-linked tasks
 - JSDP delivery-chain roles (`JOYZONING_JSDP_ROLE` set)
 - API runs with `metadata.JOYZONING_HABITAT_TASK` from habitat dispatch
+- Long-horizon repo mutation with `.jsdp/` — pair with skill **`jsdp-rolling-horizon`** and tool **`jsdp_horizon`**
 
 ## Prerequisites
 
@@ -52,6 +53,7 @@ merge in the Watch/desktop UI.
 | Tests/checks | `joyzoning(action='verify', …)` |
 | Hand off | `joyzoning(action='request_review', …)` |
 | JSDP role | `joyzoning(action='role_context')` |
+| Rolling horizon | `jsdp_horizon(action='export', nodes=3)` — see `jsdp-rolling-horizon` skill |
 
 ## Procedure
 

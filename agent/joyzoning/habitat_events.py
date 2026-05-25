@@ -25,6 +25,14 @@ def emit_habitat_event(
     cfg = get_joyzoning_config()
     if not cfg.enabled:
         return None
+    will_journal = cfg.execution_journal
+    will_mirror = bool(
+        cfg.emit_habitat_events
+        and cfg.control_plane_url
+        and cfg.control_plane_observe_only
+    )
+    if not will_journal and not will_mirror:
+        return None
 
     layer = layer_for_event(event_type)
     session_id = session_id or read_scope_env("HERMES_SESSION_ID")

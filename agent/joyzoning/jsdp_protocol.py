@@ -28,6 +28,18 @@ GLOBAL_HANDOFF_RULES = (
 
 CONVERGENCE_REQUIRED_CODE = "jsdp_convergence_required"
 
+ROLLING_HORIZON_RULES = (
+    "Never auto-plan the whole project — propose at most 3–5 nodes per cycle.",
+    "Use jsdp_horizon(action='export') before validate/import; bounded horizon-context.json only.",
+    "Do not export full spec, repo scan, or ledger — JoyZoning harness enforces byte budget.",
+    "validate → diff → import --dry-run → import; harness allocates new node IDs append-only.",
+    "After verify/continue, re-export horizon context before the next planning cycle.",
+    "Do not import horizon over active verification failures unless force=True.",
+    "Prefer incremental nodes anchored to verified/ready frontier — no full-project rewrite language.",
+)
+
+ROLLING_HORIZON_TOOL = "jsdp"
+
 
 def validate_handoff_sections(text: str) -> dict[str, Any]:
     """Check that a handoff/deliverable contains required JSDP sections."""
@@ -47,6 +59,16 @@ def validate_handoff_sections(text: str) -> dict[str, Any]:
         "missing_sections": missing,
         "required_sections": list(REQUIRED_OUTPUT_SECTIONS),
     }
+
+
+def rolling_horizon_prompt() -> str:
+    rules = "\n".join(f"- {r}" for r in ROLLING_HORIZON_RULES)
+    return (
+        f"### JSDP rolling horizon (tool: `{ROLLING_HORIZON_TOOL}`)\n\n"
+        f"{rules}\n\n"
+        "Cycle: export → prompt → write horizon.json → validate → diff → "
+        "import --dry-run → import → next → verify → continue → export again."
+    )
 
 
 def role_context_prompt(role: str, chain_id: str = "") -> str:

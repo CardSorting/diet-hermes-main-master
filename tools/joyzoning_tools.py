@@ -138,7 +138,8 @@ registry.register(
                     "description": (
                         "context=where am I; doctor=health; status=convergence; "
                         "begin|patch|verify|request_review=lifecycle; events=journal tail; "
-                        "role_context|validate_handoff|manifest=JSDP/habitat discovery"
+                        "role_context|validate_handoff|manifest=JSDP/habitat; "
+                        "rolling horizon=use jsdp tool (prepare/commit/step), not joyzoning"
                     ),
                 },
                 "goal": {"type": "string", "description": "Mutation goal (action=begin)"},

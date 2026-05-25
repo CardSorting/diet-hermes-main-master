@@ -20,8 +20,8 @@ def _resolve_secret(yaml_val: str, env_key: str) -> str:
 
 @dataclass(frozen=True)
 class JoyZoningConfig:
-    enabled: bool = True
-    execution_journal: bool = True
+    enabled: bool = False
+    execution_journal: bool = False
     journal_path: str = ""
     review_before_complete: bool = True
     control_plane_url: str = ""
@@ -32,6 +32,9 @@ class JoyZoningConfig:
     jsdp_enabled: bool = False
     jsdp_role: str = ""
     jsdp_chain_id: str = ""
+    jsdp_harness_enabled: bool = False
+    jsdp_workspace_root: str = ""
+    jsdp_jz_cli: str = ""
     scope_id: str = ""
 
     @classmethod
@@ -50,6 +53,9 @@ class JoyZoningConfig:
             jsdp = raw.get("jsdp", {})
             if not isinstance(jsdp, dict):
                 jsdp = {}
+            harness = jsdp.get("harness", {})
+            if not isinstance(harness, dict):
+                harness = {}
             cp_url = str(cp.get("url") or os.environ.get("JOYZONING_CONTROL_PLANE_URL", "")).strip()
             observe_only = bool(cp.get("observe_only", True))
             if cp_url and not observe_only:
@@ -58,8 +64,8 @@ class JoyZoningConfig:
                     "(habitat is observe-only; Hermes journal remains canonical)."
                 )
             return cls(
-                enabled=bool(raw.get("enabled", True)),
-                execution_journal=bool(raw.get("execution_journal", True)),
+                enabled=bool(raw.get("enabled", False)),
+                execution_journal=bool(raw.get("execution_journal", False)),
                 journal_path=str(raw.get("journal_path") or "").strip(),
                 review_before_complete=bool(conv.get("review_before_complete", True)),
                 control_plane_url=cp_url,
@@ -76,6 +82,19 @@ class JoyZoningConfig:
                 jsdp_enabled=bool(jsdp.get("enabled", False)),
                 jsdp_role=str(jsdp.get("role") or os.environ.get("JOYZONING_JSDP_ROLE", "")).strip(),
                 jsdp_chain_id=str(jsdp.get("chain_id") or os.environ.get("JOYZONING_JSDP_CHAIN_ID", "")).strip(),
+                jsdp_harness_enabled=bool(
+                    harness.get(
+                        "enabled",
+                        jsdp.get("harness_enabled", raw.get("enabled", False)),
+                    )
+                ),
+                jsdp_workspace_root=str(
+                    harness.get("workspace_root")
+                    or os.environ.get("JOYZONING_WORKSPACE_ROOT", "")
+                ).strip(),
+                jsdp_jz_cli=str(
+                    harness.get("jz_cli") or os.environ.get("JOYZONING_JZ_CLI", "")
+                ).strip(),
                 scope_id=str(raw.get("scope_id") or os.environ.get("JOYZONING_SCOPE_ID", "")).strip(),
             )
         except ValueError:
@@ -85,6 +104,10 @@ class JoyZoningConfig:
                 scope_id=os.environ.get("JOYZONING_SCOPE_ID", "").strip(),
                 jsdp_role=os.environ.get("JOYZONING_JSDP_ROLE", "").strip(),
                 jsdp_chain_id=os.environ.get("JOYZONING_JSDP_CHAIN_ID", "").strip(),
+                jsdp_harness_enabled=os.environ.get("JOYZONING_JSDP_HARNESS", "").strip().lower()
+                in ("1", "true", "yes"),
+                jsdp_workspace_root=os.environ.get("JOYZONING_WORKSPACE_ROOT", "").strip(),
+                jsdp_jz_cli=os.environ.get("JOYZONING_JZ_CLI", "").strip(),
                 control_plane_url=os.environ.get("JOYZONING_CONTROL_PLANE_URL", "").strip(),
                 ingest_token=os.environ.get("JOYZONING_INGEST_TOKEN", "").strip(),
                 habitat_bridge_token=os.environ.get("JOYZONING_HABITAT_BRIDGE_TOKEN", "").strip(),

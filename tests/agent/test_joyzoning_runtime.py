@@ -7,15 +7,41 @@ import os
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_joyzoning_singletons():
+    import agent.joyzoning.config as cfg_mod
+    import agent.joyzoning.journal as journal_mod
+    from hermes_cli import config as hermes_config_mod
+
+    cfg_mod._config_cache = None
+    journal_mod._journal = None
+    hermes_config_mod._LOAD_CONFIG_CACHE.clear()
+    hermes_config_mod._RAW_CONFIG_CACHE.clear()
+    yield
+    cfg_mod._config_cache = None
+    journal_mod._journal = None
+    hermes_config_mod._LOAD_CONFIG_CACHE.clear()
+    hermes_config_mod._RAW_CONFIG_CACHE.clear()
+
+
 @pytest.fixture
 def jz_env(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
+    (home / "config.yaml").write_text(
+        "joyzoning:\n  enabled: true\n  execution_journal: true\n"
+    )
     monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("DIETCODE_HOME", str(home))
     monkeypatch.chdir(tmp_path)
     import agent.joyzoning.config as cfg_mod
+    import agent.joyzoning.journal as journal_mod
+
     cfg_mod._config_cache = None
-    return home
+    journal_mod._journal = None
+    yield home
+    cfg_mod._config_cache = None
+    journal_mod._journal = None
 
 
 def test_convergence_transition_and_journal(jz_env):
@@ -120,7 +146,9 @@ def test_register_from_scope_env_links_cluster(jz_env, monkeypatch):
 
 def test_session_end_uses_scope_context(jz_env, monkeypatch):
     home = jz_env
-    (home / "config.yaml").write_text("joyzoning:\n  enabled: true\n")
+    (home / "config.yaml").write_text(
+        "joyzoning:\n  enabled: true\n  execution_journal: true\n"
+    )
     import agent.joyzoning.config as cfg_mod
     cfg_mod._config_cache = None
 
@@ -145,7 +173,9 @@ def test_session_end_uses_scope_context(jz_env, monkeypatch):
 
 def test_habitat_events_session_id_from_contextvar(jz_env, monkeypatch):
     home = jz_env
-    (home / "config.yaml").write_text("joyzoning:\n  enabled: true\n")
+    (home / "config.yaml").write_text(
+        "joyzoning:\n  enabled: true\n  execution_journal: true\n"
+    )
     import agent.joyzoning.config as cfg_mod
     cfg_mod._config_cache = None
 
@@ -272,7 +302,9 @@ def test_journal_integrity_check(jz_env):
 def test_broccolidb_sync_registers_scope_aliases_on_start(monkeypatch, tmp_path):
     home = tmp_path / ".hermes"
     home.mkdir()
-    (home / "config.yaml").write_text("joyzoning:\n  enabled: true\n")
+    (home / "config.yaml").write_text(
+        "joyzoning:\n  enabled: true\n  execution_journal: true\n"
+    )
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_sync001")
     monkeypatch.setenv("JOYZONING_HABITAT_TASK", "550e8400-e29b-41d4-a716-446655440001")

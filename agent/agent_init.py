@@ -83,7 +83,7 @@ def init_agent(
     args: list[str] | None = None,
     model: str = "",
     max_iterations: int = 90,  # Default tool-calling iterations (shared with subagents)
-    tool_delay: float = 1.0,
+    tool_delay: float = 0.0,
     enabled_toolsets: List[str] = None,
     disabled_toolsets: List[str] = None,
     save_trajectories: bool = False,
@@ -148,7 +148,7 @@ def init_agent(
         api_mode (str): API mode override: "chat_completions" or "codex_responses"
         model (str): Model name to use (default: "anthropic/claude-opus-4.6")
         max_iterations (int): Maximum number of tool calling iterations (default: 90)
-        tool_delay (float): Delay between tool calls in seconds (default: 1.0)
+        tool_delay (float): Delay between tool calls in seconds (default: 0)
         enabled_toolsets (List[str]): Only enable tools from these toolsets (optional)
         disabled_toolsets (List[str]): Disable tools from these toolsets (optional)
         save_trajectories (bool): Whether to save conversation trajectories to JSONL files (default: False)
@@ -970,7 +970,7 @@ def init_agent(
     agent._memory_store = None
     agent._memory_enabled = False
     agent._user_profile_enabled = False
-    agent._memory_nudge_interval = 10
+    agent._memory_nudge_interval = 0
     agent._turns_since_memory = 0
     agent._iters_since_skill = 0
     if not skip_memory:
@@ -978,7 +978,7 @@ def init_agent(
             mem_config = _agent_cfg.get("memory", {})
             agent._memory_enabled = mem_config.get("memory_enabled", False)
             agent._user_profile_enabled = mem_config.get("user_profile_enabled", False)
-            agent._memory_nudge_interval = int(mem_config.get("nudge_interval", 10))
+            agent._memory_nudge_interval = int(mem_config.get("nudge_interval", 0))
             if agent._memory_enabled or agent._user_profile_enabled:
                 from tools.memory_tool import MemoryStore
                 agent._memory_store = MemoryStore(
@@ -1077,10 +1077,10 @@ def init_agent(
                 _existing_tool_names.add(_tname)
 
     # Skills config: nudge interval for skill creation reminders
-    agent._skill_nudge_interval = 10
+    agent._skill_nudge_interval = 0
     try:
         skills_config = _agent_cfg.get("skills", {})
-        agent._skill_nudge_interval = int(skills_config.get("creation_nudge_interval", 10))
+        agent._skill_nudge_interval = int(skills_config.get("creation_nudge_interval", 0))
     except Exception:
         pass
 

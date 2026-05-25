@@ -24,6 +24,18 @@ def _scope_bindings() -> dict[str, str]:
     return out
 
 
+def _merge_harness_next_actions(
+    base: list[str],
+    harness: dict[str, Any] | None,
+) -> list[str]:
+    if not harness or not harness.get("harness_present"):
+        return base
+    hint = "jsdp(action='start') — autonomous rolling horizon (see jsdp_autonomous in context)"
+    if hint in base:
+        return base
+    return [hint, *base]
+
+
 def recommended_next_actions(state: ConvergenceState) -> list[str]:
     """Human- and model-readable next steps for the governed mutation lifecycle."""
     if state == ConvergenceState.IDLE:
@@ -113,6 +125,13 @@ def build_operational_context(*, scope_id: str | None = None) -> dict[str, Any]:
     except Exception:
         pass
 
+    jsdp_harness: dict[str, Any] | None = None
+    try:
+        from agent.joyzoning.jsdp_autonomous import session_brief
+        jsdp_harness = session_brief()
+    except Exception:
+        pass
+
     return {
         "success": True,
         "scope_id": sid,
@@ -131,13 +150,15 @@ def build_operational_context(*, scope_id: str | None = None) -> dict[str, Any]:
             "bridge_token_configured": bool(cfg.habitat_bridge_token),
             "jsdp_enabled": cfg.jsdp_enabled,
             "jsdp_role": cfg.jsdp_role or None,
+            "jsdp_harness_enabled": cfg.jsdp_harness_enabled,
         },
+        "jsdp_harness": jsdp_harness,
         "control_plane": cp_health,
         "habitat_agent_context": habitat_context,
         "habitat_agent_manifest": habitat_manifest,
         "convergence_record": journal_row,
         "journal_integrity": journal_integrity,
-        "next_actions": recommended_next_actions(state),
+        "next_actions": _merge_harness_next_actions(recommended_next_actions(state), jsdp_harness),
         "authority": {
             "execution": "hermes",
             "supervision": "joyzoning_habitat",

@@ -795,7 +795,8 @@ DEFAULT_CONFIG = {
 
     "compression": {
         "enabled": True,
-        "threshold": 0.50,            # compress when context usage exceeds this ratio
+        # DietCode: 0.65 delays aux summarization vs 0.50 — fewer mid-turn compress calls.
+        "threshold": 0.65,            # compress when context usage exceeds this ratio
         "target_ratio": 0.20,         # fraction of threshold to preserve as recent tail
         "protect_last_n": 20,         # minimum recent messages to keep uncompressed
         "hygiene_hard_message_limit": 400,  # gateway session-hygiene force-compress threshold by message count
@@ -1011,6 +1012,9 @@ DEFAULT_CONFIG = {
         "personality": "kawaii",
         "resume_display": "full",
         "busy_input_mode": "interrupt",  # interrupt | queue | steer
+        # DietCode fork: bare `dietcode` on a TTY launches Ink TUI by default.
+        # Set false or pass `--classic` / HERMES_CLASSIC=1 to use the REPL.
+        "default_tui": True,
         # When true, `hermes --tui` auto-resumes the most recent human-
         # facing session on launch instead of forging a fresh one.
         # Mirrors `hermes -c` muscle memory.  Default off so existing
@@ -1035,6 +1039,8 @@ DEFAULT_CONFIG = {
         # class of over-claim that otherwise forces users to run
         # `git status` to verify edits landed.  Set false to suppress.
         "file_mutation_verifier": True,
+        # TUI: "new" emits tool.start/complete only (no per-chunk progress RPCs).
+        "tool_progress": "new",
         "show_cost": False,       # Show $ cost in the status bar (off by default)
         "skin": "dietcode",
         # UI language for static user-facing messages (approval prompts, a
@@ -1193,6 +1199,8 @@ DEFAULT_CONFIG = {
     "memory": {
         "memory_enabled": True,
         "user_profile_enabled": True,
+        # 0 = no periodic background memory-review aux LLM pass (was 10 turns).
+        "nudge_interval": 0,
         "memory_char_limit": 2200,   # ~800 tokens at 2.75 chars/token
         "user_char_limit": 1375,     # ~500 tokens at 2.75 chars/token
         # External memory provider plugin (empty = built-in only).
@@ -1297,6 +1305,8 @@ DEFAULT_CONFIG = {
         # External hub installs (trusted/community sources) are always
         # scanned regardless of this setting.
         "guard_agent_created": False,
+        # 0 = no periodic background skill-review aux LLM pass (was 10 tool-iters).
+        "creation_nudge_interval": 0,
     },
 
     # Curator — background skill maintenance.
@@ -1310,7 +1320,8 @@ DEFAULT_CONFIG = {
     #
     # See `hermes curator status` for the last run summary.
     "curator": {
-        "enabled": True,
+        # Off by default — session-start curator can spawn a full aux-agent review.
+        "enabled": False,
         # How long to wait between curator runs (hours).  Default: 7 days.
         "interval_hours": 24 * 7,
         # Only run when the agent has been idle at least this long (hours).
@@ -1516,8 +1527,10 @@ DEFAULT_CONFIG = {
     # JoyZoning (desktop :9470) observes/supervises; Hermes owns execution state.
     # JSDP mutation provider is plugins/jsdp_mutation + joyzoning.jsdp config.
     "joyzoning": {
-        "enabled": True,
-        "execution_journal": True,
+        # Off by default — per-tool plugin hooks; enable for kanban/convergence.
+        "enabled": False,
+        # Off by default — per-tool SQLite commits add noticeable latency.
+        "execution_journal": False,
         "journal_path": "",
         "emit_habitat_events": True,
         "scope_id": "",
@@ -1536,6 +1549,11 @@ DEFAULT_CONFIG = {
             "enabled": False,
             "role": "",
             "chain_id": "",
+            "harness": {
+                "enabled": False,
+                "workspace_root": "",
+                "jz_cli": "",
+            },
         },
     },
 

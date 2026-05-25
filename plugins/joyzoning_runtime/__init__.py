@@ -21,6 +21,14 @@ def _on_session_start(*, session_id: str = "", **_: Any) -> None:
         kanban_task = read_scope_env("HERMES_KANBAN_TASK")
         habitat_task = read_scope_env("JOYZONING_HABITAT_TASK")
 
+        jsdp_brief = None
+        if kanban_task or habitat_task or read_scope_env("HERMES_KANBAN_WORKSPACE"):
+            try:
+                from agent.joyzoning.jsdp_autonomous import session_brief
+                jsdp_brief = session_brief()
+            except Exception:
+                pass
+
         emit_habitat_event(
             "session.start",
             scope_id=resolve_scope_id(),
@@ -29,6 +37,7 @@ def _on_session_start(*, session_id: str = "", **_: Any) -> None:
                 "jsdp_role": get_joyzoning_config().jsdp_role,
                 "kanban_task": kanban_task or None,
                 "habitat_task": habitat_task or None,
+                "jsdp_autonomous": jsdp_brief,
             },
         )
     except Exception as exc:
@@ -68,7 +77,11 @@ def _post_tool_call(
     try:
         from agent.joyzoning.config import get_joyzoning_config, resolve_scope_id
         from agent.joyzoning.habitat_events import emit_habitat_event
-        if not get_joyzoning_config().enabled:
+
+        cfg = get_joyzoning_config()
+        if not cfg.enabled:
+            return
+        if not cfg.execution_journal and not cfg.control_plane_url:
             return
         parsed = args if isinstance(args, dict) else {}
         scope = resolve_scope_id(parsed.get("task_id"))

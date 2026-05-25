@@ -90,6 +90,7 @@ _HERMES_CORE_TOOLS = [
     "convergence_status", "mutation_begin", "mutation_record_patch", "mutation_verify",
     "convergence_request_review", "convergence_mark_converged", "habitat_events_tail",
     "jsdp_validate_handoff", "jsdp_role_context",
+    "jsdp", "jsdp_horizon",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
 ]
@@ -143,6 +144,7 @@ TOOLSETS = {
             "habitat_events_tail",
             "jsdp_validate_handoff",
             "jsdp_role_context",
+            "jsdp",
         ],
         "includes": [],
     },

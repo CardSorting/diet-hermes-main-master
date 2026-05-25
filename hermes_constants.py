@@ -33,6 +33,91 @@ def get_cli_command() -> str:
     return PRODUCT_CLI_COMMAND
 
 
+def interactive_tui_default_enabled() -> bool:
+    """Whether bare interactive chat should launch the Ink TUI (DietCode fork)."""
+    return PRODUCT_CLI_COMMAND == "dietcode"
+
+
+def _env_flag_is_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_flag_is_falsy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"0", "false", "no", "off"}
+
+
+def classic_cli_requested(*, argv: list[str] | None = None) -> bool:
+    """True when the user explicitly opts out of the default TUI (``--classic`` or env)."""
+    if _env_flag_is_truthy("DIETCODE_CLASSIC") or _env_flag_is_truthy("HERMES_CLASSIC"):
+        return True
+    if _env_flag_is_falsy("HERMES_TUI"):
+        return True
+    args = argv if argv is not None else __import__("sys").argv[1:]
+    return "--classic" in args
+
+
+def _argv_has_non_tui_chat_flags(argv: list[str]) -> bool:
+    """True when argv carries flags that must not auto-launch the TUI."""
+    if "-q" in argv or "--query" in argv:
+        return True
+    if "-Q" in argv or "--quiet" in argv:
+        return True
+    if "-z" in argv or "--oneshot" in argv:
+        return True
+    return False
+
+
+def argv_requests_interactive_tui(argv: list[str] | None = None) -> bool:
+    """Early argv/env check (Termux fast path) — mirrors :func:`resolve_interactive_tui`."""
+    import sys
+
+    args = argv if argv is not None else sys.argv[1:]
+    if _env_flag_is_truthy("HERMES_TUI") or "--tui" in args:
+        return True
+    if classic_cli_requested(argv=args):
+        return False
+    if _argv_has_non_tui_chat_flags(args):
+        return False
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return False
+    if not interactive_tui_default_enabled():
+        return False
+    try:
+        from hermes_cli.config import load_config
+
+        display = load_config().get("display") or {}
+        if display.get("default_tui") is False:
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def resolve_interactive_tui(args) -> bool:
+    """Resolve whether this chat invocation should use the Ink TUI."""
+    if getattr(args, "tui", False) or _env_flag_is_truthy("HERMES_TUI"):
+        return True
+    if classic_cli_requested():
+        return False
+    if getattr(args, "query", None) or getattr(args, "quiet", False):
+        return False
+    import sys
+
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return False
+    if not interactive_tui_default_enabled():
+        return False
+    try:
+        from hermes_cli.config import load_config
+
+        display = load_config().get("display") or {}
+        if display.get("default_tui") is False:
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def get_legacy_cli_command() -> str:
     """Upstream-compatible CLI name kept as an install alias."""
     return LEGACY_CLI_COMMAND

@@ -6,16 +6,42 @@ import json
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_joyzoning_singletons():
+    import agent.joyzoning.config as cfg_mod
+    import agent.joyzoning.journal as journal_mod
+    from hermes_cli import config as hermes_config_mod
+
+    cfg_mod._config_cache = None
+    journal_mod._journal = None
+    hermes_config_mod._LOAD_CONFIG_CACHE.clear()
+    hermes_config_mod._RAW_CONFIG_CACHE.clear()
+    yield
+    cfg_mod._config_cache = None
+    journal_mod._journal = None
+    hermes_config_mod._LOAD_CONFIG_CACHE.clear()
+    hermes_config_mod._RAW_CONFIG_CACHE.clear()
+
+
 @pytest.fixture
 def jz_env(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
-    (home / "config.yaml").write_text("joyzoning:\n  enabled: true\n")
+    (home / "config.yaml").write_text(
+        "joyzoning:\n  enabled: true\n  execution_journal: true\n"
+    )
     monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("DIETCODE_HOME", str(home))
+    monkeypatch.setenv("DIETCODE_HOME", str(home))
     monkeypatch.chdir(tmp_path)
     import agent.joyzoning.config as cfg_mod
+    import agent.joyzoning.journal as journal_mod
+
     cfg_mod._config_cache = None
-    return home
+    journal_mod._journal = None
+    yield home
+    cfg_mod._config_cache = None
+    journal_mod._journal = None
 
 
 def test_joyzoning_primitive_registered(jz_env):
@@ -66,10 +92,16 @@ def test_joyzoning_doctor(jz_env):
 def test_joyzoning_doctor_action(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
-    (home / "config.yaml").write_text("joyzoning:\n  enabled: true\n")
+    (home / "config.yaml").write_text(
+        "joyzoning:\n  enabled: true\n  execution_journal: true\n"
+    )
     monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("DIETCODE_HOME", str(home))
     import agent.joyzoning.config as cfg_mod
+    import agent.joyzoning.journal as journal_mod
+
     cfg_mod._config_cache = None
+    journal_mod._journal = None
     import tools.joyzoning_tools  # noqa: F401
     from tools.joyzoning_tools import joyzoning
 
@@ -82,8 +114,11 @@ def test_joyzoning_doctor_action(tmp_path, monkeypatch):
 def test_inject_joyzoning_env_sets_scope(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
-    (home / "config.yaml").write_text("joyzoning:\n  enabled: true\n")
+    (home / "config.yaml").write_text(
+        "joyzoning:\n  enabled: true\n  execution_journal: true\n"
+    )
     monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("DIETCODE_HOME", str(home))
     import agent.joyzoning.config as cfg_mod
     cfg_mod._config_cache = None
 

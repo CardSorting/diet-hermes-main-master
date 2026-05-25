@@ -19,7 +19,11 @@ def run_checks(*, scope_id: Optional[str] = None) -> dict[str, Any]:
         checks.append({"name": name, "ok": ok, "detail": detail})
 
     _check("joyzoning.enabled", cfg.enabled)
-    _check("execution_journal", cfg.execution_journal)
+    _check(
+        "execution_journal",
+        True,
+        "enabled" if cfg.execution_journal else "disabled (opt-in; lower latency)",
+    )
 
     try:
         journal = get_journal()
@@ -81,6 +85,28 @@ def run_checks(*, scope_id: Optional[str] = None) -> dict[str, Any]:
     except Exception as exc:
         _check("scope_env", False, str(exc))
 
+    if cfg.jsdp_harness_enabled or cfg.jsdp_enabled:
+        try:
+            from agent.joyzoning.jsdp_harness_client import (
+                resolve_jz_executable,
+                resolve_workspace_root,
+                rolling_horizon_operational_hint,
+            )
+            root = resolve_workspace_root()
+            hint = rolling_horizon_operational_hint()
+            _check("jsdp_harness_workspace", True, root)
+            _check(
+                "jsdp_harness_present",
+                hint.get("harness_present") is True,
+                ".jsdp/ missing — run jz jsdp init in workspace" if not hint.get("harness_present") else "ok",
+            )
+            jz = resolve_jz_executable()
+            _check("jsdp_jz_cli", True, jz)
+        except Exception as exc:
+            _check("jsdp_harness", False, str(exc))
+    else:
+        _check("jsdp_harness", True, "disabled (set joyzoning.jsdp.harness.enabled)")
+
     ok = all(c["ok"] for c in checks)
     recommendations: list[str] = []
     if not cfg.enabled:
@@ -98,6 +124,14 @@ def run_checks(*, scope_id: Optional[str] = None) -> dict[str, Any]:
     if cfg.enabled and not cfg.control_plane_url:
         recommendations.append(
             "Optional: joyzoning.control_plane.url http://127.0.0.1:9470 for habitat supervision"
+        )
+    if cfg.enabled and not cfg.jsdp_harness_enabled:
+        recommendations.append(
+            "Enable joyzoning.jsdp.harness.enabled for rolling-horizon jsdp_horizon tool"
+        )
+    if cfg.jsdp_harness_enabled and not cfg.jsdp_jz_cli:
+        recommendations.append(
+            "Set joyzoning.jsdp.harness.jz_cli to JoyZoning scripts/joyzoning path"
         )
     for chk in checks:
         if not chk.get("ok"):

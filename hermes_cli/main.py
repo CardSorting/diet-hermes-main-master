@@ -1435,7 +1435,9 @@ def _pin_kanban_board_env() -> None:
 
 def cmd_chat(args):
     """Run interactive chat CLI."""
-    use_tui = getattr(args, "tui", False) or os.environ.get("HERMES_TUI") == "1"
+    from hermes_constants import resolve_interactive_tui
+
+    use_tui = resolve_interactive_tui(args)
 
     # Resolve --continue into --resume with the latest session or by name
     continue_val = getattr(args, "continue_last", None)
@@ -10521,8 +10523,9 @@ def _try_termux_fast_tui_launch() -> bool:
     if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
         return False
 
-    wants_tui = os.environ.get("HERMES_TUI") == "1" or "--tui" in sys.argv[1:]
-    if not wants_tui:
+    from hermes_constants import argv_requests_interactive_tui
+
+    if not argv_requests_interactive_tui():
         return False
 
     first = _first_positional_argv()
@@ -10540,7 +10543,9 @@ def _try_termux_fast_tui_launch() -> bool:
         return False
     if getattr(args, "command", None) not in {None, "chat"}:
         return False
-    if not (getattr(args, "tui", False) or os.environ.get("HERMES_TUI") == "1"):
+    from hermes_constants import resolve_interactive_tui
+
+    if not resolve_interactive_tui(args):
         return False
 
     cmd_chat(args)

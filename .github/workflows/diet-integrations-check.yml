@@ -55,6 +55,8 @@ jobs:
           test -f skills/devops/joyzoning-governed-work/SKILL.md
           test -f tools/convergence_tools.py
           test -f tools/joyzoning_tools.py
+          test -f tools/jsdp_harness_tools.py
+          test -f agent/joyzoning/jsdp_harness_client.py
           test -f tools/kanban_broccolidb_tools.py
           grep -q "'joyzoning'" toolsets.py
           test -f broccolidb/infrastructure/kanban/hive_sync.ts
@@ -95,7 +97,7 @@ jobs:
         run: scripts/run_tests.sh tests/agent/test_joyzoning_runtime.py -q
 
       - name: JoyZoning primitive tool tests
-        run: scripts/run_tests.sh tests/tools/test_joyzoning_tools.py -q
+        run: scripts/run_tests.sh tests/tools/test_joyzoning_tools.py tests/tools/test_jsdp_harness_tools.py -q
 
       - name: JoyZoning production hardening tests
         run: scripts/run_tests.sh tests/agent/test_joyzoning_production.py -q

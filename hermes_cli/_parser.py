@@ -43,7 +43,8 @@ def _build_epilogue() -> str:
     """Examples block — uses :func:`get_cli_command` (DietCode fork overlay)."""
     c = get_cli_command()
     examples = [
-        (f"{c:<28}", "Start interactive chat"),
+        (f"{c:<28}", "Start interactive chat (Ink TUI by default)"),
+        (f"{c} --classic", "Classic REPL instead of TUI"),
         (f"{c} chat -q \"Hello\"", "Single query mode"),
         (f"{c} -c", "Resume the most recent session"),
         (f"{c} -c \"my project\"", "Resume a session by name (latest in lineage)"),
@@ -227,7 +228,14 @@ def build_top_level_parser():
         "--tui",
         action="store_true",
         default=False,
-        help="Launch the modern TUI instead of the classic REPL",
+        help="Launch the Ink TUI (default for interactive dietcode; use --classic for REPL)",
+    )
+    _inherited_flag(
+        parser,
+        "--classic",
+        action="store_true",
+        default=False,
+        help="Launch the classic REPL instead of the Ink TUI (also HERMES_CLASSIC=1)",
     )
     _inherited_flag(
         parser,
@@ -374,7 +382,14 @@ def build_top_level_parser():
         "--tui",
         action="store_true",
         default=False,
-        help="Launch the modern TUI instead of the classic REPL",
+        help="Launch the Ink TUI (default for interactive dietcode; use --classic for REPL)",
+    )
+    _inherited_flag(
+        chat_parser,
+        "--classic",
+        action="store_true",
+        default=False,
+        help="Launch the classic REPL instead of the Ink TUI (also HERMES_CLASSIC=1)",
     )
     _inherited_flag(
         chat_parser,
