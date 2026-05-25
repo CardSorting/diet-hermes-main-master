@@ -48,6 +48,10 @@ jobs:
           test -f broccolidb/infrastructure/db/DatabaseSchema.ts
           test -d broccolidb/infrastructure/db/pool
           test -f plugins/kanban_broccolidb/plugin.yaml
+          test -f plugins/joyzoning_runtime/plugin.yaml
+          test -f plugins/jsdp_mutation/plugin.yaml
+          test -f agent/joyzoning/journal.py
+          test -f tools/convergence_tools.py
           test -f tools/kanban_broccolidb_tools.py
           test -f broccolidb/infrastructure/kanban/hive_sync.ts
           test -f broccolidb/infrastructure/kanban/hive_drift.ts
@@ -82,3 +86,6 @@ jobs:
 
       - name: Kanban BroccoliQ bridge tests
         run: scripts/run_tests.sh tests/tools/test_kanban_broccolidb_tools.py -q
+
+      - name: JoyZoning runtime tests
+        run: scripts/run_tests.sh tests/agent/test_joyzoning_runtime.py -q

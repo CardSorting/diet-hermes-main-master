@@ -8,9 +8,9 @@ Production responsibilities:
 """
 from __future__ import annotations
 
+import atexit
 import json
 import logging
-import os
 import re
 import threading
 import time
@@ -122,10 +122,33 @@ def validate_task_id(task_id: Optional[str]) -> Optional[str]:
     return tid
 
 
+def _joyzoning_forensic_fields() -> dict[str, Any]:
+    """Scope linkage for BroccoliQ hive rows (habitat GUID ↔ kanban t_…)."""
+    from agent.joyzoning.config import _read_scope_env
+
+    fields: dict[str, Any] = {}
+    habitat = _read_scope_env("JOYZONING_HABITAT_TASK")
+    scope = _read_scope_env("JOYZONING_SCOPE_ID")
+    if habitat:
+        fields["habitat_task"] = habitat
+    if scope:
+        fields["joyzoning_scope"] = scope
+    try:
+        from agent.joyzoning.config import get_joyzoning_config
+        if get_joyzoning_config().enabled:
+            from agent.joyzoning.convergence import get_convergence_state
+            from agent.joyzoning.config import resolve_scope_id
+            fields["convergence_state"] = get_convergence_state(resolve_scope_id()).value
+    except Exception:
+        pass
+    return fields
+
+
 def resolve_board_slug(board: Optional[str] = None) -> Optional[str]:
     if board and str(board).strip():
         return str(board).strip()
-    env_board = os.environ.get("HERMES_KANBAN_BOARD", "").strip()
+    from agent.joyzoning.config import _read_scope_env
+    env_board = _read_scope_env("HERMES_KANBAN_BOARD")
     return env_board or None
 
 
@@ -147,12 +170,19 @@ def _serialize_result(value: Any) -> Optional[str]:
         return str(value)
 
 
+def _shutdown_sync_executor() -> None:
+    global _sync_executor, _sync_executor_workers
+    if _sync_executor is not None:
+        _sync_executor.shutdown(wait=False, cancel_futures=True)
+        _sync_executor = None
+        _sync_executor_workers = 0
+
+
 def _get_sync_executor() -> ThreadPoolExecutor:
     global _sync_executor, _sync_executor_workers
     workers = get_config().max_sync_workers
     if _sync_executor is None or _sync_executor_workers != workers:
-        if _sync_executor is not None:
-            _sync_executor.shutdown(wait=False, cancel_futures=True)
+        _shutdown_sync_executor()
         _sync_executor = ThreadPoolExecutor(
             max_workers=workers,
             thread_name_prefix="kanban-hive-sync",
@@ -161,8 +191,13 @@ def _get_sync_executor() -> ThreadPoolExecutor:
     return _sync_executor
 
 
+atexit.register(_shutdown_sync_executor)
+
+
 def task_row_to_payload(task: Any, *, event: str = "sync") -> dict[str, Any]:
     """Convert a ``kanban_db.Task`` (or dict) into a hive sync payload."""
+    from agent.joyzoning.config import _read_scope_env
+
     cfg = get_config()
     if isinstance(task, dict):
         src = task
@@ -209,9 +244,10 @@ def task_row_to_payload(task: Any, *, event: str = "sync") -> dict[str, Any]:
         "run_id": (
             str(src.get("current_run_id"))
             if src.get("current_run_id") is not None
-            else os.environ.get("HERMES_KANBAN_RUN_ID")
+            else _read_scope_env("HERMES_KANBAN_RUN_ID")
         ),
-        "tenant": src.get("tenant") or os.environ.get("HERMES_TENANT"),
+        "tenant": src.get("tenant") or _read_scope_env("HERMES_TENANT"),
+        **_joyzoning_forensic_fields(),
     }
 
 
@@ -371,9 +407,11 @@ def maybe_auto_sync_tool(tool_name: str, args: dict | None) -> None:
     if tool_name not in _KANBAN_AUTO_SYNC_TOOLS:
         return
 
+    from agent.joyzoning.config import _read_scope_env
+
     args = args or {}
     task_id = validate_task_id(args.get("task_id")) or validate_task_id(
-        os.environ.get("HERMES_KANBAN_TASK")
+        _read_scope_env("HERMES_KANBAN_TASK")
     )
     if not task_id:
         return
@@ -392,9 +430,20 @@ def sync_on_worker_start() -> None:
     """Sync the dispatcher-assigned task when a kanban worker session starts."""
     if not auto_sync_enabled():
         return
-    task_id = validate_task_id(os.environ.get("HERMES_KANBAN_TASK"))
+    from agent.joyzoning.config import _read_scope_env
+
+    task_id = validate_task_id(_read_scope_env("HERMES_KANBAN_TASK"))
     if not task_id:
         return
+    try:
+        from agent.joyzoning.scope_registry import register_scope_aliases
+        habitat = _read_scope_env("JOYZONING_HABITAT_TASK")
+        scope = _read_scope_env("JOYZONING_SCOPE_ID")
+        ids = [x for x in (task_id, habitat, scope) if x]
+        if len(ids) >= 2:
+            register_scope_aliases(*ids)
+    except Exception as exc:
+        logger.warning("kanban_broccolidb scope alias registration failed: %s", exc)
     schedule_sync(task_id, event="start")
 
 

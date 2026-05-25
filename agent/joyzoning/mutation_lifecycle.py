@@ -1,0 +1,117 @@
+"""Plan → patch → verify → converge mutation lifecycle (Hermes runtime)."""
+from __future__ import annotations
+
+import uuid
+from typing import Any, Optional
+
+from agent.joyzoning.convergence import ConvergenceState, transition_convergence
+from agent.joyzoning.config import resolve_scope_id
+from agent.joyzoning.habitat_events import emit_habitat_event
+from agent.joyzoning.journal import get_journal
+
+
+def _latest_mutation_state(scope_id: str) -> Optional[str]:
+    row = get_journal()._conn().execute(
+        "SELECT state FROM mutation_scopes WHERE scope_id = ? ORDER BY updated_at DESC LIMIT 1",
+        (scope_id,),
+    ).fetchone()
+    return str(row["state"]) if row else None
+
+
+def begin_mutation(goal: str, *, scope_id: Optional[str] = None) -> dict[str, Any]:
+    sid = resolve_scope_id(scope_id)
+    mid = f"mut_{uuid.uuid4().hex[:12]}"
+    get_journal().upsert_mutation_scope(mid, sid, state="proposed", goal=goal)
+    result = transition_convergence(ConvergenceState.PROPOSED, scope_id=sid, summary=goal)
+    if not result.get("success"):
+        return result
+    return {**result, "mutation_id": mid}
+
+
+def record_patch(mutation_id: str, *, summary: str = "", scope_id: Optional[str] = None) -> dict[str, Any]:
+    sid = resolve_scope_id(scope_id)
+    get_journal().upsert_mutation_scope(mutation_id, sid, state="patching", goal=summary)
+    return transition_convergence(
+        ConvergenceState.PATCHING,
+        scope_id=sid,
+        summary=summary,
+        metadata={"mutation_id": mutation_id},
+    )
+
+
+def record_verification(
+    mutation_id: str,
+    *,
+    report: str,
+    passed: bool = True,
+    scope_id: Optional[str] = None,
+) -> dict[str, Any]:
+    sid = resolve_scope_id(scope_id)
+    state = ConvergenceState.VERIFYING if passed else ConvergenceState.REJECTED
+    get_journal().upsert_mutation_scope(
+        mutation_id,
+        sid,
+        state="verified" if passed else "rejected",
+        goal=report[:500],
+        metadata={"passed": passed},
+    )
+    emit_habitat_event(
+        "mutation.verified",
+        scope_id=sid,
+        payload={"mutation_id": mutation_id, "passed": passed, "report": report[:2000]},
+    )
+    if passed:
+        return transition_convergence(
+            ConvergenceState.VERIFYING,
+            scope_id=sid,
+            summary=report,
+            metadata={"mutation_id": mutation_id},
+        )
+    return transition_convergence(
+        ConvergenceState.REJECTED,
+        scope_id=sid,
+        summary=report,
+        metadata={"mutation_id": mutation_id},
+    )
+
+
+def request_review(summary: str, *, scope_id: Optional[str] = None) -> dict[str, Any]:
+    sid = resolve_scope_id(scope_id)
+    from agent.joyzoning.convergence import get_convergence_state
+
+    conv = get_convergence_state(sid)
+    mut_state = _latest_mutation_state(sid)
+    if mut_state not in ("verified", "verifying") and conv != ConvergenceState.VERIFYING:
+        return {
+            "success": False,
+            "error": "verify_required",
+            "message": (
+                "Call mutation_verify with passed=true before convergence_request_review."
+            ),
+            "scope_id": sid,
+            "mutation_state": mut_state,
+            "convergence_state": conv.value,
+        }
+
+    emit_habitat_event(
+        "convergence.review_requested",
+        scope_id=sid,
+        payload={"summary": summary},
+    )
+    try:
+        from agent.joyzoning.jsdp_protocol import validate_handoff_sections
+        handoff = validate_handoff_sections(summary)
+        if handoff.get("success"):
+            emit_habitat_event(
+                "jsdp.handoff_validated",
+                scope_id=sid,
+                payload={"sections": handoff.get("found_sections", [])},
+            )
+    except Exception:
+        pass
+
+    return transition_convergence(
+        ConvergenceState.READY_FOR_REVIEW,
+        scope_id=sid,
+        summary=summary,
+    )

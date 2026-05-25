@@ -12,8 +12,9 @@ logger = logging.getLogger(__name__)
 
 def _on_session_start(*, session_id: str = "", **_: Any) -> None:
     try:
+        from agent.joyzoning.config import _read_scope_env
         from tools.kanban_broccolidb_bridge import sync_on_worker_start, validate_task_id
-        if not validate_task_id(os.environ.get("HERMES_KANBAN_TASK")):
+        if not validate_task_id(_read_scope_env("HERMES_KANBAN_TASK")):
             return
         sync_on_worker_start()
     except Exception as exc:

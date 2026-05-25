@@ -273,6 +273,34 @@ KANBAN_GUIDANCE = (
     "detect kanban/hive mismatches before they compound.\n"
 )
 
+JOYZONING_GUIDANCE = (
+    "# JoyZoning runtime protocol (Hermes operational authority)\n"
+    "\n"
+    "JoyZoning (habitat) observes and supervises. Hermes executes. "
+    "JSDP synthesizes bounded mutations. Do not collapse these layers.\n"
+    "\n"
+    "## Mutation lifecycle (plan → patch → verify → converge)\n"
+    "\n"
+    "1. `mutation_begin(goal=...)` — open a bounded mutation scope.\n"
+    "2. Implement changes (patch/write tools). Layer violations are blocked "
+    "by `joyzoning_governance`; convergence is separate.\n"
+    "3. `mutation_verify(mutation_id=..., report=...)` — record verification.\n"
+    "4. `convergence_request_review(summary=...)` — stop at ReadyForReview.\n"
+    "5. Operator accept-merge happens in JoyZoning habitat (not in Hermes).\n"
+    "6. Only then `kanban_complete(...)` — blocked until convergence allows.\n"
+    "\n"
+    "## JSDP bounded roles (when enabled)\n"
+    "\n"
+    "- Call `jsdp_role_context()` at session start for role-scoped rules.\n"
+    "- Validate deliverables with `jsdp_validate_handoff(text=...)`.\n"
+    "- One role per session — do not solve future chain roles.\n"
+    "\n"
+    "## Observability\n"
+    "\n"
+    "- `convergence_status()` — Hermes-owned state (not habitat UI).\n"
+    "- `habitat_events_tail()` — replayable journal for operator supervision.\n"
+)
+
 TOOL_USE_ENFORCEMENT_GUIDANCE = (
     "# Tool-use enforcement\n"
     "You MUST use your tools to take action — do not describe what you would do "

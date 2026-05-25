@@ -2758,6 +2758,20 @@ def complete_task(
     """
     now = int(time.time())
 
+    try:
+        from agent.joyzoning.convergence_gate import assert_kanban_completion_allowed
+        assert_kanban_completion_allowed(task_id)
+    except Exception as exc:
+        from agent.joyzoning.convergence_gate import JoyZoningCompletionBlocked
+        if isinstance(exc, JoyZoningCompletionBlocked):
+            with write_txn(conn):
+                _append_event(
+                    conn, task_id, "completion_blocked_convergence",
+                    {"reason": str(exc)[:500]},
+                )
+            raise
+        # Non-policy errors must not block completion when joyzoning is disabled/unavailable.
+
     # Gate: verify created_cards BEFORE the main write txn. A rejected
     # completion still needs an auditable event, so we emit it in a
     # tiny dedicated txn, then raise. The caller is responsible for

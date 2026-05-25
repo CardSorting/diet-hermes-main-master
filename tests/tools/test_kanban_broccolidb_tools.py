@@ -126,6 +126,29 @@ def test_debounce_skips_rapid_heartbeats(monkeypatch, tmp_path):
     assert data.get("reason") == "debounced"
 
 
+def test_bridge_payload_includes_joyzoning_forensics(monkeypatch, tmp_path):
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("JOYZONING_HABITAT_TASK", "550e8400-e29b-41d4-a716-446655440000")
+    monkeypatch.setenv("JOYZONING_SCOPE_ID", "t_forensic1")
+    import agent.joyzoning.config as cfg_mod
+    cfg_mod._config_cache = None
+    from agent.joyzoning.convergence import ConvergenceState, transition_convergence
+    transition_convergence(ConvergenceState.PATCHING, scope_id="t_forensic1", summary="wip", force=True)
+
+    from tools.kanban_broccolidb_bridge import task_row_to_payload
+
+    payload = task_row_to_payload({
+        "id": "t_forensic1",
+        "title": "Forensic",
+        "status": "running",
+    }, event="heartbeat")
+    assert payload["habitat_task"] == "550e8400-e29b-41d4-a716-446655440000"
+    assert payload["joyzoning_scope"] == "t_forensic1"
+    assert payload["convergence_state"] == "patching"
+
+
 def test_bridge_task_row_to_payload():
     from tools.kanban_broccolidb_bridge import task_row_to_payload
 

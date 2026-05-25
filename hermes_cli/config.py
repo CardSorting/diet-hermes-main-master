@@ -1510,6 +1510,29 @@ DEFAULT_CONFIG = {
         "max_parallel_jobs": None,
     },
 
+    # JoyZoning cognitive architecture — native Hermes runtime (NOT habitat UI).
+    # JoyZoning (desktop :9470) observes/supervises; Hermes owns execution state.
+    # JSDP mutation provider is plugins/jsdp_mutation + joyzoning.jsdp config.
+    "joyzoning": {
+        "enabled": True,
+        "execution_journal": True,
+        "journal_path": "",
+        "emit_habitat_events": True,
+        "scope_id": "",
+        "convergence": {
+            "review_before_complete": True,
+        },
+        "control_plane": {
+            "url": "",
+            "observe_only": True,
+        },
+        "jsdp": {
+            "enabled": False,
+            "role": "",
+            "chain_id": "",
+        },
+    },
+
     # Kanban multi-agent coordination — controls the dispatcher loop that
     # spawns workers for ready tasks. The dispatcher ticks every N seconds
     # (default 60), reclaims stale claims, promotes dependency-satisfied

@@ -3014,6 +3014,14 @@ class APIServerAdapter(BasePlatformAdapter):
                     effective_task_id = session_id or run_id
                     approval_token = None
                     session_tokens = []
+                    metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+                    from gateway.session_context import clear_joyzoning_run_vars, set_joyzoning_run_vars
+
+                    joyzoning_tokens = set_joyzoning_run_vars(
+                        habitat_task=str(metadata.get("JOYZONING_HABITAT_TASK") or ""),
+                        scope_id=str(metadata.get("JOYZONING_SCOPE_ID") or ""),
+                        kanban_task=str(metadata.get("HERMES_KANBAN_TASK") or ""),
+                    )
                     try:
                         # Bind approval/session identity for this API run via
                         # contextvars so concurrent runs do not share process
@@ -3043,6 +3051,7 @@ class APIServerAdapter(BasePlatformAdapter):
                                     clear_session_vars(session_tokens)
                                 except Exception:
                                     pass
+                            clear_joyzoning_run_vars(joyzoning_tokens)
                     u = {
                         "input_tokens": getattr(agent, "session_prompt_tokens", 0) or 0,
                         "output_tokens": getattr(agent, "session_completion_tokens", 0) or 0,

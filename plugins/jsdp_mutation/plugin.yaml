@@ -1,0 +1,5 @@
+name: jsdp_mutation
+version: 1.0.0
+description: JSDP mutation provider — bounded role handoffs and validation (transformation layer).
+author: DietCode
+kind: backend
