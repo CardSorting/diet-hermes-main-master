@@ -1213,20 +1213,22 @@ def _resolve_gateway_model(config: dict | None = None) -> str:
 
 
 def _resolve_hermes_bin() -> Optional[list[str]]:
-    """Resolve the Hermes update command as argv parts.
+    """Resolve the CLI update command as argv parts (``dietcode`` / ``hermes``).
 
     Tries in order:
-    1. ``shutil.which("hermes")`` — standard PATH lookup
-    2. ``sys.executable -m hermes_cli.main`` — fallback when Hermes is running
-       from a venv/module invocation and the ``hermes`` shim is not on PATH
+    1. ``shutil.which(get_cli_command())`` then legacy ``hermes`` on PATH
+    2. ``sys.executable -m hermes_cli.main`` — fallback when running from venv
 
     Returns argv parts ready for quoting/joining, or ``None`` if neither works.
     """
     import shutil
 
-    hermes_bin = shutil.which("hermes")
-    if hermes_bin:
-        return [hermes_bin]
+    from hermes_constants import get_cli_command, get_legacy_cli_command
+
+    for name in (get_cli_command(), get_legacy_cli_command()):
+        found = shutil.which(name)
+        if found:
+            return [found]
 
     try:
         import importlib.util
@@ -13556,6 +13558,7 @@ class GatewayRunner:
         import subprocess
         from datetime import datetime
         from hermes_cli.config import is_managed, format_managed_message
+        from hermes_constants import cli_usage, format_cli_reference
 
         # Block non-messaging platforms (API server, webhooks, ACP)
         platform = event.source.platform
@@ -13566,9 +13569,9 @@ class GatewayRunner:
                 from gateway.platform_registry import platform_registry
                 entry = platform_registry.get(platform.value)
                 if not entry or not entry.allow_update_command:
-                    return t("gateway.update.platform_not_messaging")
+                    return format_cli_reference(t("gateway.update.platform_not_messaging"))
             except Exception:
-                return t("gateway.update.platform_not_messaging")
+                return format_cli_reference(t("gateway.update.platform_not_messaging"))
 
         if is_managed():
             return f"✗ {format_managed_message('update Hermes Agent')}"
@@ -13577,11 +13580,11 @@ class GatewayRunner:
         git_dir = project_root / '.git'
 
         if not git_dir.exists():
-            return t("gateway.update.not_git_repo")
+            return format_cli_reference(t("gateway.update.not_git_repo"))
 
         hermes_cmd = _resolve_hermes_bin()
         if not hermes_cmd:
-            return t("gateway.update.hermes_cmd_not_found")
+            return format_cli_reference(t("gateway.update.hermes_cmd_not_found"))
 
         pending_path = _hermes_home / ".update_pending.json"
         output_path = _hermes_home / ".update_output.txt"
@@ -13984,7 +13987,9 @@ class GatewayRunner:
                 elif exit_code == 0:
                     msg = "✅ Hermes update finished successfully."
                 else:
-                    msg = "❌ Hermes update failed. Check the gateway logs or run `hermes update` manually for details."
+                    msg = format_cli_reference(
+                        f"❌ Hermes update failed. Check the gateway logs or run `{cli_usage('update')}` manually for details."
+                    )
                 await adapter.send(chat_id, msg, metadata=metadata)
                 logger.info(
                     "Sent post-update notification to %s:%s (exit=%s)",

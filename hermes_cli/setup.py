@@ -632,9 +632,11 @@ def _print_setup_summary(config: dict, hermes_home):
     print()
     print(color("🚀 Ready to go!", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('hermes', Colors.GREEN)}              Start chatting")
-    print(f"   {color('hermes gateway', Colors.GREEN)}      Start messaging gateway")
-    print(f"   {color('hermes doctor', Colors.GREEN)}       Check for issues")
+    from hermes_constants import cli_usage
+
+    print(f"   {color(cli_usage(), Colors.GREEN)}              Start chatting")
+    print(f"   {color(cli_usage('gateway'), Colors.GREEN)}      Start messaging gateway")
+    print(f"   {color(cli_usage('doctor'), Colors.GREEN)}       Check for issues")
     print()
 
 

@@ -168,7 +168,21 @@ This repository is **diet-hermes** — a specialized fork of [NousResearch/herme
 
 Install and run with `./setup-hermes.sh` then `dietcode setup`. Config, sessions, skills, and gateway state live under `~/.dietcode/` and do not touch an existing `~/.hermes/` install.
 
-**Upstream merge overlay:** after each `git merge upstream/main`, re-apply the product block at the top of `hermes_constants.py` (search for `DietCode fork`), restore `pyproject.toml` `[project.scripts]` `dietcode*` entries, and check `hermes_bootstrap.py` calls `ensure_default_home_env()`. Internal module names (`hermes_cli`, `HERMES_HOME` in code) stay upstream-compatible on purpose.
+**Upstream merge overlay:** after each `git merge upstream/main`, re-apply these fork-specific surfaces (internal names like `hermes_cli` and `HERMES_HOME` in code stay upstream-compatible on purpose):
+
+| File | What to restore |
+|------|-----------------|
+| `hermes_constants.py` | `DietCode fork` block: `PRODUCT_CLI_COMMAND`, `cli_usage()`, `format_cli_reference()` |
+| `pyproject.toml` | `[project.scripts]` — `dietcode`, `dietcode-agent`, `dietcode-acp` (+ optional `hermes*` aliases) |
+| `hermes_bootstrap.py` | `ensure_default_home_env()` on import |
+| `hermes_cli/_parser.py` | `get_cli_command()` for `prog=` and `_build_epilogue()` (not hardcoded `hermes`) |
+| `hermes_cli/relaunch.py` | PATH lookup tries `dietcode` then `hermes` |
+| `hermes_cli/config.py` | `recommended_update_command_for_method("git")` → `cli_usage("update")` |
+| `gateway/run.py` | `_resolve_hermes_bin()` prefers `dietcode` on PATH |
+| `hermes_cli/tips.py` | post-process `TIPS` with `format_cli_reference` |
+| `setup-hermes.sh` | symlinks `dietcode` (+ `hermes` compat) |
+
+User-facing help, tips, and relaunch all read `get_cli_command()` — upstream can keep adding `hermes` strings in merged files; re-wire the table above if argparse or update paths regress.
 
 ### Integration overlay (must survive every upstream sync)
 

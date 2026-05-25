@@ -13,6 +13,8 @@ import shutil
 import sys
 from typing import Optional, Sequence
 
+from hermes_constants import cli_usage, get_cli_command, get_legacy_cli_command, get_product_display_name
+
 from hermes_cli._parser import (
     PRE_ARGPARSE_INHERITED_FLAGS,
     build_top_level_parser,
@@ -78,11 +80,11 @@ def _extract_inherited_flags(argv: Sequence[str]) -> list[str]:
 
 
 def resolve_hermes_bin() -> Optional[str]:
-    """Find the hermes entry point.
+    """Find the CLI entry point (``dietcode`` in this fork, ``hermes`` alias).
 
     Priority:
       1. ``sys.argv[0]`` if it resolves to a real executable.
-      2. ``shutil.which("hermes")`` on PATH.
+      2. ``shutil.which(get_cli_command())`` then legacy ``hermes`` on PATH.
       3. ``None`` → caller should fall back to ``python -m hermes_cli.main``.
 
     Windows note: ``os.access(path, os.X_OK)`` returns True for ``.py`` and
@@ -113,10 +115,11 @@ def resolve_hermes_bin() -> Optional[str]:
             if not (_is_windows and _is_python_script(abs_path)):
                 return abs_path
 
-    # PATH lookup
-    path_bin = shutil.which("hermes")
-    if path_bin:
-        return path_bin
+    # PATH lookup — primary command first, then upstream-compat alias
+    for name in (get_cli_command(), get_legacy_cli_command()):
+        path_bin = shutil.which(name)
+        if path_bin:
+            return path_bin
 
     return None
 
@@ -195,9 +198,9 @@ def relaunch(
             # cryptic.  Common causes: ``hermes`` not on PATH yet (install
             # hasn't propagated User PATH into this shell) or a stale shim.
             print(
-                f"\nHermes relaunch failed: {exc}\n"
+                f"\n{get_product_display_name()} relaunch failed: {exc}\n"
                 f"Command: {' '.join(new_argv)}\n"
-                f"Fix: open a new terminal so PATH picks up, then re-run hermes.",
+                f"Fix: open a new terminal so PATH picks up, then re-run {cli_usage()}.",
                 file=sys.stderr,
             )
             sys.exit(1)

@@ -10,7 +10,10 @@ import hermes_constants
 from hermes_constants import (
     PRODUCT_HOME_DIRNAME,
     VALID_REASONING_EFFORTS,
+    cli_usage,
     ensure_default_home_env,
+    format_cli_reference,
+    get_cli_command,
     get_default_hermes_root,
     get_hermes_home,
     get_native_default_home,
@@ -21,6 +24,15 @@ from hermes_constants import (
 
 class TestDietCodeProductOverlay:
     """DietCode fork uses ~/.dietcode and DIETCODE_HOME by default."""
+
+    def test_cli_command_is_dietcode(self):
+        assert get_cli_command() == "dietcode"
+        assert cli_usage("update") == "dietcode update"
+
+    def test_format_cli_reference_replaces_bare_hermes_only(self):
+        assert format_cli_reference("run `hermes update`") == "run `dietcode update`"
+        assert format_cli_reference("hermes-agent-dev") == "hermes-agent-dev"
+        assert format_cli_reference("HERMES_HOME") == "HERMES_HOME"
 
     def test_native_default_home_dirname(self, tmp_path, monkeypatch):
         monkeypatch.setattr(Path, "home", lambda: tmp_path)

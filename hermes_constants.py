@@ -17,6 +17,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 PRODUCT_DISPLAY_NAME = "DietCode"
 PRODUCT_CLI_COMMAND = "dietcode"
+LEGACY_CLI_COMMAND = "hermes"  # compat entry-point alias (pyproject [project.scripts])
 PRODUCT_HOME_DIRNAME = ".dietcode"
 HOME_ENV_PRIMARY = "DIETCODE_HOME"
 HOME_ENV_COMPAT = "HERMES_HOME"
@@ -30,6 +31,31 @@ def get_product_display_name() -> str:
 def get_cli_command() -> str:
     """Primary CLI executable name (``dietcode`` in this fork)."""
     return PRODUCT_CLI_COMMAND
+
+
+def get_legacy_cli_command() -> str:
+    """Upstream-compatible CLI name kept as an install alias."""
+    return LEGACY_CLI_COMMAND
+
+
+def cli_usage(*subcommand: str) -> str:
+    """Build a user-facing command string, e.g. ``cli_usage('update')`` → ``dietcode update``."""
+    parts = [get_cli_command(), *subcommand]
+    return " ".join(p for p in parts if p)
+
+
+def format_cli_reference(text: str) -> str:
+    """Replace standalone ``hermes`` CLI mentions with :func:`get_cli_command`.
+
+    Does not touch ``hermes_cli``, ``hermes-agent``, ``HERMES_HOME``, or
+    ``hermes-agent-dev`` — only the bare command word.
+    """
+    import re
+
+    cmd = get_cli_command()
+    if cmd == LEGACY_CLI_COMMAND:
+        return text
+    return re.sub(r"(?<![\w-])hermes(?![-\w])", cmd, text)
 
 
 def get_product_icon() -> str:

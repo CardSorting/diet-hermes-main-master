@@ -5,7 +5,8 @@ export interface LaunchResult {
   error?: string
 }
 
-const resolveHermesBin = () => process.env.HERMES_BIN?.trim() || 'hermes'
+const resolveHermesBin = () =>
+  process.env.DIETCODE_BIN?.trim() || process.env.HERMES_BIN?.trim() || 'dietcode'
 
 export const launchHermesCommand = (args: string[]): Promise<LaunchResult> =>
   new Promise(resolve => {

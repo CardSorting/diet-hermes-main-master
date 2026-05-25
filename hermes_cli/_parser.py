@@ -12,6 +12,8 @@ because its dispatch is tightly coupled to module-level ``cmd_*`` functions.
 
 import argparse
 
+from hermes_constants import get_cli_command, get_product_display_name
+
 
 # `--profile` / `-p` is consumed by ``main._apply_profile_override`` before
 # argparse runs (it sets ``HERMES_HOME`` and strips itself from ``sys.argv``),
@@ -37,45 +39,55 @@ def _inherited_flag(parser, *args, **kwargs):
     return action
 
 
-_EPILOGUE = """
+def _build_epilogue() -> str:
+    """Examples block — uses :func:`get_cli_command` (DietCode fork overlay)."""
+    c = get_cli_command()
+    examples = [
+        (f"{c:<28}", "Start interactive chat"),
+        (f"{c} chat -q \"Hello\"", "Single query mode"),
+        (f"{c} -c", "Resume the most recent session"),
+        (f"{c} -c \"my project\"", "Resume a session by name (latest in lineage)"),
+        (f"{c} --resume <session_id>", "Resume a specific session by ID"),
+        (f"{c} setup", "Run setup wizard"),
+        (f"{c} logout", "Clear stored authentication"),
+        (f"{c} auth add <provider>", "Add a pooled credential"),
+        (f"{c} auth list", "List pooled credentials"),
+        (f"{c} auth remove <p> <t>", "Remove pooled credential by index, id, or label"),
+        (f"{c} auth reset <provider>", "Clear exhaustion status for a provider"),
+        (f"{c} model", "Select default model"),
+        (f"{c} fallback [list]", "Show fallback provider chain"),
+        (f"{c} fallback add", f"Add a fallback provider (same picker as `{c} model`)"),
+        (f"{c} fallback remove", "Remove a fallback provider from the chain"),
+        (f"{c} config", "View configuration"),
+        (f"{c} config edit", "Edit config in $EDITOR"),
+        (f"{c} config set model gpt-4", "Set a config value"),
+        (f"{c} gateway", "Run messaging gateway"),
+        (f"{c} -s hermes-agent-dev,github-auth", ""),
+        (f"{c} -w", "Start in isolated git worktree"),
+        (f"{c} gateway install", "Install gateway background service"),
+        (f"{c} sessions list", "List past sessions"),
+        (f"{c} sessions browse", "Interactive session picker"),
+        (f"{c} sessions rename ID T", "Rename/title a session"),
+        (f"{c} logs", "View agent.log (last 50 lines)"),
+        (f"{c} logs -f", "Follow agent.log in real time"),
+        (f"{c} logs errors", "View errors.log"),
+        (f"{c} logs --since 1h", "Lines from the last hour"),
+        (f"{c} debug share", "Upload debug report for support"),
+        (f"{c} update", "Update to latest version"),
+        (f"{c} dashboard", "Start web UI dashboard (port 9119)"),
+        (f"{c} dashboard --stop", "Stop running dashboard processes"),
+        (f"{c} dashboard --status", "List running dashboard processes"),
+    ]
+    body = "\n".join(
+        f"    {cmd:<36}{desc}" if desc else f"    {cmd}"
+        for cmd, desc in examples
+    )
+    return f"""
 Examples:
-    hermes                        Start interactive chat
-    hermes chat -q "Hello"        Single query mode
-    hermes -c                     Resume the most recent session
-    hermes -c "my project"        Resume a session by name (latest in lineage)
-    hermes --resume <session_id>  Resume a specific session by ID
-    hermes setup                  Run setup wizard
-    hermes logout                 Clear stored authentication
-    hermes auth add <provider>    Add a pooled credential
-    hermes auth list              List pooled credentials
-    hermes auth remove <p> <t>    Remove pooled credential by index, id, or label
-    hermes auth reset <provider>  Clear exhaustion status for a provider
-    hermes model                  Select default model
-    hermes fallback [list]        Show fallback provider chain
-    hermes fallback add           Add a fallback provider (same picker as `hermes model`)
-    hermes fallback remove        Remove a fallback provider from the chain
-    hermes config                 View configuration
-    hermes config edit            Edit config in $EDITOR
-    hermes config set model gpt-4 Set a config value
-    hermes gateway                Run messaging gateway
-    hermes -s hermes-agent-dev,github-auth
-    hermes -w                     Start in isolated git worktree
-    hermes gateway install        Install gateway background service
-    hermes sessions list          List past sessions
-    hermes sessions browse        Interactive session picker
-    hermes sessions rename ID T   Rename/title a session
-    hermes logs                   View agent.log (last 50 lines)
-    hermes logs -f                Follow agent.log in real time
-    hermes logs errors            View errors.log
-    hermes logs --since 1h        Lines from the last hour
-    hermes debug share             Upload debug report for support
-    hermes update                 Update to latest version
-    hermes dashboard              Start web UI dashboard (port 9119)
-    hermes dashboard --stop       Stop running dashboard processes
-    hermes dashboard --status     List running dashboard processes
+{body}
 
 For more help on a command:
-    hermes <command> --help
+    {c} <command> --help
 """
 
 
@@ -87,10 +99,10 @@ def build_top_level_parser():
     other subparsers via ``subparsers.add_parser(...)``.
     """
     parser = argparse.ArgumentParser(
-        prog="hermes",
-        description="Hermes Agent - AI assistant with tool-calling capabilities",
+        prog=get_cli_command(),
+        description=f"{get_product_display_name()} — AI assistant with tool-calling capabilities",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_EPILOGUE,
+        epilog=_build_epilogue(),
     )
 
     parser.add_argument(
@@ -112,7 +124,7 @@ def build_top_level_parser():
     # --model / --provider are accepted at the top level so they can pair
     # with -z without needing the `chat` subcommand.  If neither -z nor a
     # subcommand consumes them, they fall through harmlessly as None.
-    # Mirrors `hermes chat --model ... --provider ...` semantics.
+    # Mirrors `{cmd} chat --model ... --provider ...` semantics.
     _inherited_flag(
         parser,
         "-m",

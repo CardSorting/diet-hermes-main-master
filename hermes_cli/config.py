@@ -255,7 +255,9 @@ def recommended_update_command_for_method(method: str) -> str:
         if uv:
             return "uv pip install --upgrade hermes-agent"
         return "pip install --upgrade hermes-agent"
-    return "hermes update"
+    from hermes_constants import cli_usage
+
+    return cli_usage("update")
 
 
 def recommended_update_command() -> str:

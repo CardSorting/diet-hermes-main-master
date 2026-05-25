@@ -472,6 +472,11 @@ TIPS = [
     'Dashboard plugins are served from /dashboard-plugins/<name>/ — drop files into ~/.hermes/dashboard-plugins/.',
 ]
 
+from hermes_constants import format_cli_reference
+
+# DietCode fork: user-facing tips show ``dietcode`` instead of bare ``hermes``.
+TIPS = [format_cli_reference(t) for t in TIPS]
+
 
 def get_random_tip(exclude_recent: int = 0) -> str:
     """Return a random tip string.
