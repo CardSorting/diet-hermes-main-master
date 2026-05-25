@@ -93,10 +93,6 @@ def read_scope_env(key: str) -> str:
     return os.environ.get(key, "").strip()
 
 
-# Back-compat for internal call sites during migration.
-_read_scope_env = read_scope_env
-
-
 def resolve_scope_id(explicit: Optional[str] = None) -> str:
     if explicit and str(explicit).strip():
         return str(explicit).strip()

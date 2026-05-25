@@ -49,7 +49,12 @@ def _on_post_tool_call(
         if tool_name == "kanban_create":
             new_id = _extract_task_id_from_result(result)
             if new_id:
-                schedule_sync(new_id, event="create", board=resolve_board_slug())
+                schedule_sync(
+                    new_id,
+                    event="create",
+                    board=resolve_board_slug(),
+                    force=True,
+                )
     except Exception as exc:
         logger.warning("kanban_broccolidb post_tool_call (%s): %s", tool_name, exc)
 

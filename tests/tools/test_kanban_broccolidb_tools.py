@@ -158,8 +158,47 @@ def test_task_row_payload_omits_invalid_task_id():
     from tools.kanban_broccolidb_bridge import task_row_to_payload, validate_task_id
 
     payload = task_row_to_payload({"id": "not-valid", "title": "x", "status": "ready"})
-    assert payload["task_id"] is None
-    assert validate_task_id(payload["task_id"]) is None
+    assert "task_id" not in payload
+    assert validate_task_id("not-valid") is None
+
+
+def test_forensic_fields_omit_convergence_without_scope(monkeypatch, tmp_path):
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    monkeypatch.delenv("JOYZONING_HABITAT_TASK", raising=False)
+    monkeypatch.delenv("JOYZONING_SCOPE_ID", raising=False)
+
+    from tools.kanban_broccolidb_bridge import task_row_to_payload
+
+    payload = task_row_to_payload({
+        "id": "t_noscope1",
+        "title": "x",
+        "status": "ready",
+    })
+    assert "convergence_state" not in payload
+
+
+def test_sync_on_worker_start_skips_register_when_joyzoning_enabled(monkeypatch):
+    import tools.kanban_broccolidb_bridge as bridge
+
+    calls = []
+
+    monkeypatch.setattr(bridge, "auto_sync_enabled", lambda: True)
+    monkeypatch.setattr(bridge, "_scope_env", lambda k: "t_regskip1" if k == "HERMES_KANBAN_TASK" else "")
+    monkeypatch.setattr(bridge, "schedule_sync", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "agent.joyzoning.config.get_joyzoning_config",
+        lambda: type("C", (), {"enabled": True})(),
+    )
+    monkeypatch.setattr(
+        "agent.joyzoning.scope_registry.register_from_scope_env",
+        lambda: calls.append("register"),
+    )
+
+    bridge.sync_on_worker_start()
+    assert calls == []
 
 
 def test_bridge_payload_includes_joyzoning_forensics(monkeypatch, tmp_path):
@@ -243,6 +282,7 @@ def test_force_sync_bypasses_debounce(monkeypatch, tmp_path):
     import tools.kanban_broccolidb_bridge as bridge
     from tools.kanban_broccolidb_bridge import BroccolidbKanbanConfig, sync_kanban_task_id
 
+    bridge.invalidate_config_cache()
     bridge._config_cache = BroccolidbKanbanConfig.load()
     bridge._config_cache_at = time.monotonic()
     bridge._last_sync_at["t_force01"] = time.monotonic()
@@ -323,8 +363,10 @@ def test_compute_drift_reports_missing(monkeypatch, tmp_path):
         _fake_drift,
     )
 
+    import tools.kanban_broccolidb_bridge as bridge
     from tools.kanban_broccolidb_bridge import compute_drift
 
+    bridge.invalidate_config_cache()
     report = compute_drift(limit=10)
     assert report["success"] is True
     assert report["missing_in_hive"] == ["t_def456"]

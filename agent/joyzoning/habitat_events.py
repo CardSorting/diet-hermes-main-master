@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Optional
 
@@ -65,20 +66,28 @@ def _mirror_to_control_plane(
     payload: dict[str, Any],
 ) -> None:
     """Best-effort fire-and-forget mirror — habitat observes, does not authorize."""
-    try:
-        from agent.joyzoning.control_plane_client import ControlPlaneClient
-        client = ControlPlaneClient()
-        client.emit_observation(
-            event_type=event_type,
-            layer=layer.value,
-            scope_id=scope_id,
-            session_id=session_id,
-            run_id=run_id,
-            payload=payload,
-            timestamp=time.time(),
-        )
-    except Exception as exc:
-        logger.debug("habitat event mirror skipped: %s", exc)
+
+    def _send() -> None:
+        try:
+            from agent.joyzoning.control_plane_client import ControlPlaneClient
+            client = ControlPlaneClient()
+            client.emit_observation(
+                event_type=event_type,
+                layer=layer.value,
+                scope_id=scope_id,
+                session_id=session_id,
+                run_id=run_id,
+                payload=payload,
+                timestamp=time.time(),
+            )
+        except Exception as exc:
+            logger.debug("habitat event mirror skipped: %s", exc)
+
+    threading.Thread(
+        target=_send,
+        name="joyzoning-cp-mirror",
+        daemon=True,
+    ).start()
 
 
 def format_habitat_stream(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

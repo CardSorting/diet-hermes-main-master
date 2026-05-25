@@ -31,7 +31,7 @@ _KANBAN_AUTO_SYNC_TOOLS = frozenset({
 })
 
 # kanban_create handled separately — task_id only exists in tool result.
-_FORCE_SYNC_EVENTS = frozenset({"complete", "block", "create", "start"})
+_FORCE_SYNC_EVENTS = frozenset({"complete", "block", "create", "start", "record", "context"})
 _MAX_DEBOUNCE_ENTRIES = 500
 _MAX_INFLIGHT_ENTRIES = 200
 
@@ -121,6 +121,20 @@ def _scope_env(key: str) -> str:
     return read_scope_env(key)
 
 
+def _skip_result(reason: str, **extra: Any) -> str:
+    return json.dumps({"success": False, "skipped": True, "reason": reason, **extra})
+
+
+def _debounced_result(task_id: str, event: str) -> str:
+    return json.dumps({
+        "success": True,
+        "skipped": True,
+        "reason": "debounced",
+        "task_id": task_id,
+        "event": event,
+    })
+
+
 def broccolidb_enabled() -> bool:
     return get_config().enabled
 
@@ -163,14 +177,16 @@ def _joyzoning_forensic_fields() -> dict[str, Any]:
         fields["habitat_task"] = habitat
     if scope:
         fields["joyzoning_scope"] = scope
+    if not (habitat or scope or _scope_env("HERMES_KANBAN_TASK")):
+        return fields
     try:
         from agent.joyzoning.config import get_joyzoning_config, resolve_scope_id
-        if get_joyzoning_config().enabled:
-            from agent.joyzoning.convergence import get_convergence_state
-            kanban = _scope_env("HERMES_KANBAN_TASK")
-            fields["convergence_state"] = get_convergence_state(
-                resolve_scope_id(kanban or scope or habitat)
-            ).value
+        if not get_joyzoning_config().enabled:
+            return fields
+        from agent.joyzoning.convergence import get_convergence_state
+        sid = resolve_scope_id(_scope_env("HERMES_KANBAN_TASK") or scope or habitat)
+        if sid and sid != "default":
+            fields["convergence_state"] = get_convergence_state(sid).value
     except Exception:
         pass
     return fields
@@ -260,7 +276,7 @@ def task_row_to_payload(task: Any, *, event: str = "sync") -> dict[str, Any]:
             raw_tid,
         )
 
-    return {
+    payload = {
         "task_id": task_id,
         "title": (src.get("title") or "").strip() or str(task_id or raw_tid or "untitled"),
         "body": src.get("body") or "",
@@ -283,6 +299,7 @@ def task_row_to_payload(task: Any, *, event: str = "sync") -> dict[str, Any]:
         "tenant": src.get("tenant") or _scope_env("HERMES_TENANT"),
         **_joyzoning_forensic_fields(),
     }
+    return {k: v for k, v in payload.items() if v is not None}
 
 
 def _should_debounce(task_id: str, event: str) -> bool:
@@ -314,13 +331,9 @@ def sync_task_payload(payload: dict[str, Any], *, force: bool = False) -> str:
     from tools.broccolidb_tools.runner import run_hive_sync
 
     if not broccolidb_enabled():
-        return json.dumps({"success": False, "skipped": True, "reason": "disabled in config"})
+        return _skip_result("disabled in config")
     if not broccolidb_available():
-        return json.dumps({
-            "success": False,
-            "skipped": True,
-            "reason": "broccolidb package not found in workspace",
-        })
+        return _skip_result("broccolidb package not found in workspace")
 
     tid = validate_task_id(payload.get("task_id"))
     if not tid:
@@ -328,13 +341,7 @@ def sync_task_payload(payload: dict[str, Any], *, force: bool = False) -> str:
 
     event = str(payload.get("event") or "sync")
     if not force and _should_debounce(tid, event):
-        return json.dumps({
-            "success": True,
-            "skipped": True,
-            "reason": "debounced",
-            "task_id": tid,
-            "event": event,
-        })
+        return _debounced_result(tid, event)
 
     clean = {k: v for k, v in {**payload, "task_id": tid}.items() if v is not None}
     raw = run_hive_sync(clean)
@@ -363,8 +370,12 @@ def sync_task_payload(payload: dict[str, Any], *, force: bool = False) -> str:
 
 
 def sync_kanban_task(task: Any, *, event: str = "sync", force: bool = False) -> str:
-    if not broccolidb_enabled():
-        return json.dumps({"success": False, "skipped": True, "reason": "disabled in config"})
+    if not broccolidb_available():
+        return _skip_result(
+            "disabled in config"
+            if not broccolidb_enabled()
+            else "broccolidb package not found in workspace",
+        )
     return sync_task_payload(task_row_to_payload(task, event=event), force=force)
 
 
@@ -376,21 +387,19 @@ def sync_kanban_task_id(
     force: bool = False,
 ) -> str:
     """Load a task from kanban.db and sync it to the hive layer."""
-    if not broccolidb_enabled():
-        return json.dumps({"success": False, "skipped": True, "reason": "disabled in config"})
+    if not broccolidb_available():
+        return _skip_result(
+            "disabled in config"
+            if not broccolidb_enabled()
+            else "broccolidb package not found in workspace",
+        )
 
     tid = validate_task_id(task_id)
     if not tid:
         return json.dumps({"success": False, "error": f"invalid task_id: {task_id!r}"})
 
     if not force and _should_debounce(tid, event):
-        return json.dumps({
-            "success": True,
-            "skipped": True,
-            "reason": "debounced",
-            "task_id": tid,
-            "event": event,
-        })
+        return _debounced_result(tid, event)
 
     try:
         from hermes_cli import kanban_db as kb
@@ -491,8 +500,11 @@ def sync_on_worker_start() -> None:
     if not task_id:
         return
     try:
+        from agent.joyzoning.config import get_joyzoning_config
         from agent.joyzoning.scope_registry import register_from_scope_env
-        register_from_scope_env()
+        # joyzoning_runtime registers aliases on session.start when enabled.
+        if not get_joyzoning_config().enabled:
+            register_from_scope_env()
     except Exception as exc:
         logger.warning("kanban_broccolidb scope alias registration failed: %s", exc)
     schedule_sync(task_id, event="start")

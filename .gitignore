@@ -79,6 +79,7 @@ docs/superpowers/*
 *.db-wal
 *.db-shm
 # BroccoliDB
+broccolidb/scratch/
 broccolidb.db
 broccolidb.db-wal
 broccolidb.db-shm

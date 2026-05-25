@@ -270,6 +270,7 @@ def test_journal_integrity_check(jz_env):
 def test_broccolidb_sync_registers_scope_aliases_on_start(monkeypatch, tmp_path):
     home = tmp_path / ".hermes"
     home.mkdir()
+    (home / "config.yaml").write_text("joyzoning:\n  enabled: false\n")
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_sync001")
     monkeypatch.setenv("JOYZONING_HABITAT_TASK", "550e8400-e29b-41d4-a716-446655440001")
@@ -277,9 +278,12 @@ def test_broccolidb_sync_registers_scope_aliases_on_start(monkeypatch, tmp_path)
     import agent.joyzoning.config as cfg_mod
     cfg_mod._config_cache = None
 
+    import tools.kanban_broccolidb_bridge as bridge
     from agent.joyzoning.scope_registry import expand_scope_cluster
     from tools.kanban_broccolidb_bridge import sync_on_worker_start
 
+    monkeypatch.setattr(bridge, "auto_sync_enabled", lambda: True)
+    monkeypatch.setattr(bridge, "schedule_sync", lambda *a, **k: None)
     sync_on_worker_start()
     cluster = expand_scope_cluster("t_sync001")
     assert "550e8400-e29b-41d4-a716-446655440001" in cluster

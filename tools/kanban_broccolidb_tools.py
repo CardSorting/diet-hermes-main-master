@@ -14,7 +14,6 @@ from tools.kanban_tools import (
 )
 from tools.kanban_broccolidb_bridge import (
     broccolidb_available,
-    broccolidb_enabled,
     compute_drift,
     sync_kanban_task_id,
     validate_task_id,
@@ -26,16 +25,12 @@ from tools.broccolidb_tools.runner import (
 )
 
 
-def _broccolidb_available() -> bool:
-    return broccolidb_available()
-
-
 def _check_kanban_broccolidb_mode() -> bool:
-    return _check_kanban_mode() and _broccolidb_available()
+    return _check_kanban_mode() and broccolidb_available()
 
 
 def _check_kanban_broccolidb_orchestrator_mode() -> bool:
-    return _check_kanban_orchestrator_mode() and _broccolidb_available()
+    return _check_kanban_orchestrator_mode() and broccolidb_available()
 
 
 def _parse_sync_result(raw: str, *, context: str) -> str:
