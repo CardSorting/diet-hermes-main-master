@@ -15,6 +15,7 @@ from agent.joyzoning.convergence import (
 )
 from agent.joyzoning.journal import ExecutionJournal, get_journal
 from agent.joyzoning.config import JoyZoningConfig, get_joyzoning_config
+from agent.joyzoning.scope_registry import register_from_scope_env
 
 __all__ = [
     "RuntimeLayer",
@@ -27,4 +28,5 @@ __all__ = [
     "get_journal",
     "JoyZoningConfig",
     "get_joyzoning_config",
+    "register_from_scope_env",
 ]

@@ -3021,6 +3021,10 @@ class APIServerAdapter(BasePlatformAdapter):
                         habitat_task=str(metadata.get("JOYZONING_HABITAT_TASK") or ""),
                         scope_id=str(metadata.get("JOYZONING_SCOPE_ID") or ""),
                         kanban_task=str(metadata.get("HERMES_KANBAN_TASK") or ""),
+                        kanban_board=str(metadata.get("HERMES_KANBAN_BOARD") or ""),
+                        kanban_run_id=str(metadata.get("HERMES_KANBAN_RUN_ID") or ""),
+                        tenant=str(metadata.get("HERMES_TENANT") or ""),
+                        session_id=str(metadata.get("HERMES_SESSION_ID") or session_id or ""),
                     )
                     try:
                         # Bind approval/session identity for this API run via

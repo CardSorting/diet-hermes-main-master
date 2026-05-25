@@ -81,7 +81,7 @@ def get_joyzoning_config() -> JoyZoningConfig:
     return _config_cache
 
 
-def _read_scope_env(key: str) -> str:
+def read_scope_env(key: str) -> str:
     """Gateway contextvars first, then process env (CLI / kanban dispatcher)."""
     try:
         from gateway.session_context import get_session_env
@@ -91,6 +91,10 @@ def _read_scope_env(key: str) -> str:
     except ImportError:
         pass
     return os.environ.get(key, "").strip()
+
+
+# Back-compat for internal call sites during migration.
+_read_scope_env = read_scope_env
 
 
 def resolve_scope_id(explicit: Optional[str] = None) -> str:
@@ -106,7 +110,7 @@ def resolve_scope_id(explicit: Optional[str] = None) -> str:
         "HERMES_SESSION_ID",
         "HERMES_KANBAN_RUN_ID",
     ):
-        val = _read_scope_env(key)
+        val = read_scope_env(key)
         if val:
             return val
     return "default"

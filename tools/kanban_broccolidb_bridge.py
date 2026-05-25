@@ -87,6 +87,10 @@ _config_cache: Optional[BroccolidbKanbanConfig] = None
 _config_cache_at: float = 0.0
 _CONFIG_TTL_SECONDS = 30.0
 
+_requirements_ok: Optional[bool] = None
+_requirements_at: float = 0.0
+_REQUIREMENTS_TTL_SECONDS = 60.0
+
 _debounce_lock = threading.Lock()
 _last_sync_at: dict[str, float] = {}
 _inflight: set[str] = set()
@@ -96,9 +100,11 @@ _sync_executor_workers: int = 0
 
 def invalidate_config_cache() -> None:
     """Clear cached ``kanban.broccolidb`` config (tests / hot reload)."""
-    global _config_cache, _config_cache_at
+    global _config_cache, _config_cache_at, _requirements_ok, _requirements_at
     _config_cache = None
     _config_cache_at = 0.0
+    _requirements_ok = None
+    _requirements_at = 0.0
 
 
 def get_config() -> BroccolidbKanbanConfig:
@@ -111,17 +117,30 @@ def get_config() -> BroccolidbKanbanConfig:
 
 
 def _scope_env(key: str) -> str:
-    from agent.joyzoning.config import _read_scope_env
-    return _read_scope_env(key)
+    from agent.joyzoning.config import read_scope_env
+    return read_scope_env(key)
 
 
 def broccolidb_enabled() -> bool:
     return get_config().enabled
 
 
+def broccolidb_available() -> bool:
+    """Config enabled and ``broccolidb/`` present in the active workspace."""
+    if not broccolidb_enabled():
+        return False
+    global _requirements_ok, _requirements_at
+    now = time.monotonic()
+    if _requirements_ok is None or (now - _requirements_at) > _REQUIREMENTS_TTL_SECONDS:
+        from tools.broccolidb_tools.runner import check_requirements
+        _requirements_ok = check_requirements()
+        _requirements_at = now
+    return _requirements_ok
+
+
 def auto_sync_enabled() -> bool:
     cfg = get_config()
-    return cfg.enabled and cfg.auto_sync
+    return cfg.enabled and cfg.auto_sync and broccolidb_available()
 
 
 def validate_task_id(task_id: Optional[str]) -> Optional[str]:
@@ -292,21 +311,20 @@ def _mark_sync(task_id: str) -> None:
 
 def sync_task_payload(payload: dict[str, Any], *, force: bool = False) -> str:
     """Upsert a kanban task snapshot into ``hive_tasks`` via hive_sync.ts."""
-    from tools.broccolidb_tools.runner import check_requirements, run_hive_sync
+    from tools.broccolidb_tools.runner import run_hive_sync
 
     if not broccolidb_enabled():
         return json.dumps({"success": False, "skipped": True, "reason": "disabled in config"})
-
-    tid = validate_task_id(payload.get("task_id"))
-    if not tid:
-        return json.dumps({"success": False, "error": "invalid or missing task_id"})
-
-    if not check_requirements():
+    if not broccolidb_available():
         return json.dumps({
             "success": False,
             "skipped": True,
             "reason": "broccolidb package not found in workspace",
         })
+
+    tid = validate_task_id(payload.get("task_id"))
+    if not tid:
+        return json.dumps({"success": False, "error": "invalid or missing task_id"})
 
     event = str(payload.get("event") or "sync")
     if not force and _should_debounce(tid, event):
@@ -318,8 +336,8 @@ def sync_task_payload(payload: dict[str, Any], *, force: bool = False) -> str:
             "event": event,
         })
 
-    payload = {**payload, "task_id": tid}
-    raw = run_hive_sync(payload)
+    clean = {k: v for k, v in {**payload, "task_id": tid}.items() if v is not None}
+    raw = run_hive_sync(clean)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -398,7 +416,7 @@ def _trim_inflight_locked() -> None:
         _inflight.discard(key)
 
 
-def _sync_worker(task_id: str, event: str, board: Optional[str]) -> None:
+def _sync_worker(task_id: str, event: str, board: Optional[str], *, force: bool = False) -> None:
     key = f"{task_id}:{event}"
     with _debounce_lock:
         if key in _inflight:
@@ -406,7 +424,7 @@ def _sync_worker(task_id: str, event: str, board: Optional[str]) -> None:
         _inflight.add(key)
         _trim_inflight_locked()
     try:
-        sync_kanban_task_id(task_id, event=event, board=board, force=False)
+        sync_kanban_task_id(task_id, event=event, board=board, force=force)
     except Exception as exc:
         logger.warning("kanban_broccolidb async sync failed %s: %s", key, exc)
     finally:
@@ -414,17 +432,24 @@ def _sync_worker(task_id: str, event: str, board: Optional[str]) -> None:
             _inflight.discard(key)
 
 
-def schedule_sync(task_id: str, *, event: str = "sync", board: Optional[str] = None) -> None:
+def schedule_sync(
+    task_id: str,
+    *,
+    event: str = "sync",
+    board: Optional[str] = None,
+    force: bool = False,
+) -> None:
     """Schedule hive sync — async when configured, inline otherwise."""
     tid = validate_task_id(task_id)
     if not tid or not auto_sync_enabled():
         return
 
+    force_sync = force or event in _FORCE_SYNC_EVENTS
     cfg = get_config()
     if cfg.async_sync:
-        _get_sync_executor().submit(_sync_worker, tid, event, board)
+        _get_sync_executor().submit(_sync_worker, tid, event, board, force=force_sync)
     else:
-        sync_kanban_task_id(tid, event=event, board=board)
+        sync_kanban_task_id(tid, event=event, board=board, force=force_sync)
 
 
 def maybe_auto_sync_tool(tool_name: str, args: dict | None) -> None:
@@ -448,7 +473,14 @@ def maybe_auto_sync_tool(tool_name: str, args: dict | None) -> None:
         "kanban_broccolidb_sync": str(args.get("event") or "sync"),
         "kanban_broccolidb_record": "record",
     }
-    schedule_sync(task_id, event=event_map.get(tool_name, "sync"))
+    event = event_map.get(tool_name, "sync")
+    force = tool_name in (
+        "kanban_complete",
+        "kanban_block",
+        "kanban_broccolidb_sync",
+        "kanban_broccolidb_record",
+    )
+    schedule_sync(task_id, event=event, force=force)
 
 
 def sync_on_worker_start() -> None:
@@ -468,9 +500,9 @@ def sync_on_worker_start() -> None:
 
 def compute_drift(board: Optional[str] = None, limit: int = 200) -> dict[str, Any]:
     """Compare kanban.db tasks with hive_tasks rows (orchestrator diagnostics)."""
-    from tools.broccolidb_tools.runner import check_requirements, run_hive_drift
+    from tools.broccolidb_tools.runner import run_hive_drift
 
-    if not broccolidb_enabled() or not check_requirements():
+    if not broccolidb_available():
         return {"success": False, "skipped": True, "reason": "broccolidb unavailable"}
 
     lim = max(1, min(limit, 500))
@@ -480,7 +512,7 @@ def compute_drift(board: Optional[str] = None, limit: int = 200) -> dict[str, An
         try:
             tasks = kb.list_tasks(conn, limit=lim)
             kanban_map = {
-                validate_task_id(t.id) or t.id: t.status
+                validate_task_id(t.id): t.status
                 for t in tasks
                 if validate_task_id(t.id)
             }

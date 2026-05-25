@@ -6,7 +6,7 @@ import time
 from typing import Any, Optional
 
 from agent.joyzoning.boundaries import RuntimeLayer, layer_for_event
-from agent.joyzoning.config import _read_scope_env, get_joyzoning_config
+from agent.joyzoning.config import get_joyzoning_config, read_scope_env
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,8 @@ def emit_habitat_event(
         return None
 
     layer = layer_for_event(event_type)
-    session_id = session_id or _read_scope_env("HERMES_SESSION_ID")
-    run_id = run_id or _read_scope_env("HERMES_KANBAN_RUN_ID")
+    session_id = session_id or read_scope_env("HERMES_SESSION_ID")
+    run_id = run_id or read_scope_env("HERMES_KANBAN_RUN_ID")
 
     event_id = None
     if cfg.execution_journal:

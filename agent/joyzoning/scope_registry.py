@@ -20,14 +20,14 @@ def _ensure_alias_schema(conn) -> None:
 
 def register_from_scope_env() -> None:
     """Link habitat GUID, JoyZoning scope, and kanban task id when ≥2 are present."""
-    from agent.joyzoning.config import _read_scope_env
+    from agent.joyzoning.config import read_scope_env
 
     ids = [
         x
         for x in (
-            _read_scope_env("HERMES_KANBAN_TASK"),
-            _read_scope_env("JOYZONING_HABITAT_TASK"),
-            _read_scope_env("JOYZONING_SCOPE_ID"),
+            read_scope_env("HERMES_KANBAN_TASK"),
+            read_scope_env("JOYZONING_HABITAT_TASK"),
+            read_scope_env("JOYZONING_SCOPE_ID"),
         )
         if x
     ]

@@ -13,13 +13,13 @@ from tools.kanban_tools import (
     _require_orchestrator_tool,
 )
 from tools.kanban_broccolidb_bridge import (
+    broccolidb_available,
     broccolidb_enabled,
     compute_drift,
     sync_kanban_task_id,
     validate_task_id,
 )
 from tools.broccolidb_tools.runner import (
-    check_requirements,
     resolve_broccolidb_root,
     run_agent_context_script,
     run_hive_board_intel,
@@ -27,7 +27,7 @@ from tools.broccolidb_tools.runner import (
 
 
 def _broccolidb_available() -> bool:
-    return broccolidb_enabled() and check_requirements()
+    return broccolidb_available()
 
 
 def _check_kanban_broccolidb_mode() -> bool:

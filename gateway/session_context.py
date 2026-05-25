@@ -71,6 +71,9 @@ _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_
 _JOYZONING_HABITAT_TASK: ContextVar = ContextVar("JOYZONING_HABITAT_TASK", default=_UNSET)
 _JOYZONING_SCOPE_ID: ContextVar = ContextVar("JOYZONING_SCOPE_ID", default=_UNSET)
 _HERMES_KANBAN_TASK: ContextVar = ContextVar("HERMES_KANBAN_TASK", default=_UNSET)
+_HERMES_KANBAN_BOARD: ContextVar = ContextVar("HERMES_KANBAN_BOARD", default=_UNSET)
+_HERMES_KANBAN_RUN_ID: ContextVar = ContextVar("HERMES_KANBAN_RUN_ID", default=_UNSET)
+_HERMES_TENANT: ContextVar = ContextVar("HERMES_TENANT", default=_UNSET)
 
 _VAR_MAP = {
     "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
@@ -88,7 +91,19 @@ _VAR_MAP = {
     "JOYZONING_HABITAT_TASK": _JOYZONING_HABITAT_TASK,
     "JOYZONING_SCOPE_ID": _JOYZONING_SCOPE_ID,
     "HERMES_KANBAN_TASK": _HERMES_KANBAN_TASK,
+    "HERMES_KANBAN_BOARD": _HERMES_KANBAN_BOARD,
+    "HERMES_KANBAN_RUN_ID": _HERMES_KANBAN_RUN_ID,
+    "HERMES_TENANT": _HERMES_TENANT,
 }
+
+_JOYZONING_DISPATCH_VARS = (
+    _JOYZONING_HABITAT_TASK,
+    _JOYZONING_SCOPE_ID,
+    _HERMES_KANBAN_TASK,
+    _HERMES_KANBAN_BOARD,
+    _HERMES_KANBAN_RUN_ID,
+    _HERMES_TENANT,
+)
 
 
 def set_joyzoning_run_vars(
@@ -96,6 +111,10 @@ def set_joyzoning_run_vars(
     habitat_task: str = "",
     scope_id: str = "",
     kanban_task: str = "",
+    kanban_board: str = "",
+    kanban_run_id: str = "",
+    tenant: str = "",
+    session_id: str = "",
 ) -> list:
     """Bind JoyZoning↔Hermes scope ids for the current gateway/API run (task-local)."""
     tokens = []
@@ -105,13 +124,22 @@ def set_joyzoning_run_vars(
         tokens.append(_JOYZONING_SCOPE_ID.set(scope_id))
     if kanban_task:
         tokens.append(_HERMES_KANBAN_TASK.set(kanban_task))
+    if kanban_board:
+        tokens.append(_HERMES_KANBAN_BOARD.set(kanban_board))
+    if kanban_run_id:
+        tokens.append(_HERMES_KANBAN_RUN_ID.set(kanban_run_id))
+    if tenant:
+        tokens.append(_HERMES_TENANT.set(tenant))
+    if session_id:
+        tokens.append(_SESSION_ID.set(session_id))
     return tokens
 
 
 def clear_joyzoning_run_vars(tokens: list) -> None:
     """Clear JoyZoning scope contextvars (explicit empty — no os.environ fallback)."""
-    for var in (_JOYZONING_HABITAT_TASK, _JOYZONING_SCOPE_ID, _HERMES_KANBAN_TASK):
+    for var in _JOYZONING_DISPATCH_VARS:
         var.set("")
+    _SESSION_ID.set("")
 
 
 def set_session_vars(

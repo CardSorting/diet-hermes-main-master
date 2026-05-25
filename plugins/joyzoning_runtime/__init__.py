@@ -14,17 +14,17 @@ def _on_session_start(*, session_id: str = "", **_: Any) -> None:
         from agent.joyzoning.habitat_events import emit_habitat_event
         if not get_joyzoning_config().enabled:
             return
-        from agent.joyzoning.config import _read_scope_env
+        from agent.joyzoning.config import read_scope_env
         from agent.joyzoning.scope_registry import register_from_scope_env
 
         register_from_scope_env()
-        kanban_task = _read_scope_env("HERMES_KANBAN_TASK")
-        habitat_task = _read_scope_env("JOYZONING_HABITAT_TASK")
+        kanban_task = read_scope_env("HERMES_KANBAN_TASK")
+        habitat_task = read_scope_env("JOYZONING_HABITAT_TASK")
 
         emit_habitat_event(
             "session.start",
             scope_id=resolve_scope_id(),
-            session_id=session_id or _read_scope_env("HERMES_SESSION_ID"),
+            session_id=session_id or read_scope_env("HERMES_SESSION_ID"),
             payload={
                 "jsdp_role": get_joyzoning_config().jsdp_role,
                 "kanban_task": kanban_task or None,
@@ -37,14 +37,14 @@ def _on_session_start(*, session_id: str = "", **_: Any) -> None:
 
 def _on_session_end(*, session_id: str = "", **_: Any) -> None:
     try:
-        from agent.joyzoning.config import _read_scope_env, get_joyzoning_config, resolve_scope_id
+        from agent.joyzoning.config import get_joyzoning_config, read_scope_env, resolve_scope_id
         from agent.joyzoning.habitat_events import emit_habitat_event
         if not get_joyzoning_config().enabled:
             return
         emit_habitat_event(
             "session.end",
             scope_id=resolve_scope_id(),
-            session_id=session_id or _read_scope_env("HERMES_SESSION_ID"),
+            session_id=session_id or read_scope_env("HERMES_SESSION_ID"),
         )
     except Exception as exc:
         logger.warning("joyzoning_runtime on_session_end: %s", exc)

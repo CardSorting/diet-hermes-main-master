@@ -106,11 +106,14 @@ def test_debounce_skips_rapid_heartbeats(monkeypatch, tmp_path):
         "kanban:\n  broccolidb:\n    sync_debounce_seconds: 60\n"
     )
     monkeypatch.setenv("HERMES_HOME", str(home))
+    _seed_broccolidb(tmp_path)
+    monkeypatch.chdir(tmp_path)
 
     from tools.kanban_broccolidb_bridge import BroccolidbKanbanConfig, sync_task_payload
 
     # Reset config cache
     import tools.kanban_broccolidb_bridge as bridge
+    bridge.invalidate_config_cache()
     bridge._config_cache = BroccolidbKanbanConfig.load()
     bridge._config_cache_at = time.monotonic()
     bridge._last_sync_at["t_deb001"] = time.monotonic()
@@ -124,6 +127,31 @@ def test_debounce_skips_rapid_heartbeats(monkeypatch, tmp_path):
     data = json.loads(raw)
     assert data.get("skipped") is True
     assert data.get("reason") == "debounced"
+
+
+def test_schedule_sync_force_for_complete_event(monkeypatch, tmp_path):
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_force01")
+
+    import tools.kanban_broccolidb_bridge as bridge
+    from tools.kanban_broccolidb_bridge import schedule_sync
+
+    calls = []
+
+    def _fake_sync(task_id, *, event="sync", board=None, force=False):
+        calls.append({"task_id": task_id, "event": event, "force": force})
+
+    monkeypatch.setattr(bridge, "sync_kanban_task_id", _fake_sync)
+    monkeypatch.setattr(bridge, "broccolidb_available", lambda: True)
+    bridge._config_cache = bridge.BroccolidbKanbanConfig(
+        enabled=True, auto_sync=True, async_sync=False
+    )
+    bridge._config_cache_at = time.monotonic()
+
+    schedule_sync("t_force01", event="complete")
+    assert calls and calls[0]["force"] is True
 
 
 def test_task_row_payload_omits_invalid_task_id():
@@ -313,6 +341,54 @@ def test_task_row_serializes_dict_result():
         "result": {"summary": "ok", "tests": 14},
     })
     assert payload["result"] == '{"summary": "ok", "tests": 14}'
+
+
+def test_broccolidb_available_caches_requirements(monkeypatch, tmp_path):
+    import tools.kanban_broccolidb_bridge as bridge
+
+    bridge.invalidate_config_cache()
+    calls = {"n": 0}
+
+    def _check():
+        calls["n"] += 1
+        return True
+
+    monkeypatch.setattr(
+        "tools.broccolidb_tools.runner.check_requirements",
+        _check,
+    )
+    monkeypatch.setattr(bridge, "broccolidb_enabled", lambda: True)
+
+    assert bridge.broccolidb_available() is True
+    assert bridge.broccolidb_available() is True
+    assert calls["n"] == 1
+
+    bridge.invalidate_config_cache()
+    assert bridge.broccolidb_available() is True
+    assert calls["n"] == 2
+
+
+def test_maybe_auto_sync_record_forces_sync(monkeypatch, tmp_path):
+    import tools.kanban_broccolidb_bridge as bridge
+
+    scheduled = []
+
+    monkeypatch.setattr(bridge, "broccolidb_available", lambda: True)
+    monkeypatch.setattr(
+        bridge,
+        "schedule_sync",
+        lambda tid, *, event="sync", board=None, force=False: scheduled.append(
+            {"task_id": tid, "event": event, "force": force}
+        ),
+    )
+    bridge._config_cache = bridge.BroccolidbKanbanConfig(
+        enabled=True, auto_sync=True, async_sync=False
+    )
+    bridge._config_cache_at = time.monotonic()
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_rec001")
+
+    bridge.maybe_auto_sync_tool("kanban_broccolidb_record", {"task_id": "t_rec001"})
+    assert scheduled == [{"task_id": "t_rec001", "event": "record", "force": True}]
 
 
 def test_kanban_spawn_injects_broccolidb_env(monkeypatch, tmp_path):
