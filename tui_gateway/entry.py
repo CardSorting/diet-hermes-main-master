@@ -16,8 +16,27 @@ import signal
 import time
 import traceback
 
+# Pre-pin before ``tui_gateway.server`` imports (it loads ~/.hermes/.env with
+# override=True). Marking the gateway + preserving HERMES_CWD/TERMINAL_CWD
+# prevents dotenv and cli.load_cli_config from rewriting the launch workspace.
+_PINNED_LAUNCH_CWD = (
+    (os.environ.get("HERMES_CWD") or "").strip()
+    or (os.environ.get("TERMINAL_CWD") or "").strip()
+)
+if _PINNED_LAUNCH_CWD:
+    from pathlib import Path
+
+    from hermes_cli.tui_cwd import pin_launch_cwd
+
+    _root = (os.environ.get("HERMES_AGENT_ROOT") or "").strip()
+    pin_launch_cwd(
+        os.environ,
+        _PINNED_LAUNCH_CWD,
+        checkout_root=Path(_root) if _root else None,
+    )
+
 from tui_gateway import server
-from tui_gateway.server import _CRASH_LOG, dispatch, resolve_skin, write_json
+from tui_gateway.server import _CRASH_LOG, _terminal_cwd, dispatch, resolve_skin, write_json
 from tui_gateway.transport import TeeTransport
 
 
@@ -219,7 +238,13 @@ def main():
     if not write_json({
         "jsonrpc": "2.0",
         "method": "event",
-        "params": {"type": "gateway.ready", "payload": {"skin": resolve_skin()}},
+        "params": {
+            "type": "gateway.ready",
+            "payload": {
+                "skin": resolve_skin(),
+                "cwd": _terminal_cwd(),
+            },
+        },
     }):
         _log_exit("startup write failed (broken stdout pipe before first event)")
         sys.exit(0)

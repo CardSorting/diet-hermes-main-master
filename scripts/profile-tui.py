@@ -7,15 +7,15 @@ Usage:
 Defaults: picks the session with the most messages, holds PageUp for 8s at
 ~30 Hz (matching xterm key-repeat), summarizes ~/.hermes/perf.log on exit.
 
-The --tui build must exist (run `npm run build` in ui-tui first). This script
-launches `node dist/entry.js` directly with HERMES_TUI_RESUME set so it
+The --tui build must exist (run `bun run build` in herm-tui first). This script
+launches `bun dist/index.js` directly with HERMES_TUI_RESUME set so it
 bypasses the hermes_cli wrapper — we want repeatable timing, not the CLI's
 session-picker flow.
 
 Environment overrides:
   HERMES_PERF_LOG     (default ~/.hermes/perf.log)
   HERMES_PERF_NODE    (default node from $PATH)
-  HERMES_TUI_DIR      (default: <repo>/ui-tui relative to this script)
+  HERMES_TUI_DIR      (default: <repo>/herm-tui relative to this script)
 
 Exit code is 0 if the harness ran and parsed results, 2 if the TUI crashed
 or produced no perf data (suggests HERMES_DEV_PERF wiring is broken).
@@ -46,7 +46,7 @@ except ImportError:
 
 DEFAULT_TUI_DIR = Path(
     os.environ.get("HERMES_TUI_DIR")
-    or str(Path(__file__).resolve().parent.parent / "ui-tui")
+    or str(Path(__file__).resolve().parent.parent / "herm-tui")
 )
 DEFAULT_LOG = Path(os.environ.get("HERMES_PERF_LOG", str(get_hermes_home() / "perf.log")))
 DEFAULT_STATE_DB = get_hermes_home() / "state.db"
@@ -404,9 +404,9 @@ def format_diff(before: dict[str, float], after: dict[str, float]) -> str:
 
 def run_once(args: argparse.Namespace) -> dict[str, Any]:
     tui_dir = Path(args.tui_dir).resolve()
-    entry = tui_dir / "dist" / "entry.js"
+    entry = tui_dir / "dist" / "index.js"
     if not entry.exists():
-        sys.exit(f"{entry} missing — run `npm run build` in {tui_dir} first")
+        sys.exit(f"{entry} missing — run `bun run build` in {tui_dir} first")
 
     sid = args.session or pick_longest_session(DEFAULT_STATE_DB)
     print(f"• session: {sid}")
@@ -430,12 +430,12 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
 
     # Pass through extra flags the TUI wrapper recognizes (e.g. --no-fullscreen).
     # Stored on args as `extra_flags` list.
-    node = os.environ.get("HERMES_PERF_NODE", "node")
-    node_args = [node, str(entry), *getattr(args, "extra_flags", [])]
+    bun = os.environ.get("HERMES_PERF_BUN", os.environ.get("HERMES_PERF_NODE", "bun"))
+    bun_args = [bun, str(entry), *getattr(args, "extra_flags", [])]
 
     pid, fd = pty.fork()
     if pid == 0:
-        os.execvpe(node, node_args, env)
+        os.execvpe(bun, bun_args, env)
 
     try:
         import fcntl, struct, termios
@@ -493,7 +493,7 @@ def main() -> int:
     p.add_argument("--loop", action="store_true",
                    help="watch for source changes, rebuild, rerun, and diff vs previous run")
     p.add_argument("--extra-flag", dest="extra_flags", action="append", default=[],
-                   help="pass through to node dist/entry.js (repeatable)")
+                   help="pass through to bun dist/index.js (repeatable)")
     args = p.parse_args()
 
     if args.loop:

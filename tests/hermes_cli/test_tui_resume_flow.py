@@ -524,7 +524,7 @@ def test_launch_tui_exports_model_provider_and_toolsets(monkeypatch, main_mod):
     monkeypatch.setattr(
         main_mod,
         "_make_tui_argv",
-        lambda tui_dir, tui_dev: (["node", "dist/entry.js"], Path(".")),
+        lambda tui_dir, tui_dev, **kwargs: (["bun", "dist/index.js"], Path(".")),
     )
 
     def fake_call(argv, cwd=None, env=None):
@@ -547,6 +547,9 @@ def test_launch_tui_exports_model_provider_and_toolsets(monkeypatch, main_mod):
     assert env["HERMES_TUI_PROVIDER"] == "nous"
     assert env["HERMES_INFERENCE_PROVIDER"] == "nous"
     assert env["HERMES_TUI_TOOLSETS"] == "web,terminal"
+    assert env["HERMES_CWD"] == env["TERMINAL_CWD"]
+    assert env.get("_HERMES_TUI_GATEWAY") == "1"
+    assert Path(env["HERMES_CWD"]).is_dir()
     active_path = Path(env["HERMES_TUI_ACTIVE_SESSION_FILE"])
     assert active_path.name.startswith("hermes-tui-active-session-")
     assert active_path.suffix == ".json"
@@ -561,7 +564,7 @@ def test_launch_tui_exit_code_42_relaunches_update(monkeypatch, main_mod):
     monkeypatch.setattr(
         main_mod,
         "_make_tui_argv",
-        lambda tui_dir, tui_dev: (["node", "dist/entry.js"], Path(".")),
+        lambda tui_dir, tui_dev, **kwargs: (["bun", "dist/index.js"], Path(".")),
     )
     monkeypatch.setattr(main_mod.subprocess, "call", lambda *args, **kwargs: 42)
 
@@ -580,7 +583,7 @@ def test_launch_tui_drops_stale_resume_env_without_resume_arg(monkeypatch, main_
     monkeypatch.setattr(
         main_mod,
         "_make_tui_argv",
-        lambda tui_dir, tui_dev: (["node", "dist/entry.js"], Path(".")),
+        lambda tui_dir, tui_dev, **kwargs: (["bun", "dist/index.js"], Path(".")),
     )
     monkeypatch.setattr(
         main_mod.subprocess,
@@ -601,7 +604,7 @@ def test_launch_tui_sets_resume_env_from_resume_arg(monkeypatch, main_mod):
     monkeypatch.setattr(
         main_mod,
         "_make_tui_argv",
-        lambda tui_dir, tui_dev: (["node", "dist/entry.js"], Path(".")),
+        lambda tui_dir, tui_dev, **kwargs: (["bun", "dist/index.js"], Path(".")),
     )
     monkeypatch.setattr(
         main_mod.subprocess,
@@ -615,32 +618,18 @@ def test_launch_tui_sets_resume_env_from_resume_arg(monkeypatch, main_mod):
     assert captured["env"]["HERMES_TUI_RESUME"] == "20260518_000000_goodid"
 
 
-def test_make_tui_argv_dev_prebuilds_hermes_ink(monkeypatch, main_mod, tmp_path):
-    tui_dir = tmp_path / "ui-tui"
-    tsx = tui_dir / "node_modules" / ".bin" / "tsx"
-    ink_dir = tui_dir / "packages" / "hermes-ink"
-    tsx.parent.mkdir(parents=True)
-    ink_dir.mkdir(parents=True)
-    tsx.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+def test_make_tui_argv_dev_uses_bun_watch(monkeypatch, main_mod, tmp_path):
+    tui_dir = tmp_path / "herm-tui"
+    tui_dir.mkdir()
 
-    monkeypatch.setattr(main_mod, "_ensure_tui_node", lambda: None)
-    monkeypatch.setattr(main_mod, "_tui_need_npm_install", lambda _tui_dir: False)
+    monkeypatch.setattr(main_mod, "_bun_bin", lambda: "/usr/bin/bun")
+    monkeypatch.setattr(main_mod, "_tui_need_bun_install", lambda _tui_dir: False)
     monkeypatch.delenv("HERMES_TUI_DIR", raising=False)
-    monkeypatch.setattr(main_mod.shutil, "which", lambda bin_name: f"/usr/bin/{bin_name}")
-
-    calls = []
-
-    def fake_run(cmd, cwd=None, **_kwargs):
-        calls.append((cmd, cwd))
-        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
 
     argv, cwd = main_mod._make_tui_argv(tui_dir, tui_dev=True)
 
-    assert argv == [str(tsx), "src/entry.tsx"]
+    assert argv == ["/usr/bin/bun", "run", "--watch", "src/index.tsx"]
     assert cwd == tui_dir
-    assert calls == [(["/usr/bin/npm", "run", "build"], str(ink_dir))]
 
 
 def test_print_tui_exit_summary_includes_resume_and_token_totals(monkeypatch, capsys):

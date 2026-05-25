@@ -494,9 +494,16 @@ def load_cli_config() -> Dict[str, Any]:
     # Non-local with explicit path: keep as-is.
     _CWD_PLACEHOLDERS = (".", "auto", "cwd")
     effective_backend = terminal_config.get("env_type", "local")
+    _is_gateway = os.environ.get("_HERMES_GATEWAY") == "1"
+    _is_tui_gateway = os.environ.get("_HERMES_TUI_GATEWAY") == "1"
 
     if effective_backend == "local":
-        terminal_config["cwd"] = os.getcwd()
+        if _is_gateway or _is_tui_gateway:
+            from hermes_cli.tui_cwd import terminal_session_cwd
+
+            terminal_config["cwd"] = terminal_session_cwd()
+        else:
+            terminal_config["cwd"] = os.getcwd()
         defaults["terminal"]["cwd"] = terminal_config["cwd"]
     elif terminal_config.get("cwd") in _CWD_PLACEHOLDERS:
         terminal_config.pop("cwd", None)
@@ -535,12 +542,12 @@ def load_cli_config() -> Dict[str, Any]:
     
     # Bridge config → env vars for terminal_tool. TERMINAL_CWD is force-exported
     # UNLESS we're inside a gateway process (detected by _HERMES_GATEWAY marker)
-    # where it was already set correctly by gateway/run.py's config bridge.
-    _is_gateway = os.environ.get("_HERMES_GATEWAY") == "1"
+    # where it was already set correctly by gateway/run.py's config bridge, or the
+    # Herm TUI frontend pinned launch cwd (_HERMES_TUI_GATEWAY).
     for config_key, env_var in env_mappings.items():
         if config_key in terminal_config:
             if env_var == "TERMINAL_CWD":
-                if _is_gateway:
+                if _is_gateway or _is_tui_gateway:
                     continue
                 # CLI: always export (overrides stale .env or inherited values)
                 os.environ[env_var] = str(terminal_config[config_key])

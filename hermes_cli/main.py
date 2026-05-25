@@ -893,108 +893,31 @@ def _print_tui_exit_summary(
     )
 
 
-_NPM_LOCK_RUNTIME_KEYS = frozenset({"ideallyInert", "peer"})
-"""Lockfile fields npm writes non-deterministically at install time.
-
-``ideallyInert`` is npm's runtime annotation for packages it skipped installing
-(per-platform opt-outs).  ``peer`` is dropped from the hidden ``.package-lock.json``
-on dev-dependencies that are *also* declared as peers — the canonical
-``package-lock.json`` records the dual role, but npm 9's actualized tree strips
-it.  Neither key represents a real skew between what was declared and what was
-installed, so we exclude them from the comparison in :func:`_tui_need_npm_install`
-to avoid false-positive reinstalls on every launch.
-"""
-
-
-def _tui_need_npm_install(root: Path) -> bool:
-    """True when @hermes/ink is missing or node_modules is behind package-lock.json.
-
-    Prebuilt bundle mode: when ``dist/entry.js`` exists and there is no
-    ``package-lock.json`` (nix install layout only ships ``dist/`` +
-    ``package.json``), skip reinstall entirely — the bundle is self-contained
-    and there is nothing to install.
-
-    Compares ``package-lock.json`` against ``node_modules/.package-lock.json``
-    (npm's hidden lockfile) by **content**, not mtime: git checkouts and npm
-    rewrites can bump the root lockfile's timestamp even when installed deps
-    already match, which used to trigger a spurious "Installing TUI
-    dependencies" on every launch.
-
-    For each entry in the root lock's ``packages`` map:
-      - missing from hidden lock → reinstall (unless the entry is marked
-        ``optional`` or ``peer``, which npm may intentionally skip per platform)
-      - present but with differing fields (excluding npm-written runtime
-        annotations like ``ideallyInert``) → reinstall
-
-    Extra entries that exist only in the hidden lock are ignored — stale
-    transitives left over from a removed dependency don't break runtime and
-    we'd rather not force a reinstall for them. Falls back to mtime
-    comparison if either lockfile is unparseable.
-    """
-    lock = root / "package-lock.json"
-    entry = root / "dist" / "entry.js"
-    # Prebuilt self-contained bundle (nix / packaged release): no lockfile
-    # shipped, dist/entry.js is the single runtime artefact.
+def _tui_need_bun_install(root: Path) -> bool:
+    """True when herm-tui deps are missing or ``bun.lock`` is newer than install."""
+    entry = root / "dist" / "index.js"
+    lock = root / "bun.lock"
     if entry.is_file() and not lock.is_file():
         return False
 
-    ink = root / "node_modules" / "@hermes" / "ink" / "package.json"
-    if not ink.is_file():
+    marker = root / "node_modules" / "@opentui" / "core" / "package.json"
+    if not marker.is_file():
         return True
     if not lock.is_file():
         return False
-    marker = root / "node_modules" / ".package-lock.json"
-    if not marker.is_file():
+    try:
+        return lock.stat().st_mtime > marker.stat().st_mtime
+    except OSError:
         return True
 
-    # Compare lockfile contents, not mtimes: git checkouts and npm rewrites
-    # can bump the root lockfile timestamp even when installed deps already
-    # match. Fall back to mtime when either file is unparseable.
-    try:
-        wanted = json.loads(lock.read_text(encoding="utf-8")).get("packages") or {}
-        installed = json.loads(marker.read_text(encoding="utf-8")).get("packages") or {}
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return lock.stat().st_mtime > marker.stat().st_mtime
 
-    def comparable(pkg: dict) -> dict:
-        return {k: v for k, v in pkg.items() if k not in _NPM_LOCK_RUNTIME_KEYS}
-
-    for name, pkg in wanted.items():
-        if not name:
-            continue
-
-        if not isinstance(pkg, dict):
-            continue
-
-        if name not in installed:
-            if pkg.get("optional") or pkg.get("peer"):
-                continue
-            return True
-
-        if isinstance(installed[name], dict) and comparable(pkg) != comparable(
-            installed[name]
-        ):
-            return True
-
-    return False
-
-
-_TUI_BUILD_INPUT_DIRS = (
-    "src",
-    "packages/hermes-ink/src",
-)
+_TUI_BUILD_INPUT_DIRS = ("src", "assets")
 
 _TUI_BUILD_INPUT_FILES = (
     "package.json",
-    "package-lock.json",
+    "bun.lock",
     "tsconfig.json",
-    "tsconfig.build.json",
-    "babel.compiler.config.cjs",
-    "scripts/build.mjs",
-    "packages/hermes-ink/package.json",
-    "packages/hermes-ink/package-lock.json",
-    "packages/hermes-ink/index.js",
-    "packages/hermes-ink/text-input.js",
+    "scripts/build.ts",
 )
 
 _TUI_BUILD_INPUT_SUFFIXES = frozenset(
@@ -1003,7 +926,7 @@ _TUI_BUILD_INPUT_SUFFIXES = frozenset(
 
 
 def _iter_tui_build_inputs(root: Path):
-    """Yield source/config files that affect ``ui-tui/dist/entry.js``."""
+    """Yield source/config files that affect ``herm-tui/dist/index.js``."""
     for rel in _TUI_BUILD_INPUT_FILES:
         path = root / rel
         if path.is_file():
@@ -1019,18 +942,12 @@ def _iter_tui_build_inputs(root: Path):
 
 
 def _tui_need_rebuild(root: Path) -> bool:
-    """True when ``dist/entry.js`` is missing or older than TUI inputs.
-
-    The TUI bundle is self-contained. Rebuilding it on every launch adds a
-    visible cold-start tax on slow Termux CPUs, while a simple mtime freshness
-    check still rebuilds immediately after source updates, dependency updates,
-    or local edits. Set ``HERMES_TUI_FORCE_BUILD=1`` to force the old behaviour.
-    """
+    """True when ``dist/index.js`` is missing or older than TUI inputs."""
     force = (os.environ.get("HERMES_TUI_FORCE_BUILD") or "").strip().lower()
     if force in {"1", "true", "yes", "on"}:
         return True
 
-    entry = root / "dist" / "entry.js"
+    entry = root / "dist" / "index.js"
     try:
         output_mtime = entry.stat().st_mtime
     except OSError:
@@ -1045,94 +962,46 @@ def _tui_need_rebuild(root: Path) -> bool:
     return False
 
 
-def _ensure_tui_node() -> None:
-    """Make sure `node` + `npm` are on PATH for the TUI.
-
-    If either is missing and scripts/lib/node-bootstrap.sh is available, source
-    it and call `ensure_node` (fnm/nvm/proto/brew/bundled cascade). After
-    install, capture the resolved node binary path from the bash subprocess
-    and prepend its directory to os.environ["PATH"] so shutil.which finds the
-    new binaries in this Python process — regardless of which version manager
-    was used (nvm, fnm, proto, brew, or the bundled fallback).
-
-    Idempotent no-op when node+npm are already discoverable. Set
-    ``HERMES_SKIP_NODE_BOOTSTRAP=1`` to disable auto-install.
-    """
-    if shutil.which("node") and shutil.which("npm"):
-        return
-    if os.environ.get("HERMES_SKIP_NODE_BOOTSTRAP"):
-        return
-
-    helper = PROJECT_ROOT / "scripts" / "lib" / "node-bootstrap.sh"
-    if not helper.is_file():
-        return
-
-    hermes_home = os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")
-    try:
-        # Helper writes logs to stderr; we ask bash to print `command -v node`
-        # on stdout once ensure_node succeeds. Subshell PATH edits don't leak
-        # back into Python, so the stdout capture is the bridge.
-        result = subprocess.run(
-            [
-                "bash",
-                "-c",
-                f'source "{helper}" >&2 && ensure_node >&2 && command -v node',
-            ],
-            env={**os.environ, "HERMES_HOME": hermes_home},
-            capture_output=True,
-            text=True,
-            check=False,
+def _bun_bin() -> str:
+    env_bun = (os.environ.get("HERMES_BUN") or "").strip()
+    if env_bun and os.path.isfile(env_bun) and os.access(env_bun, os.X_OK):
+        return env_bun
+    path = shutil.which("bun")
+    if not path:
+        print(
+            "bun not found — install Bun (https://bun.sh) to use the TUI.\n"
+            "  curl -fsSL https://bun.sh/install | bash",
+            file=sys.stderr,
         )
-    except (OSError, subprocess.SubprocessError):
-        return
-
-    parts = os.environ.get("PATH", "").split(os.pathsep)
-    extras: list[Path] = []
-
-    resolved = (result.stdout or "").strip()
-    if resolved:
-        extras.append(Path(resolved).resolve().parent)
-
-    extras.extend([Path(hermes_home) / "node" / "bin", Path.home() / ".local" / "bin"])
-
-    for extra in extras:
-        s = str(extra)
-        if extra.is_dir() and s not in parts:
-            parts.insert(0, s)
-    os.environ["PATH"] = os.pathsep.join(parts)
+        sys.exit(1)
+    return path
 
 
 def _find_bundled_tui(hermes_cli_dir: Path | None = None) -> Path | None:
-    """Find a pre-built TUI entry.js bundled in the wheel."""
+    """Find a pre-built Herm TUI bundle directory bundled in the wheel."""
     if hermes_cli_dir is None:
         hermes_cli_dir = Path(__file__).parent
-    bundled = hermes_cli_dir / "tui_dist" / "entry.js"
+    bundled = hermes_cli_dir / "tui_dist" / "index.js"
     return bundled if bundled.is_file() else None
 
 
-def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
-    """TUI: --dev → tsx src; else node dist (HERMES_TUI_DIR prebuilt or esbuild)."""
-    _ensure_tui_node()
+def _make_tui_argv(
+    tui_dir: Path,
+    tui_dev: bool,
+    *,
+    resume_session_id: Optional[str] = None,
+    continue_last: bool = False,
+) -> tuple[list[str], Path]:
+    """TUI: --dev → bun watch src; else bun dist (HERMES_TUI_DIR or wheel bundle)."""
+    bun = _bun_bin()
 
-    def _node_bin(bin: str) -> str:
-        if bin == "node":
-            env_node = os.environ.get("HERMES_NODE")
-            if env_node and os.path.isfile(env_node) and os.access(env_node, os.X_OK):
-                return env_node
-        path = shutil.which(bin)
-        if not path and bin == "node":
-            try:
-                from hermes_cli.dep_ensure import ensure_dependency
-                if ensure_dependency("node"):
-                    path = shutil.which("node")
-            except Exception:
-                pass
-        if not path:
-            print(f"{bin} not found — install Node.js to use the TUI.")
-            sys.exit(1)
-        return path
+    def _resume_argv(argv: list[str]) -> list[str]:
+        if resume_session_id:
+            return [*argv, "--resume", resume_session_id]
+        if continue_last:
+            return [*argv, "-c"]
+        return argv
 
-    # Footgun: --dev against a prebuilt bundle that has no source/node_modules.
     ext_dir = os.environ.get("HERMES_TUI_DIR")
     if tui_dev and ext_dir:
         print(
@@ -1143,29 +1012,23 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         )
         sys.exit(1)
 
-    # 1. Prebuilt bundle (nix / packaged release): just run it.
     if not tui_dev:
         if ext_dir:
             p = Path(ext_dir)
-            if (p / "dist" / "entry.js").is_file():
-                node = _node_bin("node")
-                return [node, str(p / "dist" / "entry.js")], p
+            index = p / "dist" / "index.js"
+            if index.is_file():
+                return _resume_argv([bun, str(index)]), p
 
-        # 1b. Bundled in wheel (pip install)
         bundled = _find_bundled_tui()
         if bundled is not None:
-            node = _node_bin("node")
-            return [node, str(bundled)], bundled.parent
+            return _resume_argv([bun, str(bundled)]), bundled.parent
 
-    # 2. Normal flow: npm install if needed, always esbuild, then node dist/entry.js.
-    #    --dev flow: npm install if needed, then tsx src/entry.tsx.
     did_install = False
-    if _tui_need_npm_install(tui_dir):
-        npm = _node_bin("npm")
+    if _tui_need_bun_install(tui_dir):
         if not os.environ.get("HERMES_QUIET"):
             print("Installing TUI dependencies…")
         result = subprocess.run(
-            [npm, "install", "--silent", "--no-fund", "--no-audit", "--progress=false"],
+            [bun, "install", "--frozen-lockfile"],
             cwd=str(tui_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -1173,52 +1036,31 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
             env={**os.environ, "CI": "1"},
         )
         if result.returncode != 0:
+            result = subprocess.run(
+                [bun, "install"],
+                cwd=str(tui_dir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={**os.environ, "CI": "1"},
+            )
+        if result.returncode != 0:
             combined = f"{result.stdout or ''}\n{result.stderr or ''}".strip()
             preview = "\n".join(combined.splitlines()[-30:])
-            print("npm install failed.")
+            print("bun install failed.")
             if preview:
                 print(preview)
             sys.exit(1)
         did_install = True
 
     if tui_dev:
-        # Keep the local @hermes/ink package exports in sync with source.
-        # --dev runs src/entry.tsx directly, but @hermes/ink resolves through
-        # packages/hermes-ink/dist/entry-exports.js. If that dist bundle is
-        # stale after a pull, newer hooks/components can exist in src while
-        # being missing at runtime (e.g. useCursorAdvance). Prebuild it here.
-        npm = _node_bin("npm")
-        ink_dir = tui_dir / "packages" / "hermes-ink"
+        return _resume_argv([bun, "run", "--watch", "src/index.tsx"]), tui_dir
+
+    if did_install or _tui_need_rebuild(tui_dir):
+        if not os.environ.get("HERMES_QUIET"):
+            print("Building herm-tui…")
         result = subprocess.run(
-            [npm, "run", "build"],
-            cwd=str(ink_dir),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
-            preview = "\n".join(combined.splitlines()[-30:])
-            print("TUI dev prebuild failed.")
-            if preview:
-                print(preview)
-            sys.exit(1)
-
-        tsx = tui_dir / "node_modules" / ".bin" / "tsx"
-        if tsx.exists():
-            return [str(tsx), "src/entry.tsx"], tui_dir
-        return [npm, "start"], tui_dir
-
-    # Desktop/dev launches retain the historical "always rebuild" behaviour.
-    # Termux cold starts use the freshness check because esbuild startup is
-    # expensive on old mobile CPUs.
-    should_build = True
-    if _is_termux_startup_environment():
-        should_build = did_install or _tui_need_rebuild(tui_dir)
-
-    if should_build:
-        npm = _node_bin("npm")
-        result = subprocess.run(
-            [npm, "run", "build"],
+            [bun, "run", "build"],
             cwd=str(tui_dir),
             capture_output=True,
             text=True,
@@ -1231,8 +1073,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
                 print(preview)
             sys.exit(1)
 
-    node = _node_bin("node")
-    return [node, str(tui_dir / "dist" / "entry.js")], tui_dir
+    return _resume_argv([bun, str(tui_dir / "dist" / "index.js")]), tui_dir
 
 
 def _normalize_tui_toolsets(toolsets: object) -> list[str]:
@@ -1275,9 +1116,10 @@ def _launch_tui(
     pass_session_id: bool = False,
     max_turns: Optional[int] = None,
     accept_hooks: bool = False,
+    cwd: Optional[str] = None,
 ):
-    """Replace current process with the TUI."""
-    tui_dir = PROJECT_ROOT / "ui-tui"
+    """Replace current process with the Herm (OpenTUI) TUI."""
+    tui_dir = PROJECT_ROOT / "herm-tui"
 
     import tempfile
 
@@ -1291,7 +1133,17 @@ def _launch_tui(
         "HERMES_PYTHON_SRC_ROOT", str(PROJECT_ROOT)
     )
     env.setdefault("HERMES_PYTHON", sys.executable)
-    env.setdefault("HERMES_CWD", os.getcwd())
+    from hermes_cli.tui_cwd import pin_launch_cwd, resolve_tui_launch_cwd
+
+    try:
+        launch_cwd = resolve_tui_launch_cwd(
+            explicit=cwd,
+            checkout_root=PROJECT_ROOT,
+        )
+    except ValueError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    pin_launch_cwd(env, launch_cwd, checkout_root=PROJECT_ROOT)
     env.setdefault("NODE_ENV", "development" if tui_dev else "production")
 
     wt_info = None
@@ -1313,8 +1165,7 @@ def _launch_tui(
             wt_info = None
         if not wt_info:
             sys.exit(1)
-        env["HERMES_CWD"] = wt_info["path"]
-        env["TERMINAL_CWD"] = wt_info["path"]
+        pin_launch_cwd(env, wt_info["path"], checkout_root=PROJECT_ROOT)
 
     if model:
         env["HERMES_MODEL"] = model
@@ -1354,29 +1205,22 @@ def _launch_tui(
         env["HERMES_TUI_TOOL_PROGRESS"] = "off"
     if accept_hooks:
         env["HERMES_ACCEPT_HOOKS"] = "1"
-    # Guarantee an 8GB V8 heap + exposed GC for the TUI. Default node cap is
-    # ~1.5–4GB depending on version and can fatal-OOM on long sessions with
-    # large transcripts / reasoning blobs. Token-level merge: respect any
-    # user-supplied --max-old-space-size (they may have set it higher) and
-    # avoid duplicating --expose-gc.
-    _tokens = env.get("NODE_OPTIONS", "").split()
-    if not any(t.startswith("--max-old-space-size=") for t in _tokens):
-        _tokens.append("--max-old-space-size=8192")
-    if "--expose-gc" not in _tokens:
-        _tokens.append("--expose-gc")
-    env["NODE_OPTIONS"] = " ".join(_tokens)
     # HERMES_TUI_RESUME is an internal hand-off from the Python wrapper to the
     # Ink app.  Because we start from os.environ.copy(), an exported/stale value
     # in the user's shell would otherwise make a plain `hermes --tui` try to
     # resume a non-existent session and leave the UI at "error: session not
     # found" with no live session.  Only forward a resume id that argparse
-    # resolved for this invocation; direct `node ui-tui/dist/entry.js` users can
+    # resolved for this invocation; direct `bun herm-tui/dist/index.js` users can
     # still set HERMES_TUI_RESUME themselves.
     env.pop("HERMES_TUI_RESUME", None)
     if resume_session_id:
         env["HERMES_TUI_RESUME"] = resume_session_id
 
-    argv, cwd = _make_tui_argv(tui_dir, tui_dev)
+    argv, cwd = _make_tui_argv(
+        tui_dir,
+        tui_dev,
+        resume_session_id=resume_session_id,
+    )
     code: Optional[int] = None
     try:
         try:
@@ -1585,6 +1429,7 @@ def cmd_chat(args):
             pass_session_id=getattr(args, "pass_session_id", False),
             max_turns=getattr(args, "max_turns", None),
             accept_hooks=getattr(args, "accept_hooks", False),
+            cwd=getattr(args, "cwd", None),
         )
 
     # Import and run the CLI
@@ -7842,22 +7687,35 @@ def _update_node_dependencies() -> None:
 
     paths = (
         ("repo root", PROJECT_ROOT),
-        ("ui-tui", PROJECT_ROOT / "ui-tui"),
+        ("herm-tui", PROJECT_ROOT / "herm-tui"),
     )
     if not any((path / "package.json").exists() for _, path in paths):
         return
 
-    print("→ Updating Node.js dependencies...")
+    print("→ Updating frontend dependencies...")
+    herm = PROJECT_ROOT / "herm-tui"
+    if (herm / "package.json").exists():
+        bun = shutil.which("bun")
+        if bun:
+            result = subprocess.run(
+                [bun, "install"],
+                cwd=str(herm),
+                capture_output=False,
+                check=False,
+            )
+            if result.returncode == 0:
+                print("  ✓ herm-tui")
+            else:
+                print("  ⚠ bun install failed in herm-tui")
+        else:
+            print("  ⚠ bun not found — skipped herm-tui")
+
     for label, path in paths:
+        if label == "herm-tui":
+            continue
         if not (path / "package.json").exists():
             continue
 
-        # Stream npm output (no `--silent`, no `capture_output`) so any
-        # optional dependency postinstall scripts (e.g. `agent-browser`'s
-        # Chromium fetch on first install) print progress instead of
-        # appearing to hang silently for minutes (#18840).  The
-        # `_UpdateOutputStream` wrapper installed by the updater mirrors
-        # streamed output to ``~/.hermes/logs/update.log`` so nothing is lost.
         result = _run_npm_install_deterministic(
             npm,
             path,

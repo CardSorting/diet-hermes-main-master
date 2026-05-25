@@ -43,7 +43,7 @@ def _build_epilogue() -> str:
     """Examples block — uses :func:`get_cli_command` (DietCode fork overlay)."""
     c = get_cli_command()
     examples = [
-        (f"{c:<28}", "Start interactive chat (Ink TUI by default)"),
+        (f"{c:<28}", "Start interactive chat (Herm TUI by default)"),
         (f"{c} --classic", "Classic REPL instead of TUI"),
         (f"{c} chat -q \"Hello\"", "Single query mode"),
         (f"{c} -c", "Resume the most recent session"),
@@ -177,6 +177,13 @@ def build_top_level_parser():
     )
     _inherited_flag(
         parser,
+        "--cwd",
+        metavar="DIR",
+        default=None,
+        help="Working directory for tools and context files (default: shell cwd when launched)",
+    )
+    _inherited_flag(
+        parser,
         "--accept-hooks",
         action="store_true",
         default=False,
@@ -228,14 +235,14 @@ def build_top_level_parser():
         "--tui",
         action="store_true",
         default=False,
-        help="Launch the Ink TUI (default for interactive dietcode; use --classic for REPL)",
+        help="Launch the Herm OpenTUI (default for interactive dietcode; use --classic for REPL)",
     )
     _inherited_flag(
         parser,
         "--classic",
         action="store_true",
         default=False,
-        help="Launch the classic REPL instead of the Ink TUI (also HERMES_CLASSIC=1)",
+        help="Launch the classic REPL instead of the Herm TUI (also HERMES_CLASSIC=1)",
     )
     _inherited_flag(
         parser,
@@ -243,7 +250,7 @@ def build_top_level_parser():
         dest="tui_dev",
         action="store_true",
         default=False,
-        help="With --tui: run TypeScript sources via tsx (skip dist build)",
+        help="With --tui: run herm-tui sources via bun --watch (skip dist build)",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
@@ -322,6 +329,13 @@ def build_top_level_parser():
     )
     _inherited_flag(
         chat_parser,
+        "--cwd",
+        metavar="DIR",
+        default=argparse.SUPPRESS,
+        help="Working directory for tools and context files (default: shell cwd when launched)",
+    )
+    _inherited_flag(
+        chat_parser,
         "--accept-hooks",
         action="store_true",
         default=argparse.SUPPRESS,
@@ -382,14 +396,14 @@ def build_top_level_parser():
         "--tui",
         action="store_true",
         default=False,
-        help="Launch the Ink TUI (default for interactive dietcode; use --classic for REPL)",
+        help="Launch the Herm OpenTUI (default for interactive dietcode; use --classic for REPL)",
     )
     _inherited_flag(
         chat_parser,
         "--classic",
         action="store_true",
         default=False,
-        help="Launch the classic REPL instead of the Ink TUI (also HERMES_CLASSIC=1)",
+        help="Launch the classic REPL instead of the Herm TUI (also HERMES_CLASSIC=1)",
     )
     _inherited_flag(
         chat_parser,
@@ -397,7 +411,7 @@ def build_top_level_parser():
         dest="tui_dev",
         action="store_true",
         default=False,
-        help="With --tui: run TypeScript sources via tsx (skip dist build)",
+        help="With --tui: run herm-tui sources via bun --watch (skip dist build)",
     )
 
     return parser, subparsers, chat_parser

@@ -29,31 +29,26 @@ WORKDIR /opt/hermes
 # Copy only package manifests first so npm install + Playwright are cached
 # unless the lockfiles themselves change.
 #
-# ui-tui/packages/hermes-ink/ is copied IN FULL (not just its manifests)
-# because it is referenced as a `file:` workspace dependency from
-# ui-tui/package.json.  Copying the tree up front lets npm resolve the
-# workspace to real content instead of stopping at a bare package.json.
 COPY package.json package-lock.json ./
 COPY web/package.json web/package-lock.json web/
-COPY ui-tui/package.json ui-tui/package-lock.json ui-tui/
-COPY ui-tui/packages/hermes-ink/ ui-tui/packages/hermes-ink/
+COPY herm-tui/package.json herm-tui/bun.lock herm-tui/
 
-# `npm_config_install_links=false` forces npm to install `file:` deps as
-# symlinks (the npm 10+ default) even on Debian's older bundled npm 9.x,
-# which defaults to `install-links=true` and installs file deps as *copies*.
-# The host-side package-lock.json is generated with a newer npm that uses
-# symlinks, so an install-as-copy produces a hidden node_modules/.package-lock.json
-# that permanently disagrees with the root lock on the @hermes/ink entry.
-# That disagreement trips the TUI launcher's `_tui_need_npm_install()`
-# check on every startup and triggers a runtime `npm install` that then
+# Force install-links=false so file: workspace deps stay symlinks (not copies).
+# Debian's older Node package manager defaults to install-links=true, which
+# makes node_modules/.package-lock.json disagree with the root lockfile and
+# triggers a spurious reinstall on every TUI launch (EACCES on root-owned trees).
+# That disagreement trips the TUI launcher's `_tui_need_bun_install()`
+# check on every startup and triggers a runtime install that then
 # fails with EACCES (node_modules/ is root-owned from build time).
-ENV npm_config_install_links=false
+RUN /usr/bin/npm config set install-links false \
+    && curl -fsSL https://bun.sh/install | bash \
+    && /usr/bin/npm install --prefer-offline --no-audit \
+    && npx playwright install --with-deps chromium --only-shell \
+    && (cd web && /usr/bin/npm install --prefer-offline --no-audit) \
+    && (cd herm-tui && /root/.bun/bin/bun install --frozen-lockfile) \
+    && /usr/bin/npm cache clean --force
 
-RUN npm install --prefer-offline --no-audit && \
-    npx playwright install --with-deps chromium --only-shell && \
-    (cd web && npm install --prefer-offline --no-audit) && \
-    (cd ui-tui && npm install --prefer-offline --no-audit) && \
-    npm cache clean --force
+ENV PATH="/root/.bun/bin:${PATH}"
 
 # ---------- Layer-cached Python dependency install ----------
 # Copy only pyproject.toml + uv.lock so the Python dep resolve + wheel
@@ -85,14 +80,13 @@ RUN uv sync --frozen --no-install-project --extra all --extra messaging
 COPY --chown=hermes:hermes . .
 
 # Build browser dashboard and terminal UI assets.
-RUN cd web && npm run build && \
-    cd ../ui-tui && npm run build
+RUN cd web && /usr/bin/npm run build && cd ../herm-tui && bun run build
 
 # ---------- Permissions ----------
 # Make install dir world-readable so any HERMES_UID can read it at runtime.
 # The venv needs to be traversable too.
 # node_modules trees additionally need to be writable by the hermes user
-# so the runtime `npm install` triggered by _tui_need_npm_install() in
+# so the runtime `bun install` triggered by _tui_need_bun_install() in
 # hermes_cli/main.py succeeds (see #18800). /opt/hermes/web is build-time
 # only (HERMES_WEB_DIST points at hermes_cli/web_dist) and is intentionally
 # not chowned here.
@@ -101,8 +95,7 @@ RUN cd web && npm run build && \
 # Without this, `uv pip install` fails with EACCES and adapters silently
 # fail to load.  See tools/lazy_deps.py.
 USER root
-RUN chmod -R a+rX /opt/hermes && \
-    chown -R hermes:hermes /opt/hermes/.venv /opt/hermes/ui-tui /opt/hermes/node_modules
+RUN chmod -R a+rX /opt/hermes && chown -R hermes:hermes /opt/hermes/.venv /opt/hermes/herm-tui /opt/hermes/node_modules
 # Start as root so the entrypoint can usermod/groupmod + gosu.
 # If HERMES_UID is unset, the entrypoint drops to the default hermes user (10000).
 

@@ -1,0 +1,60 @@
+// Launch intent parsed from argv before the renderer starts.
+// Bare `herm` → fresh session (splash shows continue-prompt).
+// `-c` / `--continue` / `--resume [id]` → resume (splash shows Loading…).
+// `--no-splash` → skip splash in either mode.
+
+import { readFileSync, existsSync } from "node:fs"
+import { dirname, join } from "node:path"
+
+// Runtime read so the published bundle picks up dist/package.json (which
+// @semantic-release/npm stamps), not the build-time root value. Walks up
+// from this file's dir so dev (src/app/ → ../../package.json) and dist
+// (./package.json) both resolve.
+const pkgVersion = (d: string, up = 4): string => {
+  const p = join(d, "package.json")
+  if (existsSync(p)) return JSON.parse(readFileSync(p, "utf8")).version
+  return up > 0 ? pkgVersion(dirname(d), up - 1) : "0.0.0"
+}
+
+export const VERSION = pkgVersion(import.meta.dirname)
+
+export type Launch =
+  | { mode: "new"; splash?: boolean }
+  | { mode: "resume"; sid?: string; splash?: boolean }
+
+/** Parse process argv (everything after the script path). No deps. */
+export function parseLaunch(argv: readonly string[]): Launch {
+  const envResume = (process.env.HERMES_TUI_RESUME ?? "").trim()
+  if (envResume) {
+    return envResume === "1"
+      ? { mode: "resume", splash: true }
+      : { mode: "resume", sid: envResume, splash: true }
+  }
+
+  let splash = true
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === "--no-splash") { splash = false; continue }
+    if (a === "-c" || a === "--continue") return { mode: "resume", splash }
+    if (a === "--resume") {
+      const next = argv[i + 1]
+      // Treat a following non-flag token as the session id.
+      return next && !next.startsWith("-")
+        ? { mode: "resume", sid: next, splash }
+        : { mode: "resume", splash }
+    }
+  }
+  return { mode: "new", splash }
+}
+
+export const HELP = `\
+herm — OpenTUI client for hermes-agent
+
+Usage:
+  herm                    start a fresh session
+  herm -c, --continue     resume the last real TUI session
+  herm --resume [id]      resume last (or the given) session
+  herm --no-splash        skip the launch splash
+  herm -v, --version      print version
+  herm -h, --help         show this help
+`

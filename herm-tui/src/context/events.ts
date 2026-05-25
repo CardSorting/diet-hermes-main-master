@@ -1,0 +1,258 @@
+// Maps a GatewayEvent to a turn-reducer Action plus fire-and-forget side effects.
+
+import * as perf from "../utils/perf"
+import * as spawnHistory from "../app/spawnHistory"
+import type { GatewayEvent, GatewaySkin, SessionInfo } from "../context/wire"
+import type { Action } from "../app/turnReducer"
+import { pid, type Usage } from "../types/message"
+
+export type Side = {
+  onReady?: () => void
+  onSessionInfo?: (info: SessionInfo) => void
+  onUsage?: (u: Usage) => void
+  onTurnComplete?: () => void
+  onBackground?: (task_id: string, text: string) => void
+  onBtw?: (text: string) => void
+  onStatus?: (text: string) => void
+  onSkin?: (skin: GatewaySkin | null | undefined) => void
+  /** voice.status event — gateway VAD loop state change (listening/transcribing/idle). */
+  onVoiceStatus?: (state: string) => void
+  /** voice.transcript event — transcribed text from a completed voice capture. */
+  onVoiceTranscript?: (text: string, noSpeechLimit: boolean) => void
+  /** status.update with kind=process — debounced client-side to prevent TUI lag. */
+  onProcessNotification?: (text: string) => void
+}
+
+function count(o: Record<string, string[]> | undefined): number {
+  return o ? Object.values(o).reduce((n, v) => n + v.length, 0) : 0
+}
+
+export function formatProcessNotification(text: string): string {
+  const body = text.replace(/^\[IMPORTANT: /, "").replace(/\]$/, "")
+  const done = body.match(/^Background process (\S+) completed \(exit code (\S+)\)\.\nCommand: (.+?)(?:\n|$)/)
+  if (done) return `${done[1]} exited ${done[2]} · ${done[3]}`
+  const hit = body.match(/^Background process (\S+) matched watch pattern "([^"]+)"\.\nCommand: (.+?)(?:\n|$)/)
+  if (hit) return `${hit[1]} matched "${hit[2]}" · ${hit[3]}`
+  return body.slice(0, 100)
+}
+
+export function mapEvent(ev: GatewayEvent, side: Side): Action | null {
+  switch (ev.type) {
+    case "gateway.ready":
+      side.onReady?.()
+      if (ev.payload?.skin) side.onSkin?.(ev.payload.skin)
+      if (ev.payload?.cwd) {
+        side.onSessionInfo?.({
+          cwd: ev.payload.cwd,
+          model: "",
+          tools: {},
+          skills: {},
+        } as SessionInfo)
+      }
+      return null
+
+    case "session.info": {
+      const si = ev.payload
+      side.onSessionInfo?.(si)
+      const label = si.model
+        ? `Connected — ${si.model} · ${count(si.tools)} tools · ${count(si.skills)} skills`
+        : "Connected to Hermes"
+      if (si.credential_warning) side.onStatus?.(si.credential_warning)
+      return { kind: "system", text: label }
+    }
+
+    case "message.start":
+      perf.count("stream:start")
+      perf.mem("stream-start")
+      return { kind: "message.start" }
+
+    case "message.delta": {
+      const chunk = ev.payload?.text ?? ""
+      if (!chunk) return null
+      perf.count("stream:chunk")
+      return { kind: "message.delta", chunk }
+    }
+
+    case "message.complete": {
+      perf.count("stream:done")
+      perf.mem("stream-done")
+      const p = ev.payload
+      if (p?.usage) side.onUsage?.(p.usage)
+      side.onTurnComplete?.()
+      // The gateway reports in-agent failures via status (exceptions come
+      // as a separate `error` event). Without this branch a failed API
+      // call ends the turn with no visible output.
+      if (p?.status === "error")
+        return { kind: "error", text: p.text || "request failed — see messages above" }
+      if (p?.status === "interrupted")
+        return { kind: "message.complete", text: (p.text || "") + "\n\n*[interrupted]*", usage: p?.usage }
+      return { kind: "message.complete", text: p?.text ?? undefined, usage: p?.usage }
+    }
+
+    case "tool.start":
+      return {
+        kind: "tool.start",
+        id: ev.payload.tool_id,
+        name: ev.payload.name ?? "unknown",
+        preview: ev.payload.context,
+      }
+
+    case "tool.progress":
+      return { kind: "tool.progress", name: ev.payload.name, preview: ev.payload.preview }
+
+    case "tool.generating":
+      return { kind: "tool.generating", name: ev.payload.name }
+
+    case "tool.complete":
+      return {
+        kind: "tool.complete",
+        id: ev.payload.tool_id,
+        summary: ev.payload.summary,
+        error: ev.payload.error,
+        inline_diff: ev.payload.inline_diff,
+      }
+
+    case "thinking.delta":
+      // Cosmetic spinner text from the agent's status line, not model
+      // reasoning. Surface as transient status only.
+      side.onStatus?.(ev.payload?.text ?? "")
+      return null
+
+    case "reasoning.delta":
+    case "reasoning.available": {
+      const text = ev.payload?.text
+      if (!text) return null
+      return { kind: "thinking", text, final: ev.type === "reasoning.available" }
+    }
+
+    case "subagent.start":
+    case "subagent.thinking":
+    case "subagent.tool":
+    case "subagent.progress":
+    case "subagent.complete": {
+      const sub = ev.type.slice(9) as "start" | "thinking" | "tool" | "progress" | "complete"
+      // Feed the turn-wide accumulator so the completed tree can be
+      // persisted (spawn_tree.save) and the Agents tab can read live
+      // tool trails without its own event listener.
+      spawnHistory.record(sub, ev.payload)
+      return { kind: "subagent", event: sub, payload: ev.payload }
+    }
+
+    case "error":
+      return { kind: "error", text: ev.payload?.message ?? "Unknown error" }
+
+    case "clarify.request":
+      return { kind: "prompt", id: ev.payload.request_id,
+               req: { variant: "clarify", ...ev.payload } }
+
+    case "approval.request":
+      // Approval has no request_id upstream — the gateway's approval
+      // responder is a single pending slot. Mint a unique part id so
+      // multiple approvals in one turn don't alias each other when
+      // prompt.answered updates by id.
+      return { kind: "prompt", id: `approval-${pid()}`,
+               req: { variant: "approval", ...ev.payload } }
+
+    case "sudo.request":
+      return { kind: "prompt", id: ev.payload.request_id,
+               req: { variant: "sudo", ...ev.payload } }
+
+    case "secret.request":
+      return { kind: "prompt", id: ev.payload.request_id,
+               req: { variant: "secret", ...ev.payload } }
+
+    case "background.complete":
+      side.onBackground?.(ev.payload.task_id, ev.payload.text)
+      return null
+
+    case "review.summary": {
+      // Self-improvement background review saved a skill patch or
+      // memory entry. Upstream tui_gateway emits this so clients can
+      // surface the mutation — without it, the file change happens
+      // silently. Python side already formats the text with a 💾
+      // prefix, so we pass through verbatim (trimmed). Guard blank
+      // payloads: upstream does the same, and a blank system line is
+      // noise. No toast — these fire stochastically post-turn and
+      // per-event toasting would spam.
+      const text = String(ev.payload?.text ?? "").trim()
+      if (!text) return null
+      return { kind: "system", text }
+    }
+
+    case "btw.complete":
+      side.onBtw?.(ev.payload.text)
+      return null
+
+    case "gateway.stderr": {
+      // Error-ish stderr lines (tracebacks, HTTP 4xx/5xx, auth failures)
+      // surface inline; benign chatter stays in gw.tail() only (/logs).
+      // The full untruncated line is always in gw.logs via GatewayClient.log();
+      // the transcript row carries the line verbatim so no traceback context
+      // is lost to a slice here.
+      const line = ev.payload.line
+      if (/error|fail|traceback|exception|\b[45]\d\d\b|refused|denied|unauthori/i.test(line))
+        return { kind: "error", text: line }
+      return null
+    }
+
+    case "skin.changed":
+      side.onSkin?.(ev.payload)
+      return null
+
+    case "gateway.start_timeout":
+      return { kind: "error", text: `gateway startup timed out (${ev.payload?.python ?? "python"} @ ${ev.payload?.cwd ?? "?"})` }
+
+    case "gateway.protocol_error":
+      return { kind: "system", text: `protocol error: ${ev.payload?.preview ?? "?"}` }
+
+    case "browser.progress": {
+      // Streamed during /browser connect (upstream e75082901). Surface as
+      // transcript rows so long CDP attach work isn't a 60s black box.
+      const text = ev.payload?.message ?? ""
+      if (!text) return null
+      return ev.payload?.level === "error"
+        ? { kind: "error", text }
+        : { kind: "system", text: `· ${text}` }
+    }
+
+    case "status.update": {
+      const kind = ev.payload?.kind
+      const text = ev.payload?.text ?? ""
+      side.onStatus?.(text)
+      // Generic "status" is cosmetic; lifecycle/error/warn carry real
+      // signal (retries, fallbacks, auth failures) and must persist.
+      if (!kind || kind === "status") return null
+      // process: route through debounced accumulator instead of dispatching
+      // directly — prevents TUI lag when many terminal(background=true)
+      // processes finish in rapid succession.
+      if (kind === "process") {
+        side.onProcessNotification?.(text)
+        return null
+      }
+      return { kind: "system", text }
+    }
+    case "voice.status": {
+      // Continuous VAD loop reports its internal state: listening,
+      // transcribing, or idle. The UI uses this for the recording indicator.
+      const state = String(ev.payload?.state ?? "")
+      side.onVoiceStatus?.(state)
+      return null
+    }
+
+    case "voice.transcript": {
+      // Transcribed text from a completed voice capture.
+      // no_speech_limit=true when 3 consecutive silent captures occurred
+      // — in that case voice mode auto-disables (CLI parity).
+      const noSpeechLimit = ev.payload?.no_speech_limit === true
+      if (noSpeechLimit) {
+        side.onVoiceTranscript?.("", true)
+        return null
+      }
+      const text = String(ev.payload?.text ?? "").trim()
+      if (!text) return null
+      side.onVoiceTranscript?.(text, false)
+      return null
+    }
+  }
+  return null
+}

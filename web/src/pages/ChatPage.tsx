@@ -13,7 +13,7 @@
  *          ▼                                                              .
  *     FastAPI pty_ws  (hermes_cli/web_server.py)                          .
  *          ▼                                                              .
- *     POSIX PTY → `node ui-tui/dist/entry.js` → tui_gateway + AIAgent     .
+ *     POSIX PTY → `bun herm-tui/dist/index.js` → tui_gateway + AIAgent     .
  */
 
 import { FitAddon } from "@xterm/addon-fit";

@@ -51,7 +51,7 @@ hermes-agent/
 │                         #   spotify, strike-freedom-cockpit, ...
 ├── optional-skills/      # Heavier/niche skills shipped but NOT active by default
 ├── skills/               # Built-in skills bundled with the repo
-├── ui-tui/               # Ink (React) terminal UI — `hermes --tui`
+├── herm-tui/              # Herm OpenTUI terminal UI — `hermes --tui`
 │   └── src/              # entry.tsx, app.tsx, gatewayClient.ts + app/components/hooks/lib
 ├── tui_gateway/          # Python JSON-RPC backend for the TUI
 ├── acp_adapter/          # ACP server (VS Code / Zed / JetBrains integration)
@@ -194,17 +194,17 @@ if canonical == "mycommand":
 
 ---
 
-## TUI Architecture (ui-tui + tui_gateway)
+## TUI Architecture (herm-tui + tui_gateway)
 
-The TUI is a full replacement for the classic (prompt_toolkit) CLI, activated via `hermes --tui` or `HERMES_TUI=1`.
+The TUI is a full replacement for the classic (prompt_toolkit) CLI, activated via `hermes --tui` or `HERMES_TUI=1`. The frontend is [Herm](https://github.com/liftaris/herm) (OpenTUI + Bun) vendored as `herm-tui/`.
 
 ### Process Model
 
 ```
 hermes --tui
-  └─ Node (Ink)  ──stdio JSON-RPC──  Python (tui_gateway)
+  └─ Bun (Herm)  ──stdio JSON-RPC──  Python (tui_gateway)
        │                                  └─ AIAgent + tools + sessions
-       └─ renders transcript, composer, prompts, activity
+       └─ renders transcript, composer, tabs, tool activity
 ```
 
 TypeScript owns the screen. Python owns sessions, tools, model calls, and slash command logic.
@@ -212,6 +212,10 @@ TypeScript owns the screen. Python owns sessions, tools, model calls, and slash 
 ### Transport
 
 Newline-delimited JSON-RPC over stdio. Requests from Ink, events from Python. See `tui_gateway/server.py` for the full method/event catalog.
+
+### Workspace cwd
+
+Herm runs with `cwd=herm-tui/` inside the checkout; tools and context files must use the **user's project directory**. `hermes_cli/tui_cwd.py` resolves and pins `HERMES_CWD` + `TERMINAL_CWD` before spawning Bun; `tui_gateway/entry.py` re-pins before `server` import (dotenv); `_HERMES_TUI_GATEWAY=1` blocks `cli.load_cli_config()` from rewriting cwd. When the process cwd is the bundle, shell `PWD` beats stale `HERMES_CWD`. Launch from the project (`cd project && hermes --tui`) or `hermes --cwd /path --tui`. Do not put `TERMINAL_CWD` in `~/.hermes/.env` — use `terminal.cwd` in `config.yaml`.
 
 ### Key Surfaces
 
@@ -234,15 +238,12 @@ Newline-delimited JSON-RPC over stdio. Requests from Ink, events from Python. Se
 ### Dev Commands
 
 ```bash
-cd ui-tui
-npm install       # first time
-npm run dev       # watch mode (rebuilds hermes-ink + tsx --watch)
-npm start         # production
-npm run build     # full build (hermes-ink + tsc)
-npm run type-check # typecheck only (tsc --noEmit)
-npm run lint      # eslint
-npm run fmt       # prettier
-npm test          # vitest
+cd herm-tui
+bun install       # first time
+bun run dev       # watch mode
+bun run build     # production bundle → dist/
+bun test
+bun run typecheck
 ```
 
 ### TUI in the Dashboard (`hermes dashboard` → `/chat`)

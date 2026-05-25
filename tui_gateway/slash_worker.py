@@ -10,6 +10,10 @@ import json
 import os
 import sys
 
+# Parent gateway pins TERMINAL_CWD; block cli.load_cli_config from replacing it.
+if (os.environ.get("TERMINAL_CWD") or os.environ.get("HERMES_CWD") or "").strip():
+    os.environ.setdefault("_HERMES_TUI_GATEWAY", "1")
+
 import cli as cli_mod
 from cli import HermesCLI
 from rich.console import Console

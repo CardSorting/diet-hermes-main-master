@@ -34,7 +34,8 @@ dietcode                   # interactive CLI (cola-themed dietcode skin)
 Optional surfaces:
 
 ```bash
-dietcode --tui             # Ink TUI (DietCode branding via gateway skin)
+dietcode --tui             # Herm TUI (OpenTUI) — auto syncs/builds herm-tui/
+./scripts/run-tui.sh       # same, from repo root (recommended after git pull)
 dietcode dashboard          # web dashboard — DietCode route at /dietcode
 dietcode gateway            # messaging gateway (Telegram, Discord, …)
 dietcode doctor             # diagnostics
@@ -42,6 +43,21 @@ dietcode update             # update this checkout
 ```
 
 Reload your shell if `dietcode` is not found: `source ~/.bashrc` (or `~/.zshrc`). The installer links both `~/.local/bin/dietcode` and `~/.local/bin/hermes` to the same entry point.
+
+### Herm TUI (every run)
+
+From this repo — **no manual `bun install` / `bun run build` after `git pull`**. The launcher syncs deps and rebuilds only when `herm-tui/` or `bun.lock` changed:
+
+```bash
+cd /path/to/diet-hermes-main-master
+./scripts/run-tui.sh              # production
+./scripts/run-tui.sh -c           # resume last session
+./scripts/run-tui.sh --dev        # hot reload
+```
+
+Same behavior via `dietcode --tui` if this checkout is your active install (`source .venv/bin/activate` first).
+
+**Once per machine:** [Bun](https://bun.sh) on your `PATH` (or `export HERMES_BUN=~/.bun/bin/bun`). Use a real terminal tab (Terminal, iTerm, or Cursor’s integrated terminal).
 
 ### DietCode vs vanilla Hermes
 
@@ -90,7 +106,7 @@ Policy and workflow hooks for governed agent runs: `plugins/joyzoning_governance
 
 - Built-in skin **`dietcode`** in `hermes_cli/skin_engine.py` (default in `hermes_cli/config.py`)
 - Shared soda callbacks: `hermes_cli/soda_callbacks.py`, `web/src/components/dietcode/sodaCallbacks.ts`
-- TUI maps skin → theme in `ui-tui/src/theme.ts`; compact banner art in `ui-tui/src/banner.ts`
+- TUI is Herm (OpenTUI) in `herm-tui/`; gateway skin flows through `tui_gateway` → Herm theme
 - User-facing command strings flow through `get_cli_command()` / `cli_usage()` / `format_cli_reference()` in `hermes_constants.py`
 
 ---
@@ -102,7 +118,7 @@ Everything below comes from **upstream Hermes** unless this README’s fork sect
 | Capability | Summary |
 |------------|---------|
 | **Models** | OpenRouter, Anthropic, OpenAI, Nous Portal, and many more — `dietcode model` |
-| **Terminal UI** | Classic CLI + `dietcode --tui` (Ink), slash commands, streaming tools |
+| **Terminal UI** | Classic CLI + `dietcode --tui` (Herm / OpenTUI), slash commands, streaming tools |
 | **Messaging** | `dietcode gateway` — Telegram, Discord, Slack, WhatsApp, Signal, email, … |
 | **Tools** | 40+ built-in tools, toolsets, MCP servers — `dietcode tools` |
 | **Skills** | Procedural memory, hub install, agent-created skills |
@@ -117,7 +133,7 @@ Switch models with **`dietcode model`** — same provider ecosystem as upstream,
 
 | Action | CLI / TUI | Messaging (after `dietcode gateway`) |
 |--------|-----------|--------------------------------------|
-| Start chatting | `dietcode` or `dietcode --tui` | Message your bot |
+| Start chatting | `dietcode`, `./scripts/run-tui.sh`, or `dietcode --tui` | Message your bot |
 | Fresh session | `/new` or `/reset` | `/new` or `/reset` |
 | Change model | `/model [provider:model]` | `/model …` |
 | Skills | `/skills` or `/<skill-name>` | `/<skill-name>` |

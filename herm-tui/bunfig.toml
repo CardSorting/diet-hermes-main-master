@@ -1,0 +1,11 @@
+[install]
+peer = false
+
+[install.cache]
+disable = false
+
+[install.lockfile]
+save = true
+
+[test]
+preload = ["./test/preload.ts"]

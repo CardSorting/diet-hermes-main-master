@@ -65,21 +65,21 @@ Click anywhere on a section header (or its chevron) to toggle it. The Tools list
 
 ## Requirements
 
-- **Node.js** ≥ 20 — the TUI runs as a subprocess launched from the Python CLI. `hermes doctor` verifies this.
+- **Bun** ≥ 1.3 — the TUI (Herm / OpenTUI) runs as a subprocess launched from the Python CLI.
 - **TTY** — like the classic CLI, piping stdin or running in non-interactive environments falls back to single-query mode.
 
-On first launch Hermes installs the TUI's Node dependencies into `ui-tui/node_modules` (one-time, a few seconds). Subsequent launches are fast. If you pull a new Hermes version, the TUI bundle is rebuilt automatically when sources are newer than the dist.
+On first launch Hermes runs `bun install` in `herm-tui/` (one-time, a few seconds). Subsequent launches are fast. If you pull a new Hermes version, the TUI bundle is rebuilt automatically when sources are newer than `dist/`.
 
 ### External prebuild
 
 Distributions that ship a prebuilt bundle (Nix, system packages) can point Hermes at it:
 
 ```bash
-export HERMES_TUI_DIR=/path/to/prebuilt/ui-tui
+export HERMES_TUI_DIR=/path/to/prebuilt/herm-tui
 hermes --tui
 ```
 
-The directory must contain `dist/entry.js`.
+The directory must contain `dist/index.js` (and the rest of the `dist/` tree).
 
 ## Keybindings
 

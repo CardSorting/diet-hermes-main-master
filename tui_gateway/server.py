@@ -28,6 +28,8 @@ from tui_gateway.transport import (
 
 logger = logging.getLogger(__name__)
 
+from hermes_cli.tui_cwd import terminal_session_cwd as _terminal_cwd
+
 _hermes_home = get_hermes_home()
 load_hermes_dotenv(
     hermes_home=_hermes_home, project_env=Path(__file__).parent.parent / ".env"
@@ -206,7 +208,7 @@ class _SlashWorker:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
-            cwd=os.getcwd(),
+            cwd=_terminal_cwd(),
             env=os.environ.copy(),
         )
         threading.Thread(target=self._drain_stdout, daemon=True).start()
@@ -627,6 +629,24 @@ def _sess(params, rid):
         return (None, err)
     _start_agent_build(params.get("session_id") or "", s)
     return (s, _wait_agent(s, rid))
+
+
+def _completion_search_dir(path_part: str) -> tuple[str, str]:
+    """Resolve a completion fragment against the session workspace, not bundle cwd."""
+    session = _terminal_cwd()
+    expanded = _normalize_completion_path(path_part) if path_part else "."
+    if expanded == "." or not expanded:
+        return session, ""
+    if os.path.isabs(expanded):
+        if expanded.endswith("/"):
+            return expanded, ""
+        parent = os.path.dirname(expanded) or expanded
+        return parent, os.path.basename(expanded)
+    joined = os.path.join(session, expanded)
+    if expanded.endswith("/"):
+        return joined, ""
+    parent = os.path.dirname(joined) or session
+    return parent, os.path.basename(joined)
 
 
 def _normalize_completion_path(path_part: str) -> str:
@@ -1400,7 +1420,7 @@ def _session_info(agent) -> dict:
         "fast": service_tier == "priority",
         "tools": {},
         "skills": {},
-        "cwd": os.getenv("TERMINAL_CWD", os.getcwd()),
+        "cwd": _terminal_cwd(),
         "version": "",
         "release_date": "",
         "update_behind": None,
@@ -1988,7 +2008,7 @@ def _new_session_key() -> str:
 
 
 def _with_checkpoints(session, fn):
-    return fn(session["agent"]._checkpoint_mgr, os.getenv("TERMINAL_CWD", os.getcwd()))
+    return fn(session["agent"]._checkpoint_mgr, _terminal_cwd())
 
 
 def _resolve_checkpoint_hash(mgr, cwd: str, ref: str) -> str:
@@ -2162,7 +2182,7 @@ def _(rid, params: dict) -> dict:
                 "model": _resolve_model(),
                 "tools": {},
                 "skills": {},
-                "cwd": os.getenv("TERMINAL_CWD", os.getcwd()),
+                "cwd": _terminal_cwd(),
                 "lazy": True,
                 "profile_name": _current_profile_name(),
             },
@@ -3191,8 +3211,8 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                 )
                 ctx = preprocess_context_references(
                     prompt,
-                    cwd=os.environ.get("TERMINAL_CWD", os.getcwd()),
-                    allowed_root=os.environ.get("TERMINAL_CWD", os.getcwd()),
+                    cwd=_terminal_cwd(),
+                    allowed_root=_terminal_cwd(),
                     context_length=ctx_len,
                 )
                 if ctx.blocked:
@@ -4552,7 +4572,7 @@ def _(rid, params: dict) -> dict:
             capture_output=True,
             text=True,
             timeout=min(int(params.get("timeout", 240)), 600),
-            cwd=os.getcwd(),
+            cwd=_terminal_cwd(),
             env=os.environ.copy(),
         )
         parts = [r.stdout or "", r.stderr or ""]
@@ -5062,7 +5082,7 @@ def _(rid, params: dict) -> dict:
         # `/`, `./`, `~/`, `/abs`) fall through to the directory-listing
         # path so explicit navigation intent is preserved.
         if is_context and path_part and "/" not in path_part and prefix_tag != "folder":
-            root = os.getcwd()
+            root = _terminal_cwd()
             ranked: list[tuple[tuple[int, int], str, str]] = []
             for rel in _list_repo_files(root):
                 basename = os.path.basename(rel)
@@ -5086,14 +5106,7 @@ def _(rid, params: dict) -> dict:
 
             return _ok(rid, {"items": items})
 
-        expanded = _normalize_completion_path(path_part) if path_part else "."
-        if expanded == "." or not expanded:
-            search_dir, match = ".", ""
-        elif expanded.endswith("/"):
-            search_dir, match = expanded, ""
-        else:
-            search_dir = os.path.dirname(expanded) or "."
-            match = os.path.basename(expanded)
+        search_dir, match = _completion_search_dir(path_part)
 
         if not os.path.isdir(search_dir):
             return _ok(rid, {"items": []})
@@ -6292,7 +6305,7 @@ def _(rid, params: dict) -> dict:
             {
                 "title": "Environment",
                 "rows": [
-                    ["Working Dir", os.getcwd()],
+                    ["Working Dir", _terminal_cwd()],
                     ["Config File", str(_hermes_home / "config.yaml")],
                 ],
             },
@@ -6627,7 +6640,7 @@ def _(rid, params: dict) -> dict:
         pass
     try:
         r = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=os.getcwd()
+            cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=_terminal_cwd()
         )
         return _ok(
             rid,

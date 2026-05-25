@@ -152,8 +152,8 @@ stdenv.mkDerivation {
     cp -r ${bundledPlugins} $out/share/hermes-agent/plugins
     cp -r ${hermesWeb} $out/share/hermes-agent/web_dist
 
-    mkdir -p $out/ui-tui
-    cp -r ${hermesTui}/lib/hermes-tui/* $out/ui-tui/
+    mkdir -p $out/herm-tui
+    cp -r ${hermesTui}/lib/hermes-tui/* $out/herm-tui/
 
     ${lib.concatMapStringsSep "\n"
       (name: ''
@@ -162,7 +162,7 @@ stdenv.mkDerivation {
           --set HERMES_BUNDLED_SKILLS $out/share/hermes-agent/skills \
           --set HERMES_BUNDLED_PLUGINS $out/share/hermes-agent/plugins \
           --set HERMES_WEB_DIST $out/share/hermes-agent/web_dist \
-          --set HERMES_TUI_DIR $out/ui-tui \
+          --set HERMES_TUI_DIR $out/herm-tui \
           --set HERMES_PYTHON ${hermesVenv}/bin/python3 \
           --set HERMES_NODE ${lib.getExe nodejs} \
           ${lib.optionalString (rev != null) ''--set HERMES_REVISION ${rev} \''}

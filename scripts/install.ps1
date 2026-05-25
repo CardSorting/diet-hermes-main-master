@@ -1714,12 +1714,24 @@ function Install-NodeDeps {
         }
     }
 
-    # TUI
-    $tuiDir = "$InstallDir\ui-tui"
+    # TUI (Herm / OpenTUI — requires Bun)
+    $tuiDir = "$InstallDir\herm-tui"
     if (Test-Path "$tuiDir\package.json") {
-        Write-Info "Installing TUI dependencies..."
-        $tuiLog = "$env:TEMP\hermes-npm-tui-$(Get-Random).log"
-        [void](_Run-NpmInstall "TUI" $tuiDir $tuiLog $npmExe)
+        $bun = Get-Command bun -ErrorAction SilentlyContinue
+        if ($bun) {
+            Write-Info "Installing TUI dependencies..."
+            Push-Location $tuiDir
+            try {
+                & bun install 2>&1 | Out-Null
+                Write-Success "TUI dependencies installed"
+            } catch {
+                Write-Warn "TUI bun install failed (hermes --tui may not work)"
+            } finally {
+                Pop-Location
+            }
+        } else {
+            Write-Warn "bun not found — install from https://bun.sh for hermes --tui"
+        }
     }
 }
 

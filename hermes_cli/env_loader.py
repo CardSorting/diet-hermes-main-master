@@ -164,6 +164,14 @@ def load_hermes_dotenv(
     if project_env_path and project_env_path.exists():
         _sanitize_env_file_if_needed(project_env_path)
 
+    preserved: dict[str, str] = {}
+    try:
+        from hermes_cli.tui_cwd import preserved_workspace_env
+
+        preserved = preserved_workspace_env()
+    except Exception:
+        preserved = {}
+
     if user_env.exists():
         _load_dotenv_with_fallback(user_env, override=True)
         loaded.append(user_env)
@@ -171,5 +179,8 @@ def load_hermes_dotenv(
     if project_env_path and project_env_path.exists():
         _load_dotenv_with_fallback(project_env_path, override=not loaded)
         loaded.append(project_env_path)
+
+    if preserved:
+        os.environ.update(preserved)
 
     return loaded

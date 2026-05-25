@@ -1679,14 +1679,18 @@ install_node_deps() {
         log_success "Browser engine setup complete"
     fi
 
-    # Install TUI dependencies
-    if [ -f "$INSTALL_DIR/ui-tui/package.json" ]; then
+    # Install TUI dependencies (Herm / OpenTUI — requires Bun)
+    if [ -f "$INSTALL_DIR/herm-tui/package.json" ]; then
         log_info "Installing TUI dependencies..."
-        cd "$INSTALL_DIR/ui-tui"
-        npm install --silent 2>/dev/null || {
-            log_warn "TUI npm install failed (hermes --tui may not work)"
-        }
-        log_success "TUI dependencies installed"
+        if command -v bun >/dev/null 2>&1; then
+            cd "$INSTALL_DIR/herm-tui"
+            bun install --silent 2>/dev/null || {
+                log_warn "TUI bun install failed (hermes --tui may not work)"
+            }
+            log_success "TUI dependencies installed"
+        else
+            log_warn "bun not found — install from https://bun.sh for hermes --tui"
+        fi
     fi
 
 

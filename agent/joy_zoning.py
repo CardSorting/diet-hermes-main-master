@@ -97,7 +97,7 @@ def get_layer(file_path: str, content: Optional[str] = None) -> str:
         return "infrastructure"
     elif "src/utils/" in normalized:
         return "plumbing"
-    elif normalized.endswith("/cli.py") or normalized == "cli.py" or "ui-tui/" in normalized:
+    elif normalized.endswith("/cli.py") or normalized == "cli.py" or "herm-tui/" in normalized:
         return "ui"
     else:
         return "infrastructure"
@@ -507,7 +507,7 @@ INFRASTRUCTURE (e.g., database, external integrations, tools/)
   What to avoid: Business rules, UI components, core flow orchestration.
   Principle: Implement interfaces/contracts. Keep domain-agnostic.
 
-UI (e.g., cli.py, ui-tui/)
+UI (e.g., cli.py, herm-tui/)
   Purpose: Presentation — what the user sees and interacts with.
   What belongs here: CLI command handlers, panels, spinner rendering, menus, state display.
   What to avoid: Direct business rules, raw HTTP requests, core logic.
