@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 def _on_session_start(*, session_id: str = "", **_: Any) -> None:
+    """Hive sync + scope aliases for kanban dispatcher workers (joyzoning_runtime handles API runs)."""
     try:
-        from agent.joyzoning.config import _read_scope_env
-        from tools.kanban_broccolidb_bridge import sync_on_worker_start, validate_task_id
-        if not validate_task_id(_read_scope_env("HERMES_KANBAN_TASK")):
-            return
+        from tools.kanban_broccolidb_bridge import sync_on_worker_start
         sync_on_worker_start()
     except Exception as exc:
         logger.warning("kanban_broccolidb on_session_start: %s", exc)

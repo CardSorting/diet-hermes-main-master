@@ -15,12 +15,11 @@ def _on_session_start(*, session_id: str = "", **_: Any) -> None:
         if not get_joyzoning_config().enabled:
             return
         from agent.joyzoning.config import _read_scope_env
+        from agent.joyzoning.scope_registry import register_from_scope_env
 
+        register_from_scope_env()
         kanban_task = _read_scope_env("HERMES_KANBAN_TASK")
         habitat_task = _read_scope_env("JOYZONING_HABITAT_TASK")
-        if kanban_task and habitat_task:
-            from agent.joyzoning.scope_registry import register_scope_aliases
-            register_scope_aliases(kanban_task, habitat_task)
 
         emit_habitat_event(
             "session.start",

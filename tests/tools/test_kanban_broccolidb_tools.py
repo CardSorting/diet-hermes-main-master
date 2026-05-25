@@ -126,6 +126,14 @@ def test_debounce_skips_rapid_heartbeats(monkeypatch, tmp_path):
     assert data.get("reason") == "debounced"
 
 
+def test_task_row_payload_omits_invalid_task_id():
+    from tools.kanban_broccolidb_bridge import task_row_to_payload, validate_task_id
+
+    payload = task_row_to_payload({"id": "not-valid", "title": "x", "status": "ready"})
+    assert payload["task_id"] is None
+    assert validate_task_id(payload["task_id"]) is None
+
+
 def test_bridge_payload_includes_joyzoning_forensics(monkeypatch, tmp_path):
     home = tmp_path / ".hermes"
     home.mkdir()

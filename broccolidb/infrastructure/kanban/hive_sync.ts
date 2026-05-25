@@ -24,6 +24,10 @@ export interface KanbanHiveSyncPayload {
 	signal_events?: string[];
 	run_id?: string | null;
 	tenant?: string | null;
+	/** JoyZoning habitat scope (forensic, non-authoritative). */
+	habitat_task?: string;
+	joyzoning_scope?: string;
+	convergence_state?: string;
 }
 
 const TASK_ID_RE = /^t_[a-z0-9]{6,32}$/i;
@@ -130,6 +134,9 @@ async function main() {
 					assignee: payload.assignee,
 					run_id: payload.run_id ?? null,
 					tenant: payload.tenant ?? null,
+					habitat_task: payload.habitat_task ?? null,
+					joyzoning_scope: payload.joyzoning_scope ?? null,
+					convergence_state: payload.convergence_state ?? null,
 				}),
 				status: "pending",
 				priority: payload.event === "complete" ? 2 : 1,
@@ -155,6 +162,9 @@ async function main() {
 				event: payload.event,
 				assignee: payload.assignee,
 				tenant: payload.tenant,
+				habitat_task: payload.habitat_task ?? null,
+				joyzoning_scope: payload.joyzoning_scope ?? null,
+				convergence_state: payload.convergence_state ?? null,
 			}),
 			timestamp: now,
 		})

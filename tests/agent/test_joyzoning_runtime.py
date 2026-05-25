@@ -106,6 +106,16 @@ def test_habitat_events_tail_tool(jz_env, monkeypatch):
     assert data["events"][0]["source"] == "hermes-runtime"
 
 
+def test_register_from_scope_env_links_cluster(jz_env, monkeypatch):
+    from agent.joyzoning.scope_registry import expand_scope_cluster, register_from_scope_env
+
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_alias001")
+    monkeypatch.setenv("JOYZONING_HABITAT_TASK", "550e8400-e29b-41d4-a716-446655440099")
+    register_from_scope_env()
+    cluster = expand_scope_cluster("t_alias001")
+    assert "550e8400-e29b-41d4-a716-446655440099" in cluster
+
+
 def test_session_end_uses_scope_context(jz_env, monkeypatch):
     home = jz_env
     (home / "config.yaml").write_text("joyzoning:\n  enabled: true\n")
