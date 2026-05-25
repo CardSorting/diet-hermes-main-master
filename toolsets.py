@@ -85,9 +85,10 @@ _HERMES_CORE_TOOLS = [
     # BroccoliQ hive orchestration (gated: kanban mode + broccolidb in workspace)
     "kanban_broccolidb_context", "kanban_broccolidb_sync", "kanban_broccolidb_record",
     "kanban_broccolidb_board_intel", "kanban_broccolidb_drift",
-    # JoyZoning runtime (convergence, mutation lifecycle, habitat event stream)
-    "convergence_status", "mutation_begin", "mutation_verify",
-    "convergence_request_review", "habitat_events_tail",
+    # JoyZoning runtime (governed-work primitive + lifecycle + habitat stream)
+    "joyzoning",
+    "convergence_status", "mutation_begin", "mutation_record_patch", "mutation_verify",
+    "convergence_request_review", "convergence_mark_converged", "habitat_events_tail",
     "jsdp_validate_handoff", "jsdp_role_context",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
@@ -132,10 +133,13 @@ TOOLSETS = {
             "execution journal, JSDP handoff validation (Hermes operational authority)"
         ),
         "tools": [
+            "joyzoning",
             "convergence_status",
             "mutation_begin",
+            "mutation_record_patch",
             "mutation_verify",
             "convergence_request_review",
+            "convergence_mark_converged",
             "habitat_events_tail",
             "jsdp_validate_handoff",
             "jsdp_role_context",

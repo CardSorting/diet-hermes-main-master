@@ -56,6 +56,22 @@ def emit_habitat_event(
     return event_id
 
 
+_mirror_executor: Optional[object] = None
+_mirror_lock = threading.Lock()
+
+
+def _mirror_executor_submit(fn) -> None:
+    global _mirror_executor
+    with _mirror_lock:
+        if _mirror_executor is None:
+            from concurrent.futures import ThreadPoolExecutor
+            _mirror_executor = ThreadPoolExecutor(
+                max_workers=2,
+                thread_name_prefix="joyzoning-cp-mirror",
+            )
+        _mirror_executor.submit(fn)
+
+
 def _mirror_to_control_plane(
     *,
     event_type: str,
@@ -65,13 +81,19 @@ def _mirror_to_control_plane(
     run_id: str,
     payload: dict[str, Any],
 ) -> None:
-    """Best-effort fire-and-forget mirror — habitat observes, does not authorize."""
+    """Best-effort async mirror — habitat observes, does not authorize."""
+    cfg = get_joyzoning_config()
+    has_token = bool(cfg.ingest_token or __import__("os").environ.get("JOYZONING_INGEST_TOKEN", "").strip())
+    if not has_token and cfg.control_plane_url:
+        logger.debug(
+            "habitat mirror skipped: ingest token not configured (set ingest_token in config)"
+        )
+        return
 
     def _send() -> None:
         try:
             from agent.joyzoning.control_plane_client import ControlPlaneClient
-            client = ControlPlaneClient()
-            client.emit_observation(
+            result = ControlPlaneClient().emit_observation(
                 event_type=event_type,
                 layer=layer.value,
                 scope_id=scope_id,
@@ -80,14 +102,15 @@ def _mirror_to_control_plane(
                 payload=payload,
                 timestamp=time.time(),
             )
+            if result.get("success") is False and not result.get("skipped"):
+                logger.warning(
+                    "habitat observation mirror failed: %s",
+                    result.get("error") or result,
+                )
         except Exception as exc:
             logger.debug("habitat event mirror skipped: %s", exc)
 
-    threading.Thread(
-        target=_send,
-        name="joyzoning-cp-mirror",
-        daemon=True,
-    ).start()
+    _mirror_executor_submit(_send)
 
 
 def format_habitat_stream(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

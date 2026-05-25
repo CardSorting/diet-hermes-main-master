@@ -11,6 +11,13 @@ _config_cache_at: float = 0.0
 _CONFIG_TTL = 30.0
 
 
+def _resolve_secret(yaml_val: str, env_key: str) -> str:
+    """Config.yaml value wins; env is fallback (secrets stay in .env)."""
+    if yaml_val and str(yaml_val).strip():
+        return str(yaml_val).strip()
+    return os.environ.get(env_key, "").strip()
+
+
 @dataclass(frozen=True)
 class JoyZoningConfig:
     enabled: bool = True
@@ -19,6 +26,8 @@ class JoyZoningConfig:
     review_before_complete: bool = True
     control_plane_url: str = ""
     control_plane_observe_only: bool = True
+    ingest_token: str = ""
+    habitat_bridge_token: str = ""
     emit_habitat_events: bool = True
     jsdp_enabled: bool = False
     jsdp_role: str = ""
@@ -55,6 +64,14 @@ class JoyZoningConfig:
                 review_before_complete=bool(conv.get("review_before_complete", True)),
                 control_plane_url=cp_url,
                 control_plane_observe_only=observe_only,
+                ingest_token=_resolve_secret(
+                    str(cp.get("ingest_token") or raw.get("ingest_token") or ""),
+                    "JOYZONING_INGEST_TOKEN",
+                ),
+                habitat_bridge_token=_resolve_secret(
+                    str(cp.get("bridge_token") or raw.get("habitat_bridge_token") or ""),
+                    "JOYZONING_HABITAT_BRIDGE_TOKEN",
+                ),
                 emit_habitat_events=bool(raw.get("emit_habitat_events", True)),
                 jsdp_enabled=bool(jsdp.get("enabled", False)),
                 jsdp_role=str(jsdp.get("role") or os.environ.get("JOYZONING_JSDP_ROLE", "")).strip(),
@@ -69,6 +86,8 @@ class JoyZoningConfig:
                 jsdp_role=os.environ.get("JOYZONING_JSDP_ROLE", "").strip(),
                 jsdp_chain_id=os.environ.get("JOYZONING_JSDP_CHAIN_ID", "").strip(),
                 control_plane_url=os.environ.get("JOYZONING_CONTROL_PLANE_URL", "").strip(),
+                ingest_token=os.environ.get("JOYZONING_INGEST_TOKEN", "").strip(),
+                habitat_bridge_token=os.environ.get("JOYZONING_HABITAT_BRIDGE_TOKEN", "").strip(),
             )
 
 

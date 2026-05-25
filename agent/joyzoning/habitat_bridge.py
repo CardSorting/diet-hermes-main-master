@@ -17,7 +17,9 @@ def mark_operator_merge_accepted(
     summary: str = "",
 ) -> dict[str, Any]:
     """Transition Hermes-owned convergence to CONVERGED after habitat accept-merge."""
-    expected = os.environ.get("JOYZONING_HABITAT_BRIDGE_TOKEN", "").strip()
+    from agent.joyzoning.config import get_joyzoning_config
+    cfg = get_joyzoning_config()
+    expected = cfg.habitat_bridge_token or os.environ.get("JOYZONING_HABITAT_BRIDGE_TOKEN", "").strip()
     if expected and token != expected:
         return {"success": False, "error": "forbidden", "message": "Invalid habitat bridge token."}
 

@@ -197,6 +197,26 @@ class ExecutionJournal:
             data["metadata"] = {}
         return data
 
+    def get_active_mutation(self, scope_id: str) -> Optional[dict[str, Any]]:
+        """Most recently updated mutation scope row for a convergence scope."""
+        row = self._conn().execute(
+            """
+            SELECT * FROM mutation_scopes
+            WHERE scope_id = ?
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (scope_id,),
+        ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        try:
+            data["metadata"] = json.loads(data.get("metadata") or "{}")
+        except json.JSONDecodeError:
+            data["metadata"] = {}
+        return data
+
     def upsert_mutation_scope(
         self,
         mutation_id: str,

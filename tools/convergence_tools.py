@@ -16,17 +16,25 @@ def _joyzoning_enabled() -> bool:
 
 
 def convergence_status(scope_id: str = None) -> str:
-    from agent.joyzoning.convergence import get_convergence_state
     from agent.joyzoning.config import resolve_scope_id
+    from agent.joyzoning.convergence import require_review_before_complete
     from agent.joyzoning.journal import get_journal
+    from agent.joyzoning.workflow import _resolve_cluster
 
     sid = resolve_scope_id(scope_id)
-    record = get_journal().get_convergence(sid)
+    state, anchor, cluster = _resolve_cluster(sid)
+    record = get_journal().get_convergence(anchor)
+    gate = require_review_before_complete(anchor)
     return json.dumps({
         "success": True,
         "scope_id": sid,
-        "state": get_convergence_state(sid).value,
+        "anchor_scope_id": anchor,
+        "scope_cluster": cluster,
+        "state": state.value,
+        "kanban_complete_allowed": gate is None,
+        "kanban_complete_block_reason": gate,
         "record": record,
+        "active_mutation": get_journal().get_active_mutation(anchor),
     })
 
 
@@ -35,6 +43,17 @@ def mutation_begin(goal: str, scope_id: str = None) -> str:
     if not goal or not goal.strip():
         return tool_error("goal is required")
     return json.dumps(begin_mutation(goal.strip(), scope_id=scope_id))
+
+
+def mutation_record_patch(
+    mutation_id: str,
+    summary: str = "",
+    scope_id: str = None,
+) -> str:
+    from agent.joyzoning.mutation_lifecycle import record_patch
+    if not mutation_id:
+        return tool_error("mutation_id is required")
+    return json.dumps(record_patch(mutation_id, summary=summary.strip(), scope_id=scope_id))
 
 
 def mutation_verify(
@@ -167,6 +186,31 @@ registry.register(
 )
 
 registry.register(
+    name="mutation_record_patch",
+    toolset="joyzoning",
+    schema={
+        "name": "mutation_record_patch",
+        "description": "Record active patching on a mutation scope after substantive code edits.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "mutation_id": {"type": "string"},
+                "summary": {"type": "string"},
+                "scope_id": {"type": "string"},
+            },
+            "required": ["mutation_id"],
+        },
+    },
+    handler=lambda args, **kw: mutation_record_patch(
+        mutation_id=args.get("mutation_id", ""),
+        summary=args.get("summary", ""),
+        scope_id=args.get("scope_id"),
+    ),
+    check_fn=_joyzoning_enabled,
+    emoji="🔧",
+)
+
+registry.register(
     name="mutation_verify",
     toolset="joyzoning",
     schema={
@@ -255,6 +299,31 @@ registry.register(
     handler=lambda args, **kw: jsdp_validate_handoff(text=args.get("text", "")),
     check_fn=_joyzoning_enabled,
     emoji="📋",
+)
+
+registry.register(
+    name="convergence_mark_converged",
+    toolset="joyzoning",
+    schema={
+        "name": "convergence_mark_converged",
+        "description": (
+            "Mark CONVERGED after operator accept-merge. Blocked when habitat control "
+            "plane is configured — use habitat merge gate instead."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "scope_id": {"type": "string"},
+            },
+        },
+    },
+    handler=lambda args, **kw: convergence_mark_converged(
+        summary=args.get("summary", ""),
+        scope_id=args.get("scope_id"),
+    ),
+    check_fn=_joyzoning_enabled,
+    emoji="✅",
 )
 
 registry.register(

@@ -1523,8 +1523,12 @@ DEFAULT_CONFIG = {
             "review_before_complete": True,
         },
         "control_plane": {
+            # Set to http://127.0.0.1:9470 when JoyZoning habitat is running.
             "url": "",
             "observe_only": True,
+            # Mirror with ControlPlane:InternalToken on habitat (:9470).
+            "ingest_token": "",
+            "bridge_token": "",
         },
         "jsdp": {
             "enabled": False,
@@ -2352,6 +2356,39 @@ OPTIONAL_ENV_VARS = {
         "tools": ["image_generate", "video_generate"],
         "password": True,
         "category": "tool",
+    },
+    "JOYZONING_CONTROL_PLANE_URL": {
+        "description": "JoyZoning habitat control plane URL (default local :9470)",
+        "prompt": "JoyZoning control plane URL",
+        "url": "http://127.0.0.1:9470",
+        "password": False,
+        "category": "tool",
+    },
+    "JOYZONING_INGEST_TOKEN": {
+        "description": "Token for Hermes→habitat observation ingest (X-JoyZoning-Internal-Token)",
+        "prompt": "JoyZoning ingest token",
+        "password": True,
+        "category": "tool",
+    },
+    "JOYZONING_HABITAT_BRIDGE_TOKEN": {
+        "description": "Shared secret for habitat accept-merge → Hermes CONVERGED bridge",
+        "prompt": "JoyZoning habitat bridge token",
+        "password": True,
+        "category": "tool",
+    },
+    "JOYZONING_SCOPE_ID": {
+        "description": "Active JoyZoning mutation scope (usually kanban task or habitat GUID)",
+        "prompt": "JoyZoning scope id",
+        "password": False,
+        "category": "tool",
+        "advanced": True,
+    },
+    "JOYZONING_HABITAT_TASK": {
+        "description": "JoyZoning habitat task GUID linked to this Hermes run",
+        "prompt": "JoyZoning habitat task id",
+        "password": False,
+        "category": "tool",
+        "advanced": True,
     },
     "VOICE_TOOLS_OPENAI_KEY": {
         "description": "OpenAI API key for voice transcription (Whisper) and OpenAI TTS",

@@ -28,8 +28,37 @@ def begin_mutation(goal: str, *, scope_id: Optional[str] = None) -> dict[str, An
     return {**result, "mutation_id": mid}
 
 
+def _assert_mutation_scope(mutation_id: str, scope_id: str) -> Optional[dict[str, Any]]:
+    row = get_journal()._conn().execute(
+        "SELECT scope_id FROM mutation_scopes WHERE id = ?",
+        (mutation_id,),
+    ).fetchone()
+    if not row:
+        return {
+            "success": False,
+            "error": "unknown_mutation",
+            "message": f"mutation_id {mutation_id!r} not found",
+            "mutation_id": mutation_id,
+        }
+    owner = str(row["scope_id"] or "").strip()
+    from agent.joyzoning.scope_registry import expand_scope_cluster
+    cluster = expand_scope_cluster(scope_id)
+    if owner not in cluster:
+        return {
+            "success": False,
+            "error": "mutation_scope_mismatch",
+            "message": f"mutation {mutation_id!r} belongs to scope {owner!r}, not {scope_id!r}",
+            "mutation_id": mutation_id,
+            "scope_id": scope_id,
+        }
+    return None
+
+
 def record_patch(mutation_id: str, *, summary: str = "", scope_id: Optional[str] = None) -> dict[str, Any]:
     sid = resolve_scope_id(scope_id)
+    bad = _assert_mutation_scope(mutation_id, sid)
+    if bad:
+        return bad
     get_journal().upsert_mutation_scope(mutation_id, sid, state="patching", goal=summary)
     return transition_convergence(
         ConvergenceState.PATCHING,
@@ -47,6 +76,9 @@ def record_verification(
     scope_id: Optional[str] = None,
 ) -> dict[str, Any]:
     sid = resolve_scope_id(scope_id)
+    bad = _assert_mutation_scope(mutation_id, sid)
+    if bad:
+        return bad
     state = ConvergenceState.VERIFYING if passed else ConvergenceState.REJECTED
     get_journal().upsert_mutation_scope(
         mutation_id,

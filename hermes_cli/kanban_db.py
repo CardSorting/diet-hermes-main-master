@@ -5278,6 +5278,61 @@ def _worker_terminal_timeout_env(
     return str(desired)
 
 
+def _inject_joyzoning_env(env: dict, task: "Task", *, board: Optional[str] = None) -> None:
+    """Pin JoyZoning scope ids so workers, journal, and BroccoliQ hive align."""
+    try:
+        from agent.joyzoning.config import get_joyzoning_config
+        if not get_joyzoning_config().enabled:
+            return
+    except ImportError:
+        return
+
+    env["JOYZONING_SCOPE_ID"] = task.id
+    env["HERMES_KANBAN_TASK"] = task.id
+
+    habitat = env.get("JOYZONING_HABITAT_TASK", "").strip()
+    if not habitat:
+        try:
+            from agent.joyzoning.kanban_linkage import resolve_habitat_task_id
+            habitat = resolve_habitat_task_id(
+                body=task.body,
+                idempotency_key=getattr(task, "idempotency_key", None),
+            ) or ""
+            if not habitat:
+                conn = connect(board=board or env.get("HERMES_KANBAN_BOARD"))
+                row = conn.execute(
+                    "SELECT body, idempotency_key FROM tasks WHERE id = ?",
+                    (task.id,),
+                ).fetchone()
+                if row:
+                    habitat = resolve_habitat_task_id(
+                        body=row["body"] if "body" in row.keys() else None,
+                        idempotency_key=row["idempotency_key"] if "idempotency_key" in row.keys() else None,
+                    ) or ""
+                if not habitat:
+                    run = conn.execute(
+                        "SELECT metadata FROM task_runs WHERE task_id = ? ORDER BY id DESC LIMIT 1",
+                        (task.id,),
+                    ).fetchone()
+                    if run and run["metadata"]:
+                        habitat = resolve_habitat_task_id(metadata=run["metadata"]) or ""
+        except Exception:
+            pass
+    if habitat:
+        env["JOYZONING_HABITAT_TASK"] = habitat
+
+    try:
+        from agent.joyzoning.scope_registry import register_scope_aliases
+        scopes = [task.id]
+        if habitat:
+            scopes.append(habitat)
+        if task.session_id:
+            scopes.append(task.session_id)
+        register_scope_aliases(*scopes)
+    except Exception:
+        pass
+
+
 def _inject_broccolidb_env(env: dict) -> None:
     """Pin BroccoliDB paths for kanban workers when broccolidb is discoverable."""
     try:
@@ -5385,6 +5440,7 @@ def _default_spawn(
     # board slug still forces it to the right directory.
     resolved_board = _normalize_board_slug(board) or get_current_board()
     env["HERMES_KANBAN_BOARD"] = resolved_board
+    _inject_joyzoning_env(env, task, board=resolved_board)
     _inject_broccolidb_env(env)
     # HERMES_PROFILE is the author the kanban_comment tool defaults to.
     # `hermes -p <assignee>` activates the profile, but the env var is

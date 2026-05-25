@@ -180,13 +180,13 @@ def test_forensic_fields_omit_convergence_without_scope(monkeypatch, tmp_path):
     assert "convergence_state" not in payload
 
 
-def test_sync_on_worker_start_skips_register_when_joyzoning_enabled(monkeypatch):
+def test_sync_on_worker_start_registers_aliases_when_joyzoning_enabled(monkeypatch):
     import tools.kanban_broccolidb_bridge as bridge
 
     calls = []
 
     monkeypatch.setattr(bridge, "auto_sync_enabled", lambda: True)
-    monkeypatch.setattr(bridge, "_scope_env", lambda k: "t_regskip1" if k == "HERMES_KANBAN_TASK" else "")
+    monkeypatch.setattr(bridge, "_scope_env", lambda k: "t_reg001" if k == "HERMES_KANBAN_TASK" else "")
     monkeypatch.setattr(bridge, "schedule_sync", lambda *a, **k: None)
     monkeypatch.setattr(
         "agent.joyzoning.config.get_joyzoning_config",
@@ -198,7 +198,7 @@ def test_sync_on_worker_start_skips_register_when_joyzoning_enabled(monkeypatch)
     )
 
     bridge.sync_on_worker_start()
-    assert calls == []
+    assert calls == ["register"]
 
 
 def test_bridge_payload_includes_joyzoning_forensics(monkeypatch, tmp_path):

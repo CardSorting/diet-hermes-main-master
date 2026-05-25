@@ -477,6 +477,21 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
         help="Emit JSON (structured) instead of the default human table",
     )
 
+    p_jz_doc = sub.add_parser(
+        "joyzoning-doctor",
+        aliases=["jz-doctor"],
+        help="JoyZoning runtime health (journal, control plane, scope linkage)",
+    )
+    p_jz_doc.add_argument(
+        "--scope",
+        default=None,
+        help="Override scope id (default: env JOYZONING_SCOPE_ID / HERMES_KANBAN_TASK)",
+    )
+    p_jz_doc.add_argument(
+        "--json", action="store_true",
+        help="Emit structured JSON",
+    )
+
     # --- link / unlink ---
     p_link = sub.add_parser("link", help="Add a parent->child dependency")
     p_link.add_argument("parent_id")
@@ -890,6 +905,8 @@ def kanban_command(args: argparse.Namespace) -> int:
         "reassign": _cmd_reassign,
         "diagnostics": _cmd_diagnostics,
         "diag":     _cmd_diagnostics,
+        "joyzoning-doctor": _cmd_joyzoning_doctor,
+        "jz-doctor": _cmd_joyzoning_doctor,
         "link":     _cmd_link,
         "unlink":   _cmd_unlink,
         "claim":    _cmd_claim,
@@ -1622,6 +1639,30 @@ def _cmd_reassign(args: argparse.Namespace) -> int:
         + (" (claim reclaimed)" if getattr(args, "reclaim", False) else "")
     )
     return 0
+
+
+def _cmd_joyzoning_doctor(args: argparse.Namespace) -> int:
+    """JoyZoning production health checks (journal, CP, habitat linkage)."""
+    import json as _json
+
+    from agent.joyzoning.doctor import run_checks
+
+    scope = getattr(args, "scope", None) or os.environ.get("JOYZONING_SCOPE_ID", "").strip()
+    if not scope:
+        scope = os.environ.get("HERMES_KANBAN_TASK", "").strip() or None
+    report = run_checks(scope_id=scope)
+    if getattr(args, "json", False):
+        print(_json.dumps(report, indent=2, default=str))
+    else:
+        print(f"JoyZoning doctor — scope={report.get('scope_id') or '(none)'}")
+        for chk in report.get("checks", []):
+            mark = "✓" if chk.get("ok") else "✗"
+            print(f"  {mark} {chk.get('name')}: {chk.get('detail', '')}")
+        if report.get("recommendations"):
+            print("Recommendations:")
+            for rec in report["recommendations"]:
+                print(f"  • {rec}")
+    return 0 if report.get("ok") or report.get("success") else 1
 
 
 def _cmd_diagnostics(args: argparse.Namespace) -> int:

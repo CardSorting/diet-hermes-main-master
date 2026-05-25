@@ -13,6 +13,8 @@ def jz_env(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.chdir(tmp_path)
+    import agent.joyzoning.config as cfg_mod
+    cfg_mod._config_cache = None
     return home
 
 
@@ -270,7 +272,7 @@ def test_journal_integrity_check(jz_env):
 def test_broccolidb_sync_registers_scope_aliases_on_start(monkeypatch, tmp_path):
     home = tmp_path / ".hermes"
     home.mkdir()
-    (home / "config.yaml").write_text("joyzoning:\n  enabled: false\n")
+    (home / "config.yaml").write_text("joyzoning:\n  enabled: true\n")
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_sync001")
     monkeypatch.setenv("JOYZONING_HABITAT_TASK", "550e8400-e29b-41d4-a716-446655440001")

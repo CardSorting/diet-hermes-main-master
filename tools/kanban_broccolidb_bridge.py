@@ -500,11 +500,8 @@ def sync_on_worker_start() -> None:
     if not task_id:
         return
     try:
-        from agent.joyzoning.config import get_joyzoning_config
         from agent.joyzoning.scope_registry import register_from_scope_env
-        # joyzoning_runtime registers aliases on session.start when enabled.
-        if not get_joyzoning_config().enabled:
-            register_from_scope_env()
+        register_from_scope_env()
     except Exception as exc:
         logger.warning("kanban_broccolidb scope alias registration failed: %s", exc)
     schedule_sync(task_id, event="start")

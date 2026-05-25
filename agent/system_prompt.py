@@ -172,7 +172,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     elif _kanban_guidance is None and "kanban_show" in agent.valid_tool_names:
         # Fallback for code paths that bypass agent_init (rare).
         tool_guidance.append(KANBAN_GUIDANCE)
-    if "convergence_status" in agent.valid_tool_names:
+    if "joyzoning" in agent.valid_tool_names or "convergence_status" in agent.valid_tool_names:
         from agent.prompt_builder import JOYZONING_GUIDANCE
         tool_guidance.append(JOYZONING_GUIDANCE)
     if tool_guidance:

@@ -68,12 +68,22 @@ async function main() {
 		.where("task_id", "=", taskId)
 		.executeTakeFirst();
 
+	const forensic =
+		payload.habitat_task || payload.joyzoning_scope || payload.convergence_state
+			? JSON.stringify({
+					habitat_task: payload.habitat_task ?? null,
+					joyzoning_scope: payload.joyzoning_scope ?? null,
+					convergence_state: payload.convergence_state ?? null,
+				})
+			: null;
+
 	const merged = {
 		id: existing?.id ?? hiveId,
 		task_id: taskId,
 		title: payload.title || existing?.title || taskId,
 		objective: payload.title || existing?.objective || taskId,
 		description: payload.body ?? existing?.description ?? "",
+		initial_context: forensic ?? existing?.initial_context ?? null,
 		status: payload.status || existing?.status || "unknown",
 		priority: payload.priority ?? existing?.priority ?? 0,
 		user_agent: payload.assignee || existing?.user_agent || "hermes",
@@ -106,6 +116,7 @@ async function main() {
 				title: merged.title,
 				objective: merged.objective,
 				description: merged.description,
+				initial_context: merged.initial_context,
 				status: merged.status,
 				priority: merged.priority,
 				user_agent: merged.user_agent,

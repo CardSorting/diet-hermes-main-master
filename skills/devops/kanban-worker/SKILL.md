@@ -6,7 +6,7 @@ platforms: [linux, macos, windows]
 metadata:
   hermes:
     tags: [kanban, multi-agent, collaboration, workflow, pitfalls]
-    related_skills: [kanban-orchestrator]
+    related_skills: [kanban-orchestrator, joyzoning-governed-work]
 ---
 
 # Kanban Worker — Pitfalls and Examples
@@ -29,6 +29,18 @@ If `$HERMES_TENANT` is set, the task belongs to a tenant namespace. When reading
 
 - Good: `business-a: Acme is our biggest customer`
 - Bad (leaks): `Acme is our biggest customer`
+
+## JoyZoning governed work (diet-hermes)
+
+When `joyzoning` tools are available (auto-injected via `JOYZONING_GUIDANCE`):
+
+1. **`joyzoning(action='context')`** at session start.
+2. **`joyzoning(action='begin', goal=...)`** before implementation.
+3. **`joyzoning(action='request_review', summary=...)`** before any merge/complete attempt.
+4. Wait for habitat operator accept-merge — Hermes cannot self-authorize CONVERGED.
+5. Then **`kanban_complete(...)`** (convergence gate enforces this).
+
+Load skill `joyzoning-governed-work` for full lifecycle detail and JSDP rules.
 
 ## BroccoliQ integration (diet-hermes / broccolidb workspaces)
 
