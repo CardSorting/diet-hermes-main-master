@@ -162,25 +162,25 @@ class TestSkinManagement:
     def test_init_skin_from_empty_config(self):
         from hermes_cli.skin_engine import init_skin_from_config, get_active_skin_name
         init_skin_from_config({})
-        assert get_active_skin_name() == "default"
+        assert get_active_skin_name() == "dietcode"
 
     def test_init_skin_from_null_display(self):
-        """display: null should fall back to default, not crash."""
+        """display: null should fall back to dietcode (fork default), not crash."""
         from hermes_cli.skin_engine import init_skin_from_config, get_active_skin_name
         init_skin_from_config({"display": None})
-        assert get_active_skin_name() == "default"
+        assert get_active_skin_name() == "dietcode"
 
     def test_init_skin_from_non_dict_display(self):
-        """display: <non-dict> should fall back to default."""
+        """display: <non-dict> should fall back to dietcode (fork default)."""
         from hermes_cli.skin_engine import init_skin_from_config, get_active_skin_name
         init_skin_from_config({"display": "invalid"})
-        assert get_active_skin_name() == "default"
+        assert get_active_skin_name() == "dietcode"
 
         init_skin_from_config({"display": 42})
-        assert get_active_skin_name() == "default"
+        assert get_active_skin_name() == "dietcode"
 
         init_skin_from_config({"display": []})
-        assert get_active_skin_name() == "default"
+        assert get_active_skin_name() == "dietcode"
 
 
 class TestUserSkins:

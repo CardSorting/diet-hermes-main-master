@@ -14,6 +14,7 @@ import { stickyPromptFromViewport } from '../domain/viewport.js'
 import { buildSubagentTree, treeTotals, widthByDepth } from '../lib/subagentTree.js'
 import { fmtK } from '../lib/text.js'
 import { useScrollbarSnapshot, useViewportSnapshot } from '../lib/viewportStore.js'
+import { FIZZ_FRAMES } from '../lib/sodaCallbacks.js'
 import type { Theme } from '../theme.js'
 import type { Msg, Usage } from '../types.js'
 
@@ -27,8 +28,9 @@ export const padVerb = (verb: string) => `${verb}…`.padEnd(VERB_PAD_LEN, ' ')
 
 // Compact alternates for the `emoji` and `ascii` indicator styles.
 // Each entry is a fixed-width (display-width) glyph.
-const EMOJI_FRAMES = ['⚕ ', '🌀', '🤔', '✨', '🍵', '🔮']
+const EMOJI_FRAMES = ['🫧 ', '💨', '🥤', '✨', '🫧 ', '💫']
 const ASCII_FRAMES = ['|', '/', '-', '\\']
+const FIZZ_ASCII_FRAMES = [...FIZZ_FRAMES]
 
 // Faster tick for spinner-style indicators — they read as motion only
 // at frame rates closer to their authored interval.
@@ -59,7 +61,7 @@ const renderIndicator = (style: IndicatorStyle, tick: number): IndicatorRender =
 
   if (style === 'ascii') {
     return {
-      frame: ASCII_FRAMES[tick % ASCII_FRAMES.length] ?? '|',
+      frame: FIZZ_ASCII_FRAMES[tick % FIZZ_ASCII_FRAMES.length] ?? '○',
       intervalMs: SPINNER_TICK_MS,
       showVerb: true
     }

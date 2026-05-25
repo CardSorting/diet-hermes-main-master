@@ -158,6 +158,18 @@ This repository is **diet-hermes** — a specialized fork of [NousResearch/herme
 
 **Do not deploy** `NousResearch/hermes-agent` artifacts or images directly to diet-hermes infrastructure. Sync upstream into this repo, then build and deploy from here.
 
+### DietCode vs Hermes (side-by-side installs)
+
+| | Vanilla Hermes | This fork (DietCode) |
+|---|---|---|
+| CLI | `hermes` | `dietcode` (also `hermes` alias) |
+| Data dir | `~/.hermes` | `~/.dietcode` |
+| Env var | `HERMES_HOME` | `DIETCODE_HOME` (mirrored to `HERMES_HOME` internally) |
+
+Install and run with `./setup-hermes.sh` then `dietcode setup`. Config, sessions, skills, and gateway state live under `~/.dietcode/` and do not touch an existing `~/.hermes/` install.
+
+**Upstream merge overlay:** after each `git merge upstream/main`, re-apply the product block at the top of `hermes_constants.py` (search for `DietCode fork`), restore `pyproject.toml` `[project.scripts]` `dietcode*` entries, and check `hermes_bootstrap.py` calls `ensure_default_home_env()`. Internal module names (`hermes_cli`, `HERMES_HOME` in code) stay upstream-compatible on purpose.
+
 ### Integration overlay (must survive every upstream sync)
 
 | Layer | Paths |

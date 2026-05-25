@@ -188,6 +188,45 @@ export const roseTheme: DashboardTheme = {
  * line-height, and ``spacious`` density so every rem-based size in the
  * dashboard scales up. For users who find the default 15px UI too dense.
  */
+/** Diet Coke parody — cherry cola red, silver chrome, rising-bubble energy. */
+export const dietcodeTheme: DashboardTheme = {
+  name: "dietcode",
+  label: "DietCode Cola",
+  description: "Cherry-cola red & silver fizz — the DietCode control plane look",
+  palette: {
+    background: { hex: "#140608", alpha: 1 },
+    midground: { hex: "#ffe8ec", alpha: 1 },
+    foreground: { hex: "#ffffff", alpha: 0 },
+    warmGlow: "rgba(227, 24, 55, 0.42)",
+    noiseOpacity: 0.85,
+  },
+  typography: {
+    ...DEFAULT_TYPOGRAPHY,
+    fontSans: `"Barlow", ${SYSTEM_SANS}`,
+    fontDisplay: `"Bebas Neue", Impact, "Arial Narrow", sans-serif`,
+    fontMono: `"IBM Plex Mono", ${SYSTEM_MONO}`,
+    fontUrl:
+      "https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500&display=swap",
+    letterSpacing: "0.02em",
+    lineHeight: "1.5",
+  },
+  layout: {
+    ...DEFAULT_LAYOUT,
+    radius: "0.35rem",
+    density: "comfortable",
+  },
+  colorOverrides: {
+    primary: "#e31837",
+    success: "#2dd4a0",
+    warning: "#fbbf24",
+    destructive: "#ff3355",
+  },
+  customCSS: `
+    .dietcode-page { --primary: #e31837; }
+    [data-product="dietcode"] .text-primary { color: #ff4d6a !important; }
+  `,
+};
+
 export const defaultLargeTheme: DashboardTheme = {
   name: "default-large",
   label: "Hermes Teal (Large)",
@@ -207,6 +246,7 @@ export const defaultLargeTheme: DashboardTheme = {
 export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
   default: defaultTheme,
   "default-large": defaultLargeTheme,
+  dietcode: dietcodeTheme,
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,

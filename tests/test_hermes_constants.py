@@ -8,34 +8,64 @@ import pytest
 
 import hermes_constants
 from hermes_constants import (
+    PRODUCT_HOME_DIRNAME,
     VALID_REASONING_EFFORTS,
+    ensure_default_home_env,
     get_default_hermes_root,
+    get_hermes_home,
+    get_native_default_home,
     is_container,
     parse_reasoning_effort,
 )
+
+
+class TestDietCodeProductOverlay:
+    """DietCode fork uses ~/.dietcode and DIETCODE_HOME by default."""
+
+    def test_native_default_home_dirname(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        assert get_native_default_home() == tmp_path / PRODUCT_HOME_DIRNAME
+
+    def test_ensure_default_home_env_sets_both_vars(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("DIETCODE_HOME", raising=False)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        ensure_default_home_env()
+        expected = str(tmp_path / PRODUCT_HOME_DIRNAME)
+        assert os.environ["HERMES_HOME"] == expected
+        assert os.environ["DIETCODE_HOME"] == expected
+
+    def test_get_hermes_home_uses_dietcode_home_first(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        custom = tmp_path / "custom-data"
+        custom.mkdir()
+        monkeypatch.setenv("DIETCODE_HOME", str(custom))
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "other"))
+        assert get_hermes_home() == custom
 
 
 class TestGetDefaultHermesRoot:
     """Tests for get_default_hermes_root() — Docker/custom deployment awareness."""
 
     def test_no_hermes_home_returns_native(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is not set, returns ~/.hermes."""
+        """When home env is not set, returns ~/.dietcode."""
         monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("DIETCODE_HOME", raising=False)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-        assert get_default_hermes_root() == tmp_path / ".hermes"
+        assert get_default_hermes_root() == tmp_path / PRODUCT_HOME_DIRNAME
 
     def test_hermes_home_is_native(self, tmp_path, monkeypatch):
-        """When HERMES_HOME = ~/.hermes, returns ~/.hermes."""
-        native = tmp_path / ".hermes"
+        """When home env points at native root, returns that root."""
+        native = tmp_path / PRODUCT_HOME_DIRNAME
         native.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(native))
         assert get_default_hermes_root() == native
 
     def test_hermes_home_is_profile(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is a profile under ~/.hermes, returns ~/.hermes."""
-        native = tmp_path / ".hermes"
+        """When home env is a profile under native root, returns native root."""
+        native = tmp_path / PRODUCT_HOME_DIRNAME
         profile = native / "profiles" / "coder"
         profile.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)

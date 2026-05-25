@@ -207,6 +207,10 @@ all = [
 ]
 
 [project.scripts]
+dietcode = "hermes_cli.main:main"
+dietcode-agent = "run_agent:main"
+dietcode-acp = "acp_adapter.entry:main"
+# Legacy Hermes names — still work; prefer dietcode* on this fork.
 hermes = "hermes_cli.main:main"
 hermes-agent = "run_agent:main"
 hermes-acp = "acp_adapter.entry:main"

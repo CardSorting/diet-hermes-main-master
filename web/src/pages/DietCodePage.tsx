@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import {
   Shield,
-  Clock,
   Terminal,
   CheckCircle2,
   AlertTriangle,
@@ -10,8 +9,6 @@ import {
   X,
   FileText,
   Database,
-  RotateCw,
-  Layers,
   Download,
   TrendingUp,
   Activity,
@@ -22,10 +19,31 @@ import { Badge } from "@nous-research/ui/ui/components/badge";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DietCodeHeader,
+  DietCodePageNav,
+  DietCodeSessionBanner,
+  DietCodeShell,
+  DietCodeWorkflowStepper,
+  OPERATOR_FLAVORS,
+  SETUP_SECTIONS,
+  DIETCODE_PITCH,
+  SODA_APPROVE_LINES,
+  SODA_APPLY_SUCCESS,
+  SODA_BOOT_LINES,
+  SODA_CANCEL,
+  SODA_FLAVOR_SWITCH,
+  SODA_REPO_SWITCH,
+  SODA_SESSION_START,
+  SODA_SPILL_LINES,
+  SODA_TELEMETRY_LINES,
+  type DietCodeTabId,
+  type SessionStatus,
+} from "@/components/dietcode";
 
-// One-Sentence Product Pitch
-const PRODUCT_PITCH =
-  "DietCode proposes code changes inside a disposable worker runtime, waits for approval, runs tests, and shows exactly what changed.";
+const CARD_SODA = "dc-card-soda border border-current/20";
+
+/** Maps friendly nav ids to legacy internal tab state keys. */
 
 // Define Bounded Operator Capability Profiles
 interface OperatorProfile {
@@ -165,8 +183,8 @@ export default function DietCodePage() {
   });
 
   // State flags for interactive workflow
-  const [sessionStatus, setSessionStatus] = useState<"idle" | "preflight" | "proposed" | "applying" | "testing" | "success" | "violation" | "reverted">("idle");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "benchmarks" | "logs">("dashboard");
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus>("idle");
+  const [activeTab, setActiveTab] = useState<DietCodeTabId>("home");
   const [logs, setLogs] = useState<string[]>([]);
   const [wakeupsCount, setWakeupsCount] = useState(0);
   const [budgetUsage, setBudgetUsage] = useState({
@@ -186,11 +204,17 @@ export default function DietCodePage() {
   const appendLog = (msg: string, type: "info" | "success" | "warn" | "error" | "telemetry" = "info") => {
     const timestamp = new Date().toISOString().substring(11, 19);
     let prefix = "[INFO]";
-    if (type === "success") prefix = "🟢 [SUCCESS]";
-    if (type === "warn") prefix = "🟡 [WARN]";
-    if (type === "error") prefix = "🔴 [ERROR]";
-    if (type === "telemetry") prefix = "🛡️ [OTEL TRACE]";
+    if (type === "success") prefix = "🫧 [FIZZ]";
+    if (type === "warn") prefix = "🥤 [WARN]";
+    if (type === "error") prefix = "💥 [SPILL]";
+    if (type === "telemetry") prefix = "🛡️ [OTEL]";
     setLogs((prev: string[]) => [...prev, `${timestamp} ${prefix} ${msg}`]);
+  };
+
+  const appendSodaLines = (
+    lines: ReadonlyArray<{ msg: string; type: "info" | "success" | "warn" | "error" | "telemetry" }>
+  ) => {
+    lines.forEach((line) => appendLog(line.msg, line.type));
   };
 
   useEffect(() => {
@@ -202,8 +226,8 @@ export default function DietCodePage() {
   // Initial greeting
   useEffect(() => {
     setLogs([]);
-    appendLog("DietCode Control Plane initialized securely.", "success");
-    appendLog(`Pitch: "${PRODUCT_PITCH}"`, "info");
+    appendSodaLines(SODA_BOOT_LINES);
+    appendLog(`Ready: ${DIETCODE_PITCH.slice(0, 72)}…`, "info");
   }, []);
 
   // Handler: Start Operator Session
@@ -213,34 +237,27 @@ export default function DietCodePage() {
     setWakeupsCount(0);
     setBudgetUsage({ files: 0, runtime: 0, toolCalls: 0, patchSize: 0, testRuntime: 0 });
     
-    appendLog(`Initializing session with repo: ${activeRepo.name} (${activeRepo.framework})`, "info");
-    appendLog(`Applying Capability Profile: ${activeProfile.name}`, "success");
-    appendLog("Control Plane: Enqueuing workspace checkout task inside operator-job-queue...", "info");
-    
+    appendSodaLines([SODA_REPO_SWITCH(activeRepo.name)]);
+    appendLog(`Framework: ${activeRepo.framework} · profile ${activeProfile.name}`, "info");
+
     setTimeout(() => {
-      appendLog("Worker Runtime: Spawned single-session execution container.", "success");
-      appendLog(`Worker Runtime: Repository cloned to disposable /tmp/workspace.`, "info");
-      appendLog(`Worker Runtime: Repo Safety Check completed for profile ${activeProfile.name}.`, "success");
+      appendSodaLines(SODA_SESSION_START);
       setBudgetUsage((prev: { files: number; runtime: number; toolCalls: number; patchSize: number; testRuntime: number }) => ({ ...prev, files: 1, toolCalls: 3, runtime: 1 }));
       setSessionStatus("proposed");
-      appendLog("Worker Runtime: Verified Proposal generated and checkpointed.", "success");
-      appendLog("Worker Runtime: Compressed 'pre-mutation' snapshot (12.4 MB) uploaded to gs://operator-artifacts/recovery/.", "success");
-      appendLog("Worker Runtime: Ephemeral worker exited successfully. Standing by for event-driven wakeup.", "warn");
+      appendLog("Pre-mutation snapshot canned (12.4 MB) → gs://operator-artifacts/recovery/", "success");
     }, 1500);
   };
 
   // Handler: Approve and Apply Changes
   const handleApprove = () => {
     setSessionStatus("applying");
-    appendLog("Control Plane: Approval event received. Matching policy bounds...", "success");
-    appendLog(`Control Plane: Validated argsHash matches verified proposal [${argsHash.substring(0, 12)}...]`, "success");
-    appendLog("Control Plane: Dispatching resume task to operator-job-queue...", "info");
+    appendSodaLines(SODA_APPROVE_LINES);
+    appendLog(`Args hash verified [${argsHash.substring(0, 12)}…]`, "success");
     setWakeupsCount(1);
 
     setTimeout(() => {
-      appendLog("Worker Runtime: Respawned worker container from GCS checkpoint.", "success");
-      appendLog("Worker Runtime: Reconstituted disposable /tmp/workspace from pre-mutation snapshot.", "info");
-      appendLog("Worker Runtime: Applying Changes to file...", "success");
+      appendLog("Worker respawned from GCS checkpoint — workspace reconstituted.", "success");
+      appendLog("Pouring approved changes into the workspace…", "info");
       
       const fileCount = activeProfile.name === "TypingOperator" ? 1 : 2;
       const patchLen = activeProfile.name === "TestFixOperator" ? 450 : 280;
@@ -252,22 +269,14 @@ export default function DietCodePage() {
         runtime: prev.runtime + 2,
       }));
 
-      appendLog("Worker Runtime: Compressed 'post-mutation' snapshot created.", "success");
-      
       setSessionStatus("testing");
-      appendLog(`Worker Runtime: Triggering test suite command: "${activeRepo.testCommand}"`, "info");
+      appendLog(`Test shaker: "${activeRepo.testCommand}"`, "info");
 
       setTimeout(() => {
-        appendLog("Worker Runtime: Tests executed successfully. Exit code: 0.", "success");
-        appendLog("Worker Runtime: 12 tests passed, 0 failed.", "success");
+        appendSodaLines(SODA_APPLY_SUCCESS);
         setBudgetUsage((prev: { files: number; runtime: number; toolCalls: number; patchSize: number; testRuntime: number }) => ({ ...prev, testRuntime: 1, runtime: prev.runtime + 1 }));
-        
-        appendLog("Worker Runtime: Compressed 'post-test' final snapshot created.", "success");
-        appendLog("Worker Runtime: Cleaning /tmp workspace directory...", "info");
-        appendLog("Worker Runtime: Ephemeral worker container destroyed.", "warn");
-        
         setSessionStatus("success");
-        appendLog(`DietCode: Bounded Session completed successfully in ${budgetUsage.runtime + 3} minutes!`, "success");
+        appendLog(`Bounded session flat-out success in ~${budgetUsage.runtime + 3} min.`, "success");
       }, 1500);
 
     }, 1500);
@@ -292,13 +301,12 @@ export default function DietCodePage() {
       }));
 
       setSessionStatus("violation");
-      appendLog("Worker Runtime: HALT! Budget limit exceeded! Max files limit is 10, attempted to mutate 15.", "error");
-      appendLog("Worker Runtime: Triggering automatic recovery rollback protocol...", "warn");
-      
+      appendSodaLines(SODA_SPILL_LINES);
+      appendLog("Budget: max 10 files, attempted 15.", "error");
+
       setTimeout(() => {
         setSessionStatus("reverted");
-        appendLog("Worker Runtime: Rollback completed successfully. Original checkout reconstituted.", "success");
-        appendLog("Worker Runtime: Ephemeral worker terminated.", "error");
+        appendLog("Rollback poured — workspace restored.", "success");
       }, 1000);
 
     }, 1200);
@@ -322,8 +330,8 @@ export default function DietCodePage() {
 
   const runGoldenSuite = () => {
     setBenchStats((prev: { running: boolean; completed: boolean; successRate: number; rollbackRate: number; avgDurationSec: number; totalRuns: number; benchmarks: Array<{ name: string; status: string; duration: string; cost: string }> }) => ({ ...prev, running: true, completed: false }));
-    appendLog("Observability: Initializing Golden Session Evaluation Suite...", "info");
-    
+    appendLog("Golden pour suite — shaking 250 operators…", "info");
+
     setTimeout(() => {
       setBenchStats((prev: { running: boolean; completed: boolean; successRate: number; rollbackRate: number; avgDurationSec: number; totalRuns: number; benchmarks: Array<{ name: string; status: string; duration: string; cost: string }> }) => ({
         ...prev,
@@ -334,71 +342,61 @@ export default function DietCodePage() {
         avgDurationSec: 4.1,
         totalRuns: 250,
       }));
-      appendLog("Observability: Golden Session Benchmark suite completed. 250 test operators executed. Success rate: 98.4%, Rollback rate: 1.6%.", "success");
+      appendLog(SODA_TELEMETRY_LINES[0], "success");
+      appendLog(SODA_TELEMETRY_LINES[1], "telemetry");
     }, 2000);
   };
 
   return (
-    <div className="flex flex-col gap-6 font-mondwest text-midground antialiased uppercase">
-      {/* Header Page Title & Summary */}
-      <div className="flex flex-col gap-2 border-b border-current/20 pb-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Shield className="h-6 w-6 text-primary animate-pulse" />
-            <h1 className="text-2xl font-bold tracking-wider">DietCode Bounded Control Plane</h1>
-          </div>
-          <Badge tone="success" className="text-xs uppercase">
-            Alpha Operational
-          </Badge>
-        </div>
-        <p className="text-sm font-bold text-muted-foreground/80 tracking-wide mt-1">
-          {PRODUCT_PITCH}
-        </p>
-      </div>
+    <DietCodeShell className="font-mondwest text-midground normal-case">
+      <DietCodeHeader />
 
-      {/* Tabs Menu */}
-      <div className="flex gap-2 border-b border-current/10 pb-2">
-        <Button
-          onClick={() => setActiveTab("dashboard")}
-          className={`h-8 px-4 text-xs font-bold tracking-widest ${activeTab === "dashboard" ? "bg-primary text-black" : "bg-transparent border border-current/20 text-midground hover:bg-current/5"}`}
-        >
-          <Layers className="mr-1.5 h-3.5 w-3.5" />
-          Operator Dashboard
-        </Button>
-        <Button
-          onClick={() => setActiveTab("benchmarks")}
-          className={`h-8 px-4 text-xs font-bold tracking-widest ${activeTab === "benchmarks" ? "bg-primary text-black" : "bg-transparent border border-current/20 text-midground hover:bg-current/5"}`}
-        >
-          <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
-          Golden Benchmarks
-        </Button>
-        <Button
-          onClick={() => setActiveTab("logs")}
-          className={`h-8 px-4 text-xs font-bold tracking-widest ${activeTab === "logs" ? "bg-primary text-black" : "bg-transparent border border-current/20 text-midground hover:bg-current/5"}`}
-        >
-          <Activity className="mr-1.5 h-3.5 w-3.5" />
-          Observability logs
-        </Button>
-      </div>
+      <DietCodePageNav active={activeTab} onChange={setActiveTab} />
 
-      {/* Active Tab Contents */}
-      {activeTab === "dashboard" && (
+      {activeTab === "home" && (
+        <div
+          id="dietcode-panel-home"
+          role="tabpanel"
+          aria-labelledby="dietcode-tab-home"
+          className="flex flex-col gap-6"
+        >
+          <DietCodeSessionBanner
+            status={sessionStatus}
+            onStart={handleStartSession}
+            onReset={() => setSessionStatus("idle")}
+          />
+
+          <Card className={CARD_SODA}>
+            <CardHeader className="border-b border-current/20 p-3">
+              <CardTitle className="text-xs font-bold tracking-wide uppercase normal-case">
+                Your progress
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4">
+              <DietCodeWorkflowStepper status={sessionStatus} />
+            </CardContent>
+          </Card>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
           {/* LEFT SIDE: Setup & Session Control Panel */}
           <div className="lg:col-span-1 flex flex-col gap-6">
             
             {/* Target Repository Adapter Setup */}
-            <Card className="border border-current/20 bg-background-base/40">
+            <Card className={CARD_SODA}>
               <CardHeader className="border-b border-current/20 p-3">
-                <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2">
+                <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2 uppercase normal-case">
+                  <span className="dc-setup-step-badge" aria-hidden>1</span>
                   <Database className="h-3.5 w-3.5 text-primary" />
-                  1. Target Repository Profile
+                  {SETUP_SECTIONS.project.title}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4 flex flex-col gap-3">
+                <p className="dc-section-hint m-0">{SETUP_SECTIONS.project.hint}</p>
                 <div>
-                  <label className="text-[10px] text-muted-foreground block mb-1">Select Target Project</label>
+                  <label className="text-[11px] text-midground/80 block mb-1 font-semibold normal-case">
+                    Project name
+                  </label>
                   <select
                     className="w-full h-8 px-2 bg-black border border-current/20 text-xs rounded-sm focus:outline-none"
                     value={activeRepo.name}
@@ -406,7 +404,7 @@ export default function DietCodePage() {
                       const repo = DETECTED_REPOS.find(r => r.name === e.target.value);
                       if (repo) {
                         setActiveRepo(repo);
-                        appendLog(`Active repository switched to: ${repo.name}`, "info");
+                        appendSodaLines([SODA_REPO_SWITCH(repo.name)]);
                       }
                     }}
                     disabled={sessionStatus !== "idle" && sessionStatus !== "success" && sessionStatus !== "reverted"}
@@ -438,16 +436,20 @@ export default function DietCodePage() {
             </Card>
 
             {/* Bounded Capability Profile */}
-            <Card className="border border-current/20 bg-background-base/40">
+            <Card className={CARD_SODA}>
               <CardHeader className="border-b border-current/20 p-3">
-                <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2">
+                <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2 uppercase normal-case">
+                  <span className="dc-setup-step-badge" aria-hidden>2</span>
                   <Shield className="h-3.5 w-3.5 text-primary" />
-                  2. Operator Capability Profile
+                  {SETUP_SECTIONS.flavor.title}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4 flex flex-col gap-3">
+                <p className="dc-section-hint m-0">{SETUP_SECTIONS.flavor.hint}</p>
                 <div>
-                  <label className="text-[10px] text-muted-foreground block mb-1">Select Profile</label>
+                  <label className="text-[11px] text-midground/80 block mb-1 font-semibold normal-case">
+                    Task type
+                  </label>
                   <select
                     className="w-full h-8 px-2 bg-black border border-current/20 text-xs rounded-sm focus:outline-none"
                     value={activeProfile.name}
@@ -455,20 +457,31 @@ export default function DietCodePage() {
                       const profile = OPERATOR_PROFILES.find(p => p.name === e.target.value);
                       if (profile) {
                         setActiveProfile(profile);
-                        appendLog(`Capability Profile switched to: ${profile.name}`, "info");
+                        appendSodaLines([SODA_FLAVOR_SWITCH(profile.name)]);
                       }
                     }}
                     disabled={sessionStatus !== "idle" && sessionStatus !== "success" && sessionStatus !== "reverted"}
                   >
-                    {OPERATOR_PROFILES.map((p) => (
-                      <option key={p.name} value={p.name}>
-                        {p.name}
-                      </option>
-                    ))}
+                    {OPERATOR_PROFILES.map((p) => {
+                      const flavor = OPERATOR_FLAVORS[p.name];
+                      return (
+                        <option key={p.name} value={p.name}>
+                          {flavor
+                            ? `${flavor.emoji} ${flavor.friendlyName} — ${flavor.oneLiner}`
+                            : p.name}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
-                <p className="text-[11px] text-muted-foreground italic leading-relaxed">
+                {OPERATOR_FLAVORS[activeProfile.name] && (
+                  <p className="text-[11px] text-primary/90 font-semibold m-0 normal-case">
+                    {OPERATOR_FLAVORS[activeProfile.name].emoji}{" "}
+                    {OPERATOR_FLAVORS[activeProfile.name].oneLiner}
+                  </p>
+                )}
+                <p className="text-[11px] text-muted-foreground italic leading-relaxed normal-case">
                   {activeProfile.description}
                 </p>
 
@@ -486,14 +499,16 @@ export default function DietCodePage() {
             </Card>
 
             {/* Execution Budget Constraints */}
-            <Card className="border border-current/20 bg-background-base/40">
+            <Card className={CARD_SODA}>
               <CardHeader className="border-b border-current/20 p-3">
-                <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2">
+                <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2 uppercase normal-case">
+                  <span className="dc-setup-step-badge" aria-hidden>3</span>
                   <Gauge className="h-3.5 w-3.5 text-primary" />
-                  3. Session Execution Budget
+                  {SETUP_SECTIONS.budget.title}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4 flex flex-col gap-2">
+                <p className="dc-section-hint m-0 mb-2">{SETUP_SECTIONS.budget.hint}</p>
                 <div className="flex flex-col gap-2 text-[10px]">
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Max Mutated Files</span>
@@ -522,9 +537,9 @@ export default function DietCodePage() {
                           <span>Files Edited</span>
                           <span>{budgetUsage.files} / {budgetLimit.maxFiles}</span>
                         </div>
-                        <div className="w-full bg-black/60 h-1.5 border border-current/10 rounded-full overflow-hidden">
+                        <div className="w-full dc-progress-fizz h-1.5 border border-current/10 rounded-full overflow-hidden">
                           <div
-                            className="bg-primary h-full transition-all duration-300"
+                            className="h-full transition-all duration-300"
                             style={{ width: `${(budgetUsage.files / budgetLimit.maxFiles) * 100}%` }}
                           />
                         </div>
@@ -534,9 +549,9 @@ export default function DietCodePage() {
                           <span>Tool Calls</span>
                           <span>{budgetUsage.toolCalls} / {budgetLimit.maxToolCalls}</span>
                         </div>
-                        <div className="w-full bg-black/60 h-1.5 border border-current/10 rounded-full overflow-hidden">
+                        <div className="w-full dc-progress-fizz h-1.5 border border-current/10 rounded-full overflow-hidden">
                           <div
-                            className="bg-primary h-full transition-all duration-300"
+                            className="h-full transition-all duration-300"
                             style={{ width: `${(budgetUsage.toolCalls / budgetLimit.maxToolCalls) * 100}%` }}
                           />
                         </div>
@@ -548,125 +563,31 @@ export default function DietCodePage() {
             </Card>
           </div>
 
-          {/* RIGHT SIDE: Timeline and Live Workspace Changes (Applying) */}
+          {/* RIGHT: proposal, diff, logs */}
           <div className="lg:col-span-2 flex flex-col gap-6">
-            
-            {/* Active Timeline Steps */}
-            <Card className="border border-current/20 bg-background-base/40">
-              <CardHeader className="border-b border-current/20 p-3 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2">
-                  <Clock className="h-3.5 w-3.5 text-primary" />
-                  Active Operator Timeline
-                </CardTitle>
-                
-                {sessionStatus === "idle" && (
-                  <Button
-                    onClick={handleStartSession}
-                    className="h-7 px-3 text-[10px] font-bold bg-primary text-black hover:bg-primary/80"
-                  >
-                    <Play className="mr-1 h-3 w-3" />
-                    Start Operator Session
-                  </Button>
-                )}
+            {sessionStatus !== "idle" && (
+              <div className="flex flex-wrap gap-3 text-[10px] normal-case tracking-normal px-1 text-midground/65">
+                <span>
+                  Worker:{" "}
+                  <strong className="text-midground">
+                    {sessionStatus === "proposed"
+                      ? "Paused — waiting for you"
+                      : "Running"}
+                  </strong>
+                </span>
+                <span>
+                  Checkpoints saved: <strong className="text-midground">{wakeupsCount}</strong>
+                </span>
+              </div>
+            )}
 
-                {sessionStatus !== "idle" && (
-                  <Button
-                    onClick={() => setSessionStatus("idle")}
-                    className="h-7 px-3 text-[10px] font-bold bg-black border border-current/20 text-midground hover:bg-current/5"
-                  >
-                    <RotateCw className="mr-1 h-3 w-3" />
-                    Reset
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent className="p-4">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 py-2">
-                  {/* Timeline Nodes */}
-                  <div className="flex flex-wrap md:flex-nowrap gap-3 items-center w-full">
-                    {/* Node 1: Intent Received */}
-                    <div className="flex items-center gap-2">
-                      <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold border ${sessionStatus !== "idle" ? "bg-primary border-primary text-black" : "border-current/20 bg-transparent"}`}>
-                        1
-                      </div>
-                      <span className="text-[10px] font-bold">Intent</span>
-                    </div>
-
-                    <div className="hidden md:block w-4 h-px bg-current/20" />
-
-                    {/* Node 2: Safety Checked */}
-                    <div className="flex items-center gap-2">
-                      <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold border ${sessionStatus !== "idle" && sessionStatus !== "preflight" ? "bg-primary border-primary text-black" : "border-current/20 bg-transparent"}`}>
-                        2
-                      </div>
-                      <span className="text-[10px] font-bold">Safety Check</span>
-                    </div>
-
-                    <div className="hidden md:block w-4 h-px bg-current/20" />
-
-                    {/* Node 3: Proposal Created */}
-                    <div className="flex items-center gap-2">
-                      <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold border ${sessionStatus !== "idle" && sessionStatus !== "preflight" ? "bg-primary border-primary text-black" : "border-current/20 bg-transparent"}`}>
-                        3
-                      </div>
-                      <span className="text-[10px] font-bold">Verified Proposal</span>
-                    </div>
-
-                    <div className="hidden md:block w-4 h-px bg-current/20" />
-
-                    {/* Node 4: Approved */}
-                    <div className="flex items-center gap-2">
-                      <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold border ${sessionStatus === "applying" || sessionStatus === "testing" || sessionStatus === "success" ? "bg-primary border-primary text-black" : "border-current/20 bg-transparent"}`}>
-                        4
-                      </div>
-                      <span className="text-[10px] font-bold">Approved</span>
-                    </div>
-
-                    <div className="hidden md:block w-4 h-px bg-current/20" />
-
-                    {/* Node 5: Changes Applied */}
-                    <div className="flex items-center gap-2">
-                      <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold border ${sessionStatus === "testing" || sessionStatus === "success" ? "bg-primary border-primary text-black" : "border-current/20 bg-transparent"}`}>
-                        5
-                      </div>
-                      <span className="text-[10px] font-bold">Changes Applied</span>
-                    </div>
-
-                    <div className="hidden md:block w-4 h-px bg-current/20" />
-
-                    {/* Node 6: Tests Run */}
-                    <div className="flex items-center gap-2">
-                      <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold border ${sessionStatus === "success" ? "bg-primary border-primary text-black" : "border-current/20 bg-transparent"}`}>
-                        6
-                      </div>
-                      <span className="text-[10px] font-bold">Tests Passed</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Event-driven Worker Wakeups Details */}
-                {sessionStatus !== "idle" && (
-                  <div className="border-t border-current/10 pt-3 mt-2 flex flex-col md:flex-row md:items-center justify-between gap-2 text-[10px]">
-                    <div className="flex items-center gap-1.5">
-                      <Layers className="h-3.5 w-3.5 text-primary" />
-                      <span className="text-muted-foreground">Active Worker Mode:</span>
-                      <span className="font-bold text-primary font-mono">{sessionStatus === "proposed" ? "EXITED & STANDING BY" : "ACTIVE RUNNING"}</span>
-                    </div>
-                    <div className="flex items-center gap-3 font-mono text-[9px] bg-black/40 px-3 py-1.5 border border-current/10 rounded-sm">
-                      <span className="text-muted-foreground">Container Wakeups: <span className="text-primary font-bold">{wakeupsCount}</span></span>
-                      <span className="text-muted-foreground">Recovery snapshot: <span className="text-primary font-bold">{sessionStatus === "proposed" ? "GCS CHECKPOINTED" : "SYNCHRONIZED"}</span></span>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Verified Proposal & Diff Viewer Panel */}
+            {/* Proposed changes — review before approve */}
             {sessionStatus !== "idle" && sessionStatus !== "preflight" && (
-              <Card className="border border-current/20 bg-background-base/40">
+              <Card className={CARD_SODA}>
                 <CardHeader className="border-b border-current/20 p-3">
-                  <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2">
+                  <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2 uppercase normal-case">
                     <FileText className="h-3.5 w-3.5 text-primary" />
-                    Verified Proposal
+                    Proposed changes — review before you approve
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-4 flex flex-col gap-4">
@@ -742,7 +663,7 @@ export default function DietCodePage() {
                         className="flex-1 h-9 px-4 text-xs font-bold tracking-widest bg-success text-black hover:bg-success/80"
                       >
                         <Check className="mr-1.5 h-3.5 w-3.5" />
-                        Approve and Apply Changes
+                        Approve & apply
                       </Button>
                       
                       <Button
@@ -750,18 +671,18 @@ export default function DietCodePage() {
                         className="flex-1 h-9 px-4 text-xs font-bold tracking-widest bg-warning text-black hover:bg-warning/80"
                       >
                         <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-                        Simulate Budget Violation
+                        Test safety limit (demo)
                       </Button>
 
                       <Button
                         onClick={() => {
                           setSessionStatus("idle");
-                          appendLog("Session cancelled by user action.", "warn");
+                          appendSodaLines([SODA_CANCEL()]);
                         }}
                         className="h-9 px-4 text-xs font-bold tracking-widest bg-transparent border border-current/20 text-destructive hover:bg-destructive/5"
                       >
                         <X className="mr-1.5 h-3.5 w-3.5" />
-                        Reject Proposal
+                        Reject
                       </Button>
                     </div>
                   )}
@@ -836,20 +757,24 @@ export default function DietCodePage() {
             )}
 
             {/* Observability Terminal Log Panel */}
-            <Card className="border border-current/20 bg-background-base/40">
+            <Card className={CARD_SODA}>
               <CardHeader className="border-b border-current/20 p-3">
-                <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2">
+                <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2 uppercase normal-case">
                   <Terminal className="h-3.5 w-3.5 text-primary" />
-                  Observable Event Logs Console
+                  Live activity (this session)
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-3">
                 <pre className="bg-black/95 p-3 border border-current/25 rounded-sm font-mono text-[10px] text-muted-foreground leading-relaxed h-48 overflow-y-auto whitespace-pre-wrap break-all">
                   {logs.map((log: string, idx: number) => {
-                    let logStyle = "text-muted-foreground";
-                    if (log.includes("🟢")) logStyle = "text-success font-bold";
-                    if (log.includes("🟡")) logStyle = "text-warning font-bold";
-                    if (log.includes("🔴")) logStyle = "text-destructive font-bold";
+                    let logStyle = "text-muted-foreground dc-log-line";
+                    if (log.includes("🫧") || log.includes("FIZZ")) {
+                      logStyle = "text-success font-bold dc-log-line dc-log-line--fizz";
+                    } else if (log.includes("🥤") || log.includes("WARN")) {
+                      logStyle = "text-warning font-bold dc-log-line";
+                    } else if (log.includes("💥") || log.includes("SPILL")) {
+                      logStyle = "text-destructive font-bold dc-log-line";
+                    }
                     return (
                       <div key={idx} className={logStyle}>
                         {log}
@@ -864,36 +789,41 @@ export default function DietCodePage() {
           </div>
 
         </div>
+        </div>
       )}
 
-      {/* Benchmarks Tab */}
-      {activeTab === "benchmarks" && (
-        <Card className="border border-current/20 bg-background-base/40">
+      {activeTab === "quality" && (
+        <div
+          id="dietcode-panel-quality"
+          role="tabpanel"
+          aria-labelledby="dietcode-tab-quality"
+        >
+        <Card className={CARD_SODA}>
           <CardHeader className="border-b border-current/20 p-4 flex flex-row items-center justify-between">
             <div>
-              <CardTitle className="text-base font-bold flex items-center gap-2">
+              <CardTitle className="text-base font-bold flex items-center gap-2 uppercase tracking-wide">
                 <TrendingUp className="h-5 w-5 text-primary" />
-                Golden Session Evaluation Suite
+                Automated quality checks
               </CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Run automated benchmarks to evaluate operator mutation accuracy, success rates, and budget rolls against historical golden runs.
+              <p className="text-xs text-muted-foreground mt-0.5 normal-case tracking-normal">
+                See how often proposed changes pass tests and stay within safety limits—like a taste test for your codebase.
               </p>
             </div>
             
             <Button
               onClick={runGoldenSuite}
               disabled={benchStats.running}
-              className="h-8 px-4 text-xs font-bold bg-primary text-black hover:bg-primary/80"
+              className="h-8 px-4 text-xs font-bold dc-btn-primary"
             >
               {benchStats.running ? (
                 <>
                   <Spinner className="mr-1.5" />
-                  Running Golden Suite...
+                  Running checks…
                 </>
               ) : (
                 <>
                   <Play className="mr-1.5 h-3.5 w-3.5" />
-                  Run Golden Suite
+                  Run all checks
                 </>
               )}
             </Button>
@@ -964,18 +894,23 @@ export default function DietCodePage() {
             )}
           </CardContent>
         </Card>
+        </div>
       )}
 
-      {/* Logs Tab */}
-      {activeTab === "logs" && (
-        <Card className="border border-current/20 bg-background-base/40">
+      {activeTab === "activity" && (
+        <div
+          id="dietcode-panel-activity"
+          role="tabpanel"
+          aria-labelledby="dietcode-tab-activity"
+        >
+        <Card className={CARD_SODA}>
           <CardHeader className="border-b border-current/20 p-4">
-            <CardTitle className="text-base font-bold flex items-center gap-2">
+            <CardTitle className="text-base font-bold flex items-center gap-2 uppercase tracking-wide">
               <Activity className="h-5 w-5 text-primary" />
-              Observability & OpenTelemetry Metrics
+              System activity & metrics
             </CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Live metrics and structured trace logs indicating Cloud Run Job performance, Secret Manager fetches, and API enqueuer latencies.
+            <p className="text-xs text-muted-foreground mt-0.5 normal-case tracking-normal">
+              Technical traces for operators and engineers—latency, costs, and background job health.
             </p>
           </CardHeader>
           <CardContent className="p-4 flex flex-col gap-4 font-mono text-xs">
@@ -1009,8 +944,9 @@ export default function DietCodePage() {
             </div>
           </CardContent>
         </Card>
+        </div>
       )}
 
-    </div>
+    </DietCodeShell>
   );
 }

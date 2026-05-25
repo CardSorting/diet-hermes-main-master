@@ -49,11 +49,14 @@ export function Banner({ t }: { t: Theme }) {
         <ArtLines lines={logoLines} />
       ) : (
         <Text bold color={t.color.primary}>
-          {t.brand.icon} NOUS HERMES
+          {t.brand.icon} {t.brand.name.toUpperCase()}
         </Text>
       )}
 
-      <Text color={t.color.muted}>{t.brand.icon} Nous Research · Messenger of the Digital Gods</Text>
+      <Text color={t.color.muted}>
+        {t.brand.icon} {t.brand.subtitle}
+        {t.brand.tagline ? ` · ${t.brand.tagline}` : ''}
+      </Text>
     </Box>
   )
 }
@@ -224,7 +227,7 @@ export function SessionPanel({ info, sid, t }: SessionPanelProps) {
 
           <Text color={t.color.accent}>
             {info.model.split('/').pop()}
-            <Text color={t.color.muted}> · Nous Research</Text>
+            <Text color={t.color.muted}> · {t.brand.subtitle}</Text>
           </Text>
 
           <Text color={t.color.muted} wrap="truncate-end">

@@ -127,3 +127,11 @@ def apply_windows_utf8_bootstrap() -> bool:
 # the very top of their module, before importing anything else.  The
 # import side effect does the right thing.
 apply_windows_utf8_bootstrap()
+
+# DietCode fork: default ~/.dietcode before any module caches HERMES_HOME.
+try:
+    from hermes_constants import ensure_default_home_env
+
+    ensure_default_home_env()
+except Exception:
+    pass

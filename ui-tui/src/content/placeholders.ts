@@ -1,13 +1,13 @@
 import { pick } from '../lib/text.js'
 
 export const PLACEHOLDERS = [
-  'Ask me anything…',
-  'Try "explain this codebase"',
-  'Try "write a test for…"',
-  'Try "refactor the auth module"',
+  'Pour in a task — just for the diff of it…',
+  'Try "explain this project in plain English"',
+  'Try "make a safe patch for…"',
+  'Try "what should I run first?"',
   'Try "/help" for commands',
-  'Try "fix the lint errors"',
-  'Try "how does the config loader work?"'
+  'Try "fix the failing checks"',
+  'Try "walk me through the main folders"'
 ]
 
 export const PLACEHOLDER = pick(PLACEHOLDERS)

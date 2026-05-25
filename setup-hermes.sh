@@ -29,6 +29,10 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# DietCode fork: isolated data dir (does not touch ~/.hermes).
+export DIETCODE_HOME="${DIETCODE_HOME:-$HOME/.dietcode}"
+export HERMES_HOME="${HERMES_HOME:-$DIETCODE_HOME}"
+
 # Prevent uv from discovering config files (uv.toml, pyproject.toml) from the
 # wrong user's home directory when running under sudo -u <user>.  See #21269.
 export UV_NO_CONFIG=1
@@ -56,7 +60,7 @@ get_command_link_display_dir() {
 }
 
 echo ""
-echo -e "${CYAN}⚕ Hermes Agent Setup${NC}"
+echo -e "${CYAN}⚕ DietCode Agent Setup${NC}"
 echo ""
 
 # ============================================================================
@@ -339,14 +343,19 @@ fi
 # PATH setup — symlink hermes into a user-facing bin dir
 # ============================================================================
 
-echo -e "${CYAN}→${NC} Setting up hermes command..."
+echo -e "${CYAN}→${NC} Setting up dietcode command..."
 
-HERMES_BIN="$SCRIPT_DIR/venv/bin/hermes"
+DIETCODE_BIN="$SCRIPT_DIR/venv/bin/dietcode"
+if [ ! -x "$DIETCODE_BIN" ]; then
+    DIETCODE_BIN="$SCRIPT_DIR/venv/bin/hermes"
+fi
 COMMAND_LINK_DIR="$(get_command_link_dir)"
 COMMAND_LINK_DISPLAY_DIR="$(get_command_link_display_dir)"
 mkdir -p "$COMMAND_LINK_DIR"
-ln -sf "$HERMES_BIN" "$COMMAND_LINK_DIR/hermes"
-echo -e "${GREEN}✓${NC} Symlinked hermes → $COMMAND_LINK_DISPLAY_DIR/hermes"
+ln -sf "$DIETCODE_BIN" "$COMMAND_LINK_DIR/dietcode"
+ln -sf "$DIETCODE_BIN" "$COMMAND_LINK_DIR/hermes"
+echo -e "${GREEN}✓${NC} Symlinked dietcode → $COMMAND_LINK_DISPLAY_DIR/dietcode"
+echo -e "${GREEN}✓${NC} Symlinked hermes → $COMMAND_LINK_DISPLAY_DIR/hermes (compat alias)"
 
 if is_termux; then
     export PATH="$COMMAND_LINK_DIR:$PATH"
@@ -377,7 +386,7 @@ else
         if ! echo "$PATH" | tr ':' '\n' | grep -q "^$HOME/.local/bin$"; then
             if ! grep -q '\.local/bin' "$SHELL_CONFIG" 2>/dev/null; then
                 echo "" >> "$SHELL_CONFIG"
-                echo "# Hermes Agent — ensure ~/.local/bin is on PATH" >> "$SHELL_CONFIG"
+                echo "# DietCode Agent — ensure ~/.local/bin is on PATH" >> "$SHELL_CONFIG"
                 echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_CONFIG"
                 echo -e "${GREEN}✓${NC} Added ~/.local/bin to PATH in $SHELL_CONFIG"
             else
@@ -393,11 +402,11 @@ fi
 # Seed bundled skills into ~/.hermes/skills/
 # ============================================================================
 
-HERMES_SKILLS_DIR="${HERMES_HOME:-$HOME/.hermes}/skills"
+HERMES_SKILLS_DIR="${HERMES_HOME}/skills"
 mkdir -p "$HERMES_SKILLS_DIR"
 
 echo ""
-echo "Syncing bundled skills to ~/.hermes/skills/ ..."
+echo "Syncing bundled skills to ${HERMES_HOME}/skills/ ..."
 if "$SCRIPT_DIR/venv/bin/python" "$SCRIPT_DIR/tools/skills_sync.py" 2>/dev/null; then
     echo -e "${GREEN}✓${NC} Skills synced"
 else
@@ -419,31 +428,33 @@ echo "Next steps:"
 echo ""
 if is_termux; then
     echo "  1. Run the setup wizard to configure API keys:"
-    echo "     hermes setup"
+    echo "     dietcode setup"
     echo ""
     echo "  2. Start chatting:"
-    echo "     hermes"
+    echo "     dietcode"
     echo ""
 else
     echo "  1. Reload your shell:"
     echo "     source $SHELL_CONFIG"
     echo ""
     echo "  2. Run the setup wizard to configure API keys:"
-    echo "     hermes setup"
+    echo "     dietcode setup"
     echo ""
     echo "  3. Start chatting:"
-    echo "     hermes"
+    echo "     dietcode"
     echo ""
 fi
 echo "Other commands:"
-echo "  hermes status        # Check configuration"
+echo "  dietcode status        # Check configuration"
 if is_termux; then
-    echo "  hermes gateway       # Run gateway in foreground"
+    echo "  dietcode gateway       # Run gateway in foreground"
 else
-    echo "  hermes gateway install # Install gateway service (messaging + cron)"
+    echo "  dietcode gateway install # Install gateway service (messaging + cron)"
 fi
-echo "  hermes cron list     # View scheduled jobs"
-echo "  hermes doctor        # Diagnose issues"
+echo "  dietcode cron list     # View scheduled jobs"
+echo "  dietcode doctor        # Diagnose issues"
+echo ""
+echo "Data directory: ${HERMES_HOME} (set DIETCODE_HOME to override)"
 echo ""
 
 # Ask if they want to run setup wizard now

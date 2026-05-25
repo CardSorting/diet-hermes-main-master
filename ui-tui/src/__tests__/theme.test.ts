@@ -43,16 +43,17 @@ describe('DEFAULT_THEME', () => {
   it('has brand defaults', async () => {
     const { DEFAULT_THEME } = await importThemeWithCleanEnv()
 
-    expect(DEFAULT_THEME.brand.name).toBe('Hermes Agent')
-    expect(DEFAULT_THEME.brand.prompt).toBe('❯')
+    expect(DEFAULT_THEME.brand.name).toBe('DietCode Agent')
+    expect(DEFAULT_THEME.brand.icon).toBe('🫧')
+    expect(DEFAULT_THEME.brand.prompt).toBe('◉')
     expect(DEFAULT_THEME.brand.tool).toBe('┊')
   })
 
   it('has color palette', async () => {
     const { DEFAULT_THEME } = await importThemeWithCleanEnv()
 
-    expect(DEFAULT_THEME.color.primary).toBe('#FFD700')
-    expect(DEFAULT_THEME.color.error).toBe('#ef5350')
+    expect(DEFAULT_THEME.color.primary).toBe('#ffe8ec')
+    expect(DEFAULT_THEME.color.error).toBe('#ff3355')
   })
 })
 
@@ -307,5 +308,30 @@ describe('fromSkin', () => {
 
     expect(color.ok).toBe('#008000')
     expect(color.statusGood).toBe('#008000')
+  })
+
+  it('maps status_bar_* colors and brand_icon from skin', async () => {
+    const { fromSkin } = await importThemeWithCleanEnv()
+    const { color, brand } = fromSkin(
+      {
+        status_bar_bg: '#111111',
+        status_bar_text: '#eeeeee',
+        status_bar_good: '#00ff00',
+        status_bar_warn: '#ffaa00',
+        status_bar_bad: '#ff0000',
+        status_bar_critical: '#cc0000'
+      },
+      { brand_icon: '🫧', tagline: 'fizz', banner_subtitle: 'extra fizz' }
+    )
+
+    expect(color.statusBg).toBe('#111111')
+    expect(color.statusFg).toBe('#eeeeee')
+    expect(color.statusGood).toBe('#00ff00')
+    expect(color.statusWarn).toBe('#ffaa00')
+    expect(color.statusBad).toBe('#ff0000')
+    expect(color.statusCritical).toBe('#cc0000')
+    expect(brand.icon).toBe('🫧')
+    expect(brand.tagline).toBe('fizz')
+    expect(brand.subtitle).toBe('extra fizz')
   })
 })

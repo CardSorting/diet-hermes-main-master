@@ -42,6 +42,10 @@ export interface ThemeBrand {
   goodbye: string
   tool: string
   helpHeader: string
+  /** Short tagline under the logo (DietCode fork). */
+  tagline: string
+  /** Secondary subtitle (e.g. edition name). */
+  subtitle: string
 }
 
 export interface Theme {
@@ -236,15 +240,20 @@ function normalizeAnsiForeground(color: string): string {
 
 // ── Defaults ─────────────────────────────────────────────────────────
 
-const BRAND: ThemeBrand = {
-  name: 'Hermes Agent',
-  icon: '⚕',
-  prompt: '❯',
-  welcome: 'Type your message or /help for commands.',
-  goodbye: 'Goodbye! ⚕',
+/** DietCode fork — cola palette used before gateway skin loads. */
+const DIETCODE_BRAND: ThemeBrand = {
+  name: 'DietCode Agent',
+  icon: '🫧',
+  prompt: '◉',
+  welcome: 'DietCode is carbonated and ready. Type a message or /help — just for the diff of it.',
+  goodbye: 'Stay fizzy! 🫧',
   tool: '┊',
-  helpHeader: '(^_^)? Commands'
+  helpHeader: '(◎) DietCode Commands',
+  tagline: 'Zero-calorie diffs · Maximum fizz',
+  subtitle: 'Safe code changes · Extra fizz edition'
 }
+
+const BRAND: ThemeBrand = DIETCODE_BRAND
 
 const cleanPromptSymbol = (s: string | undefined, fallback: string) => {
   const cleaned = String(s ?? '')
@@ -256,40 +265,37 @@ const cleanPromptSymbol = (s: string | undefined, fallback: string) => {
 
 export const DARK_THEME: Theme = {
   color: {
-    primary: '#FFD700',
-    accent: '#FFBF00',
-    border: '#CD7F32',
-    text: '#FFF8DC',
-    muted: '#CC9B1F',
+    primary: '#ffe8ec',
+    accent: '#ff4d6a',
+    border: '#9b0f24',
+    text: '#fff5f7',
+    muted: '#b8bcc8',
     // Bumped from the old `#B8860B` darkgoldenrod (~53% luminance) which
     // read as barely-visible on dark terminals for long body text.  The
     // new value sits ~60% luminance — readable without losing the "muted /
     // secondary" semantic.  Field labels still use `label` (65%) which
     // stays brighter so hierarchy holds.
-    completionBg: '#1a1a2e',
-    completionCurrentBg: '#333355',
-    completionMetaBg: '#1a1a2e',
-    completionMetaCurrentBg: '#333355',
+    completionBg: '#140608',
+    completionCurrentBg: '#3a1520',
+    completionMetaBg: '#140608',
+    completionMetaCurrentBg: '#3a1520',
 
-    label: '#DAA520',
-    ok: '#4caf50',
-    error: '#ef5350',
-    warn: '#ffa726',
+    label: '#e8e8ec',
+    ok: '#2dd4a0',
+    error: '#ff3355',
+    warn: '#fbbf24',
 
-    prompt: '#FFF8DC',
-    // sessionLabel/sessionBorder intentionally track the `dim` value — they
-    // are "same role, same colour" by design.  fromSkin's banner_dim fallback
-    // relies on this pairing (#11300).
-    sessionLabel: '#CC9B1F',
-    sessionBorder: '#CC9B1F',
+    prompt: '#fff5f7',
+    sessionLabel: '#b8bcc8',
+    sessionBorder: '#b8bcc8',
 
-    statusBg: '#1a1a2e',
-    statusFg: '#C0C0C0',
-    statusGood: '#8FBC8F',
-    statusWarn: '#FFD700',
-    statusBad: '#FF8C00',
-    statusCritical: '#FF6B6B',
-    selectionBg: '#3a3a55',
+    statusBg: '#140608',
+    statusFg: '#ffe8ec',
+    statusGood: '#2dd4a0',
+    statusWarn: '#fbbf24',
+    statusBad: '#e31837',
+    statusCritical: '#ff3355',
+    selectionBg: '#3a1520',
 
     diffAdded: 'rgb(220,255,220)',
     diffRemoved: 'rgb(255,220,220)',
@@ -558,12 +564,12 @@ export function fromSkin(
       sessionLabel: c('session_label') ?? muted,
       sessionBorder: c('session_border') ?? muted,
 
-      statusBg: d.color.statusBg,
-      statusFg: d.color.statusFg,
-      statusGood: c('ui_ok') ?? d.color.statusGood,
-      statusWarn: c('ui_warn') ?? d.color.statusWarn,
-      statusBad: d.color.statusBad,
-      statusCritical: d.color.statusCritical,
+      statusBg: c('status_bar_bg') ?? d.color.statusBg,
+      statusFg: c('status_bar_text') ?? d.color.statusFg,
+      statusGood: c('status_bar_good') ?? c('ui_ok') ?? d.color.statusGood,
+      statusWarn: c('status_bar_warn') ?? c('ui_warn') ?? d.color.statusWarn,
+      statusBad: c('status_bar_bad') ?? d.color.statusBad,
+      statusCritical: c('status_bar_critical') ?? d.color.statusCritical,
       selectionBg: c('selection_bg') ?? c('completion_menu_current_bg') ?? (hasSkinColors ? completionCurrentBg : d.color.selectionBg),
 
       diffAdded: d.color.diffAdded,
@@ -575,12 +581,14 @@ export function fromSkin(
 
     brand: {
       name: branding.agent_name ?? d.brand.name,
-      icon: d.brand.icon,
+      icon: (branding.brand_icon ?? branding.icon ?? '').trim() || d.brand.icon,
       prompt: cleanPromptSymbol(branding.prompt_symbol, d.brand.prompt),
       welcome: branding.welcome ?? d.brand.welcome,
       goodbye: branding.goodbye ?? d.brand.goodbye,
       tool: toolPrefix || d.brand.tool,
-      helpHeader: branding.help_header ?? (helpHeader || d.brand.helpHeader)
+      helpHeader: branding.help_header ?? (helpHeader || d.brand.helpHeader),
+      tagline: branding.tagline ?? d.brand.tagline,
+      subtitle: branding.banner_subtitle ?? d.brand.subtitle
     },
 
     bannerLogo,

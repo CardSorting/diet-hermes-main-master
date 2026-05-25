@@ -20,19 +20,19 @@ export const TOOL_VERBS: Record<string, string> = {
 }
 
 export const VERBS = [
-  'pondering',
-  'contemplating',
-  'musing',
-  'cogitating',
-  'ruminating',
-  'deliberating',
-  'mulling',
-  'reflecting',
-  'processing',
-  'reasoning',
-  'analyzing',
-  'computing',
-  'synthesizing',
-  'formulating',
-  'brainstorming'
+  'carbonating',
+  'fizzing',
+  'bubbling',
+  'pouring',
+  'shaking',
+  'diffing',
+  'stirring',
+  'chilling',
+  'browsing',
+  'patching',
+  'reading',
+  'thinking',
+  'brewing',
+  'sparkling',
+  'refreshing'
 ]

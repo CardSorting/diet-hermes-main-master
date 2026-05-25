@@ -77,6 +77,7 @@ import type { PluginManifest } from "@/plugins";
 import { useTheme } from "@/themes";
 import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 import { api } from "@/lib/api";
+import "@/components/dietcode/dietcode-brand.css";
 
 function RootRedirect() {
   return <Navigate to="/dietcode" replace />;
@@ -133,9 +134,9 @@ function ChatRouteSink() {
 const BUILTIN_NAV_REST: NavItem[] = [
   {
     path: "/dietcode",
-    labelKey: "dietcode",
     label: "DietCode",
-    icon: Shield,
+    icon: Sparkles,
+    navHint: "Safe code changes",
   },
   {
     path: "/sessions",
@@ -663,11 +664,13 @@ export default function App() {
 }
 
 function SidebarNavLink({ closeMobile, item, t }: SidebarNavLinkProps) {
-  const { path, label, labelKey, icon: Icon } = item;
+  const { path, label, labelKey, navHint, icon: Icon } = item;
 
   const navLabel = labelKey
     ? ((t.app.nav as Record<string, string>)[labelKey] ?? label)
     : label;
+
+  const isDietCode = path === "/dietcode";
 
   return (
     <li>
@@ -683,6 +686,7 @@ function SidebarNavLink({ closeMobile, item, t }: SidebarNavLinkProps) {
             "whitespace-nowrap transition-colors cursor-pointer",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground",
             isActive ? "text-midground" : "opacity-60 hover:opacity-100",
+            isActive && isDietCode && "dc-nav-highlight",
           )
         }
         style={{
@@ -691,8 +695,22 @@ function SidebarNavLink({ closeMobile, item, t }: SidebarNavLinkProps) {
       >
         {({ isActive }) => (
           <>
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{navLabel}</span>
+            <Icon
+              className={cn(
+                "h-3.5 w-3.5 shrink-0",
+                isDietCode && isActive && "dc-nav-fizz",
+              )}
+            />
+            <span className="flex flex-col min-w-0 truncate normal-case tracking-normal">
+              <span className="truncate font-semibold text-[0.8rem]">
+                {navLabel}
+              </span>
+              {navHint ? (
+                <span className="truncate text-[0.6rem] opacity-50 font-normal">
+                  {navHint}
+                </span>
+              ) : null}
+            </span>
 
             <span
               aria-hidden
@@ -702,7 +720,10 @@ function SidebarNavLink({ closeMobile, item, t }: SidebarNavLinkProps) {
             {isActive && (
               <span
                 aria-hidden
-                className="absolute left-0 top-0 bottom-0 w-px bg-midground"
+                className={cn(
+                  "absolute left-0 top-0 bottom-0 w-px",
+                  isDietCode ? "bg-[#ff4d6a]" : "bg-midground",
+                )}
                 style={{ mixBlendMode: "plus-lighter" }}
               />
             )}
@@ -828,6 +849,8 @@ interface NavItem {
   icon: ComponentType<{ className?: string }>;
   label: string;
   labelKey?: string;
+  /** Plain-language subtitle in sidebar (non-technical users). */
+  navHint?: string;
   path: string;
 }
 

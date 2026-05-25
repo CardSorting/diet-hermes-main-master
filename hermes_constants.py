@@ -2,12 +2,80 @@
 
 Import-safe module with no dependencies — can be imported from anywhere
 without risk of circular imports.
+
+DietCode fork branding lives in the block below. When syncing upstream
+hermes-agent, re-apply this overlay if ``hermes_constants.py`` conflicts.
 """
 
 import os
 import sysconfig
 from contextvars import ContextVar, Token
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# DietCode product overlay (fork-specific — re-apply after upstream merges)
+# ---------------------------------------------------------------------------
+PRODUCT_DISPLAY_NAME = "DietCode"
+PRODUCT_CLI_COMMAND = "dietcode"
+PRODUCT_HOME_DIRNAME = ".dietcode"
+HOME_ENV_PRIMARY = "DIETCODE_HOME"
+HOME_ENV_COMPAT = "HERMES_HOME"
+
+
+def get_product_display_name() -> str:
+    """User-facing product name (CLI banners, setup wizard, doctor)."""
+    return PRODUCT_DISPLAY_NAME
+
+
+def get_cli_command() -> str:
+    """Primary CLI executable name (``dietcode`` in this fork)."""
+    return PRODUCT_CLI_COMMAND
+
+
+def get_product_icon() -> str:
+    """Brand icon for CLI/TUI chrome (prompt footer, compact banner)."""
+    return "🫧"
+
+
+def get_product_tagline() -> str:
+    """Short tagline for banners and welcome text."""
+    return "Zero-calorie diffs · Maximum fizz"
+
+
+def get_product_subtitle() -> str:
+    """Secondary line under the product name in terminal UI."""
+    return "Safe code changes · Extra fizz edition"
+
+
+def get_native_default_home() -> Path:
+    """Default data directory when no home env var is set (``~/.dietcode``)."""
+    return Path.home() / PRODUCT_HOME_DIRNAME
+
+
+def resolve_home_env_raw() -> str:
+    """Return the active home-directory env override, if any."""
+    return os.environ.get(HOME_ENV_PRIMARY, "").strip() or os.environ.get(
+        HOME_ENV_COMPAT, ""
+    ).strip()
+
+
+def ensure_default_home_env() -> None:
+    """Ensure a home env is set before any module caches ``get_hermes_home()``.
+
+    - Neither set → ``~/.dietcode`` (isolated from vanilla ``~/.hermes``).
+    - Only ``DIETCODE_HOME`` → mirror into ``HERMES_HOME`` (internal compat).
+    - Only ``HERMES_HOME`` → mirror into ``DIETCODE_HOME`` (explicit override).
+    """
+    primary = os.environ.get(HOME_ENV_PRIMARY, "").strip()
+    compat = os.environ.get(HOME_ENV_COMPAT, "").strip()
+    if primary and not compat:
+        os.environ[HOME_ENV_COMPAT] = primary
+    elif compat and not primary:
+        os.environ[HOME_ENV_PRIMARY] = compat
+    elif not primary and not compat:
+        default = str(get_native_default_home())
+        os.environ[HOME_ENV_PRIMARY] = default
+        os.environ[HOME_ENV_COMPAT] = default
 
 
 _profile_fallback_warned: bool = False
@@ -41,26 +109,27 @@ def get_hermes_home_override() -> str | None:
 
 
 def get_hermes_home() -> Path:
-    """Return the Hermes home directory (default: ~/.hermes).
+    """Return the agent home directory (default: ~/.dietcode in this fork).
 
-    Reads HERMES_HOME env var, falls back to ~/.hermes.
-    This is the single source of truth — all other copies should import this.
+    Reads ``DIETCODE_HOME`` then ``HERMES_HOME``, then falls back to
+    ``~/.dietcode``.  This is the single source of truth — all other copies
+    should import this.
 
-    When ``HERMES_HOME`` is unset but an ``active_profile`` file indicates
-    a non-default profile is active, logs a loud one-shot warning to
-    ``errors.log`` so cross-profile data corruption is diagnosable instead
-    of silent.  Behavior is unchanged otherwise — we still return
-    ``~/.hermes`` — because raising here would brick 30+ module-level
-    callers that import this at load time.  Subprocess spawners are
-    expected to propagate ``HERMES_HOME`` explicitly (see the systemd
-    template in ``hermes_cli/gateway.py`` and the kanban dispatcher in
+    When both home env vars are unset but an ``active_profile`` file indicates
+    a non-default profile is active, logs a loud one-shot warning to stderr
+    so cross-profile data corruption is diagnosable instead of silent.
+    Behavior is unchanged otherwise — we still return the native default home
+    — because raising here would brick 30+ module-level callers that import
+    this at load time.  Subprocess spawners are expected to propagate
+    ``HERMES_HOME`` explicitly (see the systemd template in
+    ``hermes_cli/gateway.py`` and the kanban dispatcher in
     ``hermes_cli/kanban_db.py``).  See https://github.com/NousResearch/hermes-agent/issues/18594.
     """
     override = get_hermes_home_override()
     if override:
         return Path(override)
 
-    val = os.environ.get("HERMES_HOME", "").strip()
+    val = resolve_home_env_raw()
     if val:
         return Path(val)
 
@@ -72,7 +141,7 @@ def get_hermes_home() -> Path:
             # Inline the default-root resolution from get_default_hermes_root()
             # to stay import-safe (this function is called from module scope
             # in 30+ files; we cannot afford to trigger logging setup here).
-            active_path = (Path.home() / ".hermes" / "active_profile")
+            active_path = get_native_default_home() / "active_profile"
             active = active_path.read_text().strip() if active_path.exists() else ""
         except (UnicodeDecodeError, OSError):
             active = ""
@@ -84,12 +153,15 @@ def get_hermes_home() -> Path:
             # configured, and (b) root-logger propagation would double-emit
             # on consoles where a StreamHandler is already attached.
             import sys
+
+            native = f"~/{PRODUCT_HOME_DIRNAME}"
             msg = (
-                f"[HERMES_HOME fallback] HERMES_HOME is unset but active "
-                f"profile is {active!r}. Falling back to ~/.hermes, which "
-                f"is the DEFAULT profile — not {active!r}. Any data this "
-                f"process writes will land in the wrong profile. The "
-                f"subprocess spawner should pass HERMES_HOME explicitly "
+                f"[{HOME_ENV_COMPAT} fallback] {HOME_ENV_PRIMARY} and "
+                f"{HOME_ENV_COMPAT} are unset but active profile is "
+                f"{active!r}. Falling back to {native}, which is the "
+                f"DEFAULT profile — not {active!r}. Any data this process "
+                f"writes will land in the wrong profile. The subprocess "
+                f"spawner should pass {HOME_ENV_COMPAT} explicitly "
                 f"(see issue #18594)."
             )
             try:
@@ -98,33 +170,33 @@ def get_hermes_home() -> Path:
             except Exception:
                 pass
 
-    return Path.home() / ".hermes"
+    return get_native_default_home()
 
 
 def get_default_hermes_root() -> Path:
-    """Return the root Hermes directory for profile-level operations.
+    """Return the root data directory for profile-level operations.
 
-    In standard deployments this is ``~/.hermes``.
+    In standard deployments this is ``~/.dietcode`` (DietCode fork).
 
-    In Docker or custom deployments where ``HERMES_HOME`` points outside
-    ``~/.hermes`` (e.g. ``/opt/data``), returns ``HERMES_HOME`` directly
-    — that IS the root.
+    In Docker or custom deployments where the home env points outside the
+    native default (e.g. ``/opt/data``), returns that path directly — it IS
+    the root.
 
-    In profile mode where ``HERMES_HOME`` is ``<root>/profiles/<name>``,
+    In profile mode where the home env is ``<root>/profiles/<name>``,
     returns ``<root>`` so that ``profile list`` can see all profiles.
-    Works both for standard (``~/.hermes/profiles/coder``) and Docker
+    Works both for standard (``~/.dietcode/profiles/coder``) and Docker
     (``/opt/data/profiles/coder``) layouts.
 
     Import-safe — no dependencies beyond stdlib.
     """
-    native_home = Path.home() / ".hermes"
-    env_home = os.environ.get("HERMES_HOME", "")
+    native_home = get_native_default_home()
+    env_home = resolve_home_env_raw()
     if not env_home:
         return native_home
     env_path = Path(env_home)
     try:
         env_path.resolve().relative_to(native_home.resolve())
-        # HERMES_HOME is under ~/.hermes (normal or profile mode)
+        # Home env is under the native default root (normal or profile mode)
         return native_home
     except ValueError:
         pass
@@ -216,17 +288,16 @@ def get_hermes_dir(new_subpath: str, old_name: str) -> Path:
 
 
 def display_hermes_home() -> str:
-    """Return a user-friendly display string for the current HERMES_HOME.
+    """Return a user-friendly display string for the current home directory.
 
     Uses ``~/`` shorthand for readability::
 
-        default:  ``~/.hermes``
-        profile:  ``~/.hermes/profiles/coder``
-        custom:   ``/opt/hermes-custom``
+        default:  ``~/.dietcode``
+        profile:  ``~/.dietcode/profiles/coder``
+        custom:   ``/opt/dietcode-data``
 
     Use this in **user-facing** print/log messages instead of hardcoding
-    ``~/.hermes``.  For code that needs a real ``Path``, use
-    :func:`get_hermes_home` instead.
+    paths.  For code that needs a real ``Path``, use :func:`get_hermes_home`.
     """
     home = get_hermes_home()
     try:
@@ -252,7 +323,7 @@ def get_subprocess_home() -> str | None:
     Activation is directory-based: if the ``home/`` subdirectory doesn't
     exist, returns ``None`` and behavior is unchanged.
     """
-    hermes_home = get_hermes_home_override() or os.getenv("HERMES_HOME")
+    hermes_home = get_hermes_home_override() or resolve_home_env_raw() or None
     if not hermes_home:
         return None
     profile_home = os.path.join(hermes_home, "home")

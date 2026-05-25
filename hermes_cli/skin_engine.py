@@ -152,6 +152,20 @@ class SkinConfig:
                 result.append((str(pair[0]), str(pair[1])))
         return result
 
+    def get_spinner_type(self, fallback: str = "dots") -> str:
+        """Named spinner in ``agent.display.KawaiiSpinner.SPINNERS`` (e.g. ``fizz``)."""
+        raw = self.spinner.get("type")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+        return fallback
+
+    def get_spinner_frames(self) -> List[str]:
+        """Optional per-frame override; empty → use spinner type lookup."""
+        raw = self.spinner.get("frames")
+        if isinstance(raw, list):
+            return [str(f) for f in raw if str(f).strip()]
+        return []
+
     def get_branding(self, key: str, fallback: str = "") -> str:
         """Get a branding value with fallback."""
         return self.branding.get(key, fallback)
@@ -195,6 +209,108 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "help_header": "(^_^)? Available Commands",
         },
         "tool_prefix": "┊",
+    },
+    "dietcode": {
+        "name": "dietcode",
+        "description": "DietCode cola — cherry red, silver fizz, zero-guilt diffs",
+        "colors": {
+            "banner_border": "#9b0f24",
+            "banner_title": "#ffe8ec",
+            "banner_accent": "#e31837",
+            "banner_dim": "#6b1220",
+            "banner_text": "#fff5f7",
+            "ui_accent": "#ff4d6a",
+            "ui_label": "#e8e8ec",
+            "ui_ok": "#2dd4a0",
+            "ui_error": "#ff3355",
+            "ui_warn": "#fbbf24",
+            "prompt": "#fff5f7",
+            "input_rule": "#e31837",
+            "response_border": "#ff4d6a",
+            "status_bar_bg": "#140608",
+            "status_bar_text": "#ffe8ec",
+            "status_bar_strong": "#ff4d6a",
+            "status_bar_dim": "#b8bcc8",
+            "status_bar_good": "#2dd4a0",
+            "status_bar_warn": "#fbbf24",
+            "status_bar_bad": "#e31837",
+            "status_bar_critical": "#ff3355",
+            "session_label": "#ff4d6a",
+            "session_border": "#6b1220",
+        },
+        "spinner": {
+            "type": "fizz",
+            "frames": ["·", "∘", "○", "◌", "◎", "◉", "●", "◉", "◎", "◌", "○", "∘"],
+            "waiting_faces": ["(◎)", "(◉)", "(○)", "(◌)", "(●)", "(◌)"],
+            "thinking_faces": ["(◎)", "(◉)", "(○)", "(◌)", "(●)"],
+            "thinking_verbs": [
+                "carbonating",
+                "fizzing",
+                "shaking the can",
+                "pouring a diff",
+                "de-gassing conflicts",
+                "chilling the build",
+                "bubbling tests",
+                "cracking the tab",
+                "measuring the pour",
+                "stirring the patch",
+            ],
+            "wings": [
+                ["🫧", "🫧"],
+                ["⟨○", "○⟩"],
+                ["⟨◉", "◉⟩"],
+                ["⟨◎", "◎⟩"],
+                ["~~", "~~"],
+            ],
+        },
+        "branding": {
+            "agent_name": "DietCode Agent",
+            "brand_icon": "🫧",
+            "tagline": "Zero-calorie diffs · Maximum fizz",
+            "banner_subtitle": "Safe code changes · Extra fizz edition",
+            "welcome": "DietCode is carbonated and ready. Type a message or /help — just for the diff of it.",
+            "goodbye": "Stay fizzy! 🫧",
+            "response_label": " 🫧 DietCode ",
+            "prompt_symbol": "◉",
+            "help_header": "(◎) DietCode Commands — Extra Fizz Edition",
+        },
+        "tool_prefix": "┊",
+        "tool_emojis": {
+            "terminal": "🥤",
+            "patch": "🫧",
+            "delegate_task": "🧊",
+        },
+        "banner_logo": """[dim #b8bcc8]  o   o   o   o   o   o   o   o[/]
+[bold #ffe8ec]╔══════════════════════════════════════╗[/]
+[bold #ff4d6a]║ [bold #e31837]██████╗ [/][bold #ff4d6a]██╗[/][bold #ffe8ec]███████╗[/][bold #ff4d6a]████████╗[/][bold #ff4d6a] ║[/]
+[bold #e31837]║ [bold #ff4d6a]██╔══██╗[/][#9b0f24]██║[/][#e31837]██╔════╝[/][#6b1220]╚══██╔══╝[/][bold #e31837] ║[/]
+[#ff4d6a]║ [#e31837]██║[/][#ff4d6a]  ██║[/][#ffe8ec]██║[/][bold #ff4d6a]█████╗[/]     [#e31837]██║[/][#ff4d6a]   ║[/]
+[#9b0f24]║ [#6b1220]██║[/][#9b0f24]  ██║[/][#b8bcc8]██║[/][dim #6b1220]██╔══╝[/]     [#9b0f24]██║[/][#9b0f24]   ║[/]
+[bold #ffe8ec]║ [bold #ff4d6a]██████╔╝[/][bold #ffe8ec]██║[/][bold #e31837]███████╗[/]   [bold #ff4d6a]██║[/][bold #ffe8ec]   ║[/]
+[dim #6b1220]║ [dim #b8bcc8]╚═════╝ [/][dim #6b1220]╚═╝[/][dim #b8bcc8]╚══════╝[/]   [dim #6b1220]╚═╝[/][dim #6b1220]   ║[/]
+[bold #ff4d6a]║ [bold #e31837] ██████╗[/][bold #ff4d6a] ██████╗ [/][bold #ffe8ec]██████╗ [/][bold #e31837]███████╗[/][bold #ff4d6a]║[/]
+[bold #e31837]║ [bold #ff4d6a]██╔════╝[/][#9b0f24]██╔═══██╗[/][#ff4d6a]██╔══██╗[/][#6b1220]██╔════╝[/][bold #e31837] ║[/]
+[#ff4d6a]║ [#e31837]██║[/][#ff4d6a]     ██║   ██║[/][#ffe8ec]██║  ██║[/][bold #ff4d6a]█████╗[/]  [#ff4d6a]║[/]
+[#ffe8ec]║ [#ff4d6a]██║[/][#ffe8ec]     ██║   ██║[/][#b8bcc8]██║  ██║[/][dim #9b0f24]██╔══╝[/]  [#ffe8ec]║[/]
+[bold #e31837]║ [bold #ff4d6a]╚██████╗[/][bold #ffe8ec]╚██████╔╝[/][bold #ff4d6a]██████╔╝[/][bold #e31837]███████╗[/][bold #e31837]║[/]
+[dim #6b1220]║ [dim #b8bcc8] ╚═════╝ [/][dim #6b1220]╚═════╝ [/][dim #b8bcc8]╚═════╝ [/][dim #6b1220]╚══════╝[/][dim #6b1220]║[/]
+[bold #ffe8ec]╚══════════════════════════════════════╝[/]
+[italic #b8bcc8]     Zero-calorie diffs · Maximum fizz[/]
+[dim #6b1220]  o   o   o   o   o   o   o   o[/]""",
+        "banner_hero": """[dim #b8bcc8]        o       o       o[/]
+[bold #ff4d6a]         .-------.[/]
+[bold #e31837]        /  [bold #ffe8ec]DIET[/]  \\[/]
+[#ff4d6a]       |   [bold #ffe8ec]CODE[/]   |[/]
+[#9b0f24]        \\  [dim #b8bcc8]0 cal[/]  /[/]
+[bold #ff4d6a]         '-------'[/]
+[#e31837]            | |[/]
+[#ff4d6a]           /   \\[/]
+[dim #b8bcc8]        ~  o o o  ~[/]
+[#ffe8ec]       ~ o o o o o ~[/]
+[bold #ff4d6a]      ~  o o o o o  ~[/]
+[#e31837]     ~~~~~~~~~~~~~~~~~[/]
+[italic #ffe8ec]   carbonated · shake · pour · approve[/]
+[dim #6b1220]  ·∘○◌◎◉●◉◎◌○∘·[/]""",
     },
     "ares": {
         "name": "ares",
@@ -795,11 +911,11 @@ def init_skin_from_config(config: dict) -> None:
     display = config.get("display") or {}
     if not isinstance(display, dict):
         display = {}
-    skin_name = display.get("skin", "default")
+    skin_name = display.get("skin", "dietcode")
     if isinstance(skin_name, str) and skin_name.strip():
         set_active_skin(skin_name.strip())
     else:
-        set_active_skin("default")
+        set_active_skin("dietcode")
 
 
 # =============================================================================

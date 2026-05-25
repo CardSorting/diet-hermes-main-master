@@ -1034,7 +1034,7 @@ DEFAULT_CONFIG = {
         # `git status` to verify edits landed.  Set false to suppress.
         "file_mutation_verifier": True,
         "show_cost": False,       # Show $ cost in the status bar (off by default)
-        "skin": "default",
+        "skin": "dietcode",
         # UI language for static user-facing messages (approval prompts, a
         # handful of gateway slash-command replies).  Does NOT affect agent
         # responses, log lines, tool outputs, or slash-command descriptions.
