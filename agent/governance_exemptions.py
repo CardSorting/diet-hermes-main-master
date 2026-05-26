@@ -1054,10 +1054,137 @@ def _governance_fault_payload(
     original_result: Any,
 ) -> Dict[str, Any]:
     failures_log: List[str] = []
+    structured: List[Dict[str, Any]] = []
     for item in gate.get("singleResults", []):
         failures_log.append(f"  • {item['file']} [Layer: {item.get('layer', 'unknown')}]")
         for err in item.get("errors", []):
             failures_log.append(f"    - {err}")
+        structured.append(
+            {
+                "file": item.get("file"),
+                "layer": item.get("layer", "unknown"),
+                "errors": item.get("errors") or [],
+            }
+        )
+
+    # Tool-ready recovery plan: suggest read-only diagnostics + likely search queries.
+    read_targets = [p for p in dirty_files if isinstance(p, str) and p.strip()][:10]
+
+    phase1_queries: List[str] = []
+    phase2_queries: List[str] = []
+
+    def _add_phase1(q: str) -> None:
+        q = (q or "").strip()
+        if not q:
+            return
+        if q not in phase1_queries:
+            phase1_queries.append(q)
+
+    def _add_phase2(q: str) -> None:
+        q = (q or "").strip()
+        if not q:
+            return
+        if q not in phase2_queries:
+            phase2_queries.append(q)
+
+    def _normalize_specifier(raw: str) -> str:
+        # Strip quotes and trailing punctuation that often appears in error strings.
+        s = (raw or "").strip().strip("'\"")
+        s = s.rstrip(".,;")
+        return s
+
+    def _add_import_pattern_queries(spec: str) -> None:
+        spec = _normalize_specifier(spec)
+        if not spec:
+            return
+
+        _add_phase1(spec)
+
+        # Common import statement patterns.
+        _add_phase1(f"from '{spec}'")
+        _add_phase1(f'from "{spec}"')
+        _add_phase1(f"import '{spec}'")
+        _add_phase1(f'import "{spec}"')
+        _add_phase1(f"require('{spec}')")
+        _add_phase1(f'require("{spec}")')
+        _add_phase1(f"import({json.dumps(spec)})")
+
+        # For relative paths, basename-only is often enough to find the import site.
+        if spec.startswith(("./", "../")):
+            base = os.path.basename(spec)
+            if base and base != spec:
+                _add_phase1(base)
+
+    def _add_error_substring_query(err: str) -> None:
+        # Add a short exact substring query (kept small to reduce noise).
+        snippet = " ".join((err or "").strip().split())
+        if len(snippet) > 140:
+            snippet = snippet[:140].rstrip() + "…"
+        if snippet:
+            _add_phase2(snippet)
+
+    # Extract quoted import specifiers/module hints from errors.
+    # Example: "... cannot import from ... (../ui/widget)."
+    quoted = re.compile(r"\(([^)]+)\)")
+    for item in structured:
+        for err in item.get("errors") or []:
+            if not isinstance(err, str):
+                continue
+            _add_error_substring_query(err)
+            for m in quoted.finditer(err):
+                raw = _normalize_specifier(m.group(1))
+                if raw:
+                    _add_import_pattern_queries(raw)
+            if "Missing mandatory [LAYER: TYPE] header tag" in err:
+                _add_phase2("[LAYER:")
+            if "Geographic Misalignment" in err:
+                _add_phase2("Geographic Misalignment")
+
+    # Also suggest searching for file basenames.
+    for p in read_targets[:5]:
+        base = os.path.basename(p)
+        if base:
+            _add_phase2(base)
+
+    # File-scoped search hints: combine basename + specifier on one line.
+    # This is often the fastest way to find the exact offending import statement.
+    for item in structured[:5]:
+        fpath = item.get("file")
+        if not isinstance(fpath, str) or not fpath.strip():
+            continue
+        base = os.path.basename(fpath)
+        if not base:
+            continue
+        for err in item.get("errors") or []:
+            if not isinstance(err, str):
+                continue
+            for m in quoted.finditer(err):
+                raw = _normalize_specifier(m.group(1))
+                if raw:
+                    _add_phase1(f"{base} {raw}")
+                    _add_phase1(f"{base} from '{raw}'")
+
+    # Cap for prompt hygiene.
+    phase1_queries = phase1_queries[:12]
+    phase2_queries = phase2_queries[:12]
+    combined_queries = (phase1_queries + phase2_queries)[:20]
+
+    recovery_plan: Dict[str, Any] = {
+        "summary": "Use read-only diagnostics, then apply one targeted fix and retry once.",
+        "read_file_targets": read_targets,
+        "search_files_queries": combined_queries,
+        "search_files_phase1_queries": phase1_queries,
+        "search_files_phase2_queries": phase2_queries,
+        "suggested_steps": [
+            {"tool": "read_file", "paths": read_targets},
+            {"tool": "search_files", "phase": 1, "queries": phase1_queries, "note": "Find the import sites quickly (specifier-first)."},
+            {"tool": "search_files", "phase": 2, "queries": phase2_queries, "note": "If phase 1 misses, search by the exact error text/anchors."},
+            {
+                "tool": "patch/write_file",
+                "note": "Fix the layer header and/or forbidden import direction, then retry the mutation once.",
+            },
+        ],
+    }
 
     report = (
         "==============================================================\n"
@@ -1065,7 +1192,10 @@ def _governance_fault_payload(
         "==============================================================\n"
         "Your changes succeeded at the filesystem level, but they breached\n"
         "the strict structural architecture policies of this codebase.\n"
-        "You MUST resolve these violations immediately before calling any other tool.\n\n"
+        "Do NOT keep retrying the same mutation. Next, use read-only diagnostics\n"
+        "(e.g. read/search/audit) to understand the violation, then fix the\n"
+        "layer tag and/or the forbidden import direction and retry once.\n"
+        "Only further file-mutating tools should be deferred until fixed.\n\n"
         "📂 Tag & Format Compliance Failures:\n" + "\n".join(failures_log) + "\n\n"
         "==============================================================\n"
         "🔧 RECOMMENDATION:\n"
@@ -1077,6 +1207,10 @@ def _governance_fault_payload(
     return {
         "success": False,
         "error": report,
+        "retryable": False,
+        "governance_fault": True,
+        "violations": structured,
+        "recovery_plan": recovery_plan,
         "dirty_files": dirty_files,
         "exempt_skipped": exempt_skipped,
         "original_result": original_result,

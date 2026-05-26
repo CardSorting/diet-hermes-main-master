@@ -441,7 +441,62 @@ def append_toolguard_guidance(result: str, decision: ToolGuardrailDecision) -> s
         f"\n\n[{label}: "
         f"{decision.code}; count={decision.count}; {decision.message}]"
     )
-    return (result or "") + suffix
+    base = (result or "") + suffix
+
+    # Governance recovery helper: when a mutation is blocked by JoyZoning
+    # governance, models often self-freeze/refuse. Append explicit read-only
+    # next steps so the agent can keep executing diagnostics instead of looping.
+    try:
+        parsed = safe_json_loads(result or "")
+        if isinstance(parsed, dict):
+            from agent.governance_exemptions import is_governance_transform_result
+
+            if is_governance_transform_result(parsed) or parsed.get("governance_fault") is True:
+                files = parsed.get("dirty_files") or []
+                if not isinstance(files, list):
+                    files = []
+                files = [f for f in files if isinstance(f, str) and f.strip()][:5]
+                plan = parsed.get("recovery_plan") or {}
+                if not isinstance(plan, dict):
+                    plan = {}
+                plan_reads = plan.get("read_file_targets") if isinstance(plan.get("read_file_targets"), list) else None
+                plan_queries_1 = plan.get("search_files_phase1_queries") if isinstance(plan.get("search_files_phase1_queries"), list) else None
+                plan_queries_2 = plan.get("search_files_phase2_queries") if isinstance(plan.get("search_files_phase2_queries"), list) else None
+                plan_queries = plan.get("search_files_queries") if isinstance(plan.get("search_files_queries"), list) else None
+                if plan_reads:
+                    files = [f for f in plan_reads if isinstance(f, str) and f.strip()][:5]
+
+                file_lines = "\n".join(f"- {f}" for f in files) if files else "- (unknown)"
+                def _fmt_queries(qs) -> str:
+                    if not qs:
+                        return ""
+                    items = [q for q in qs if isinstance(q, str) and q.strip()][:5]
+                    return "\n".join(f"- {q}" for q in items) if items else ""
+
+                query_lines_1 = _fmt_queries(plan_queries_1) or _fmt_queries(plan_queries)
+                query_lines_2 = _fmt_queries(plan_queries_2)
+                helper = "\n".join(
+                    [
+                        "",
+                        "[Governance recovery helper]",
+                        "- This is a *policy block*, not a safety refusal. Keep using tools.",
+                        "- Next diagnostics (read-only):",
+                        f"  - `read_file` each violating file:\n{file_lines}",
+                        "  - `search_files` for the offending import/error text shown above.",
+                        *( [f"    Phase 1 (specifier-first) queries:\n{query_lines_1}"] if query_lines_1 else [] ),
+                        *( [f"    Phase 2 (error-text) queries:\n{query_lines_2}"] if query_lines_2 else [] ),
+                        "- Then apply ONE targeted fix:",
+                        "  - add/fix the `/** [LAYER: ...] */` header, or",
+                        "  - remove/invert the forbidden import direction.",
+                        "- Retry the mutation once after the fix (do not loop).",
+                        "",
+                    ]
+                )
+                return base + helper
+    except Exception:
+        pass
+
+    return base
 
 
 def _tool_failure_recovery_hint(tool_name: str, count: int) -> str:

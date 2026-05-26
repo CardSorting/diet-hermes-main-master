@@ -63,3 +63,40 @@ def test_evaluate_lists_exempt_skipped_on_block():
     payload = json.loads(out)
     assert "README.md" in payload.get("exempt_skipped", [])
     assert payload["dirty_files"] == ["src/a.ts"]
+
+
+def test_governance_recovery_plan_derives_import_queries():
+    out = enforce_governance_on_mutation(
+        "patch",
+        {"path": "src/domain/x.ts", "patch": "@@\n+const a=1"},
+        json.dumps({"success": True}),
+        run_gate=lambda files: {
+            "success": False,
+            "singleResults": [
+                {
+                    "file": files[0],
+                    "layer": "domain",
+                    "errors": [
+                        "DOMAIN layer in x.ts cannot import from ui (../ui/widget).",
+                        "x.ts: Missing mandatory [LAYER: TYPE] header tag.",
+                    ],
+                }
+            ],
+        },
+    )
+    assert out is not None
+    payload = json.loads(out)
+    plan = payload.get("recovery_plan") or {}
+    q1 = plan.get("search_files_phase1_queries") or []
+    q2 = plan.get("search_files_phase2_queries") or []
+    combined = plan.get("search_files_queries") or []
+    assert "../ui/widget" in q1
+    assert "from '../ui/widget'" in q1
+    assert 'from "../ui/widget"' in q1
+    assert "import '../ui/widget'" in q1
+    assert "require('../ui/widget')" in q1
+    # file-scoped hint (basename + spec)
+    assert any(q.startswith("x.ts ../ui/widget") or q == "x.ts ../ui/widget" for q in q1)
+    # phase2 carries anchors/snippets
+    assert "[LAYER:" in q2
+    assert combined[: len(q1)] == q1

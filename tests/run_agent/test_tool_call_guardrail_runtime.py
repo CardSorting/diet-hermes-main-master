@@ -327,6 +327,10 @@ def test_governance_fault_halts_run_conversation_by_default_after_two_repeats():
             "success": False,
             "error": "GOVERNANCE FAULT: JoyZoning Layering Violations Detected!",
             "original_result": underlying,
+            "recovery_plan": {
+                "read_file_targets": ["src/domain/x.ts"],
+                "search_files_queries": ["../ui/widget", "[LAYER:"],
+            },
         }
     )
 
@@ -342,3 +346,8 @@ def test_governance_fault_halts_run_conversation_by_default_after_two_repeats():
     assert mock_hfc.call_count == 2
     assert result["turn_exit_reason"] == "guardrail_halt"
     assert result.get("guardrail", {}).get("code") == "governance_fault_halt"
+    tool_contents = [m["content"] for m in result["messages"] if m.get("role") == "tool"]
+    assert any("Governance recovery helper" in (c or "") for c in tool_contents)
+    assert any("read_file" in (c or "") for c in tool_contents)
+    assert any("search_files" in (c or "") for c in tool_contents)
+    assert any("Phase 1" in (c or "") for c in tool_contents)
