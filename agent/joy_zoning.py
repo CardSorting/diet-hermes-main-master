@@ -9,6 +9,31 @@ import os
 import re
 from typing import Dict, List, Optional, Set, Any, Tuple
 
+from agent.governance_exemptions import (
+    GOVERNANCE_EXEMPT_BASENAMES,
+    GOVERNANCE_EXEMPT_BASENAME_SUFFIXES,
+    GOVERNANCE_EXEMPT_EXTENSIONS,
+    GOVERNANCE_EXEMPT_PATH_MARKERS,
+    GOVERNANCE_EXEMPT_SEGMENT_PREFIXES,
+    GOVERNANCE_FAULT_MARKER,
+    GOVERNANCE_POLICY_VERSION,
+    GOVERNANCE_SOURCE_EXTENSIONS,
+    extract_governance_tool_paths,
+    filter_governance_subjects,
+    governance_gate_targets,
+    governance_skip_reason,
+    is_governance_artifact_path,
+    is_governance_fault_error,
+    is_governance_subject,
+    normalize_governance_path,
+    partition_governance_paths,
+    evaluate_governance_transform,
+    is_governance_transform_result,
+    classify_governance_artifact,
+    governance_policy_summary,
+    GOVERNANCE_COMPOUND_SUFFIXES,
+)
+
 # Layer type definition
 # "domain" | "core" | "infrastructure" | "plumbing" | "ui"
 
@@ -104,20 +129,20 @@ def get_layer(file_path: str, content: Optional[str] = None) -> str:
 
 def is_layer_tag_supported(file_path: str, content: Optional[str] = None) -> bool:
     """Determines if a file supports architectural [LAYER: TYPE] tags."""
+    if is_governance_artifact_path(file_path):
+        return False
+
     normalized = file_path.replace("\\", "/")
     ext = os.path.splitext(file_path)[1].lower()
-    
+
+    if ext in {".md", ".mdx", ".rst"}:
+        return False
+
     if file_path.lower().endswith(".d.ts") or ext in STRICT_BLOCKLIST:
         return False
-        
+
     style = STYLE_REGISTRY.get(ext)
     if not style:
-        return False
-        
-    # Exclude common documentation, license, and planning files
-    basename = os.path.basename(file_path).lower()
-    exclude_files = {"scratchpad.md", "implementation_plan.md", "task.md", "walkthrough.md", "readme.md", "claude.md", "contributing.md", "license", "changelog.md"}
-    if basename in exclude_files:
         return False
 
     exclude_dirs = ["node_modules/", ".venv/", "venv/", "tests/", ".git/", ".github/", "dist/", "build/"]
@@ -386,8 +411,11 @@ def validate_layering(file_path: str, content: str) -> List[str]:
 
 def validate_joy_zoning(file_path: str, content: str) -> Dict[str, Any]:
     """Full Joy-Zoning validation for a file."""
+    if not is_governance_subject(file_path, content):
+        return {"success": True, "errors": [], "skipped": True}
+
     all_errors = []
-    
+
     tag = parse_layer_tag(content)
     path_layer = get_layer(file_path)
     

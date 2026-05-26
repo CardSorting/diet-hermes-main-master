@@ -160,6 +160,336 @@ export function getLayer(filePath: string, content?: string): Layer {
 	return layer
 }
 
+/** Keep in sync with agent/governance_exemptions.py (policy v9+) */
+const GOVERNANCE_EXEMPT_BASENAMES = new Set([
+	"package.json",
+	"package-lock.json",
+	"pnpm-lock.yaml",
+	"yarn.lock",
+	"npm-shrinkwrap.json",
+	"bun.lockb",
+	"bun.lock",
+	"composer.json",
+	"composer.lock",
+	"cargo.lock",
+	"go.sum",
+	"go.mod",
+	"pyproject.toml",
+	"tsconfig.json",
+	"jsconfig.json",
+	"tsconfig.build.json",
+	"vite.config.ts",
+	"vitest.config.ts",
+	"jest.config.js",
+	"schema.prisma",
+	"drizzle.config.ts",
+	"docker-compose.yml",
+	"docker-compose.yaml",
+	"readme.md",
+	"changelog.md",
+	"contributing.md",
+	"license",
+	"license.md",
+	"agents.md",
+	"claude.md",
+	".gitignore",
+	".dockerignore",
+	".editorconfig",
+	"pnpm-workspace.yaml",
+	"lerna.json",
+	"nx.json",
+	"renovate.json",
+	"mise.toml",
+	"flake.nix",
+	"buf.yaml",
+	"turbo.json",
+	"cargo.toml",
+	"uv.lock",
+	"serverless.yml",
+	"fly.toml",
+	"components.json",
+	"bunfig.toml",
+	"sbom.json",
+	"security.txt",
+	".cursorindexingignore",
+	"copilot-instructions.md",
+])
+
+const GOVERNANCE_EXEMPT_EXTENSIONS = new Set([
+	...STRICT_BLOCKLIST,
+	".md",
+	".mdx",
+	".mdc",
+	".markdown",
+	".rst",
+	".dbml",
+	".txt",
+	".adoc",
+	".sql",
+	".sqlite",
+	".sqlite3",
+	".db",
+	".prisma",
+	".toml",
+	".yaml",
+	".yml",
+	".ini",
+	".cfg",
+	".conf",
+	".properties",
+	".csv",
+	".graphql",
+	".gql",
+	".proto",
+	".map",
+	".min.js",
+	".min.css",
+	".zip",
+	".gz",
+	".wasm",
+	".xml",
+	".plist",
+	".info",
+	".lcov",
+	".html",
+	".htm",
+	".css",
+	".scss",
+	".vue",
+	".svelte",
+	".py",
+	".go",
+	".rs",
+	".java",
+	".rb",
+	".sh",
+	".tf",
+	".tfvars",
+	".hcl",
+	".po",
+	".astro",
+	".feature",
+	".rego",
+	".nim",
+	".zig",
+	".dart",
+	".sln",
+	".csproj",
+	".webp",
+	".avif",
+])
+
+const GOVERNANCE_EXEMPT_PATH_MARKERS = [
+	"/migrations/",
+	"/migration/",
+	"/migrate/",
+	"/prisma/",
+	"/drizzle/",
+	"/typeorm/",
+	"/sequelize/",
+	"/knex/",
+	"/alembic/",
+	"/liquibase/",
+	"/flyway/",
+	"/supabase/",
+	"/orm/",
+	"/database/",
+	"/databases/",
+	"/db/migrations/",
+	"/db/schema/",
+	"/database/schema/",
+	"/entities/",
+	"/seeders/",
+	"/seeds/",
+	"/fixtures/",
+	"/__fixtures__/",
+	"/testdata/",
+	"/snapshots/",
+	"/__snapshots__/",
+	"/docs/",
+	"/documentation/",
+	"/reports/",
+	"/website/",
+	"/generated/",
+	"/__generated__/",
+	"/vendor/",
+	"/node_modules/",
+	"/.venv/",
+	"/venv/",
+	"/.git/",
+	"/.github/",
+	"/dist/",
+	"/build/",
+	"/coverage/",
+	"/.next/",
+	"/.nuxt/",
+	"/public/",
+	"/static/",
+	"/locales/",
+	"/openapi/",
+	"/swagger/",
+	"/.storybook/",
+	"/.cursor/",
+	"/.vscode/",
+	"/sql/",
+	"/atlas/",
+	"/.turbo/",
+	"/.changeset/",
+	"/proto/",
+	"/mocks/",
+	"/__mocks__/",
+	"/test-utils/",
+	"/optional-skills/",
+	"/grafana/",
+	"/prometheus/",
+]
+
+const GOVERNANCE_EXEMPT_BASENAME_SUFFIXES = [
+	".d.ts",
+	".config.ts",
+	".config.js",
+	".config.mjs",
+	".config.cjs",
+	".config.json",
+	".test.ts",
+	".test.tsx",
+	".test.js",
+	".test.jsx",
+	".spec.ts",
+	".spec.tsx",
+	".stories.ts",
+	".stories.tsx",
+	".mock.ts",
+	".bench.ts",
+	".e2e.ts",
+	".e2e.tsx",
+	".integration.ts",
+	".smoke.ts",
+	".contract.ts",
+	".config.mts",
+	".config.mjs",
+]
+
+const GOVERNANCE_COMPOUND_SUFFIXES = [
+	".min.js",
+	".min.css",
+	".min.ts",
+	".bundle.js",
+	".tar.gz",
+	".tar.bz2",
+	".test.ts.snap",
+]
+
+const GOVERNANCE_EXEMPT_SEGMENT_PREFIXES = [
+	"node_modules/",
+	".git/",
+	".venv/",
+	"venv/",
+	"dist/",
+	"build/",
+	"coverage/",
+	".husky/",
+	".cursor/",
+	".idea/",
+	".github/",
+	".gitlab/",
+	".circleci/",
+	"out/",
+	"target/",
+	".cache/",
+	".turbo/",
+	"tmp/",
+	"logs/",
+	"mocks/",
+	"__mocks__/",
+	"stubs/",
+	"test-utils/",
+	"proto/",
+	".changeset/",
+	"docs/",
+	"migrations/",
+	"prisma/",
+	"fixtures/",
+	"generated/",
+	"e2e/",
+	"cypress/",
+	"playwright/",
+	".storybook/",
+	"terraform/",
+	"optional-skills/",
+]
+
+function isCompoundExemptPath(normalized: string): boolean {
+	return GOVERNANCE_COMPOUND_SUFFIXES.some((s) => normalized.endsWith(s))
+}
+
+function isEnvFileBasename(basename: string): boolean {
+	const lower = basename.toLowerCase()
+	if (lower.startsWith(".env")) return true
+	if (lower === ".envrc" || lower === "envrc") return true
+	if (lower.startsWith("env.") && /\.(local|example|sample|development|production|test)$/.test(lower)) return true
+	return false
+}
+
+function isMakefileVariant(basename: string): boolean {
+	const lower = basename.toLowerCase()
+	if (["makefile", "gnumakefile", "makefile.win", "makefile.am"].includes(lower)) return true
+	return lower.startsWith("makefile.") || lower.startsWith("gnumakefile.")
+}
+
+function isReleaseDocBasename(basename: string): boolean {
+	const lower = basename.toLowerCase()
+	return (lower.startsWith("release_") || lower.startsWith("release-")) && lower.endsWith(".md")
+}
+
+const GOVERNANCE_SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"])
+
+export function normalizeGovernancePath(filePath: string): string {
+	return filePath.replace(/\\/g, "/").trim()
+}
+
+function isLockfileBasename(basename: string): boolean {
+	const lower = basename.toLowerCase()
+	if (lower.endsWith(".lock") || lower.endsWith("-lock.json")) return true
+	if (["bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock", "uv.lock"].includes(lower)) return true
+	if (lower.endsWith(".lockb") || lower.endsWith(".lock.yaml")) return true
+	return false
+}
+
+function isEditorRcBasename(basename: string): boolean {
+	const lower = basename.toLowerCase()
+	if (lower.startsWith(".") && lower.endsWith("rc")) return true
+	if (lower.endsWith("rc.json") || lower.endsWith("rc.yaml") || lower.endsWith("rc.yml")) return true
+	return false
+}
+
+export function isGovernanceArtifactPath(filePath: string): boolean {
+	if (!filePath || !String(filePath).trim()) return true
+	const normalized = normalizeGovernancePath(filePath).toLowerCase()
+	const basename = path.basename(normalized)
+	if (GOVERNANCE_EXEMPT_BASENAMES.has(basename)) return true
+	if (isLockfileBasename(basename) || isEditorRcBasename(basename)) return true
+	if (isEnvFileBasename(basename) || isMakefileVariant(basename) || isReleaseDocBasename(basename)) return true
+	if (isCompoundExemptPath(normalized)) return true
+	for (const suffix of GOVERNANCE_EXEMPT_BASENAME_SUFFIXES) {
+		if (basename.endsWith(suffix)) return true
+	}
+	const ext = path.extname(filePath).toLowerCase()
+	if (GOVERNANCE_EXEMPT_EXTENSIONS.has(ext)) return true
+	if (basename === "dockerfile" || basename.startsWith("dockerfile.")) return true
+	if (GOVERNANCE_EXEMPT_PATH_MARKERS.some((marker) => normalized.includes(marker))) return true
+	return GOVERNANCE_EXEMPT_SEGMENT_PREFIXES.some(
+		(seg) => normalized.startsWith(seg) || normalized.includes(`/${seg}`),
+	)
+}
+
+export function isGovernanceSubject(filePath: string, content?: string): boolean {
+	if (isGovernanceArtifactPath(filePath)) return false
+	const ext = path.extname(filePath).toLowerCase()
+	if (!GOVERNANCE_SOURCE_EXTENSIONS.has(ext)) return false
+	return isLayerTagSupported(filePath, content)
+}
+
 /**
  * Determines if a file supports architectural [LAYER: TYPE] tags.
  * Only source files that support JSDoc-style comments are included.
@@ -167,13 +497,10 @@ export function getLayer(filePath: string, content?: string): Layer {
 export function isLayerTagSupported(filePath: string, content?: string): boolean {
 	const normalized = filePath.replace(/\\/g, "/")
 	if (!content && PATH_TAG_SUPPORT_CACHE.has(normalized)) return PATH_TAG_SUPPORT_CACHE.get(normalized)!
+	if (isGovernanceArtifactPath(filePath)) return false
 	const ext = path.extname(filePath).toLowerCase()
 	if (filePath.toLowerCase().endsWith(".d.ts") || STRICT_BLOCKLIST.includes(ext)) return false
-
-	// Exclude common documentation, license, and planning files
-	const basename = path.basename(filePath).toLowerCase()
-	const excludeFiles = new Set(["scratchpad.md", "implementation_plan.md", "task.md", "walkthrough.md", "readme.md", "claude.md", "contributing.md", "license", "changelog.md"])
-	if (excludeFiles.has(basename)) return false
+	if ([".md", ".mdx", ".rst"].includes(ext)) return false
 
 	const policy = StabilityPolicy.getInstance(process.cwd())
 	const config = policy.getGlobalConfig()
@@ -510,7 +837,14 @@ export function validateImportDepth(filePath: string, content: string): string[]
 /**
  * Full Joy-Zoning validation for a file.
  */
-export function validateJoyZoning(filePath: string, content: string): { success: boolean; errors: string[] } {
+export function validateJoyZoning(
+	filePath: string,
+	content: string,
+): { success: boolean; errors: string[]; skipped?: boolean } {
+	if (!isGovernanceSubject(filePath, content)) {
+		return { success: true, errors: [], skipped: true }
+	}
+
 	const allErrors: string[] = []
 
 	// 1. Tag Locality & PGA (Principle of Geographic Alignment)
@@ -540,6 +874,24 @@ export function validateJoyZoning(filePath: string, content: string): { success:
 		success: allErrors.length === 0,
 		errors: allErrors,
 	}
+}
+
+/** Single-file gate used by governance hooks and CLI check commands. */
+export function checkSingleFile(filePath: string): {
+	valid: boolean
+	layer: Layer
+	errors: string[]
+} {
+	if (!fs.existsSync(filePath)) {
+		return { valid: true, layer: getLayer(filePath), errors: [] }
+	}
+	const content = fs.readFileSync(filePath, "utf-8")
+	const layer = getLayer(filePath, content)
+	if (!isGovernanceSubject(filePath, content)) {
+		return { valid: true, layer, errors: [] }
+	}
+	const result = validateJoyZoning(filePath, content)
+	return { valid: result.success, layer, errors: result.errors }
 }
 
 /**

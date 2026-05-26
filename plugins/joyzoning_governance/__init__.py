@@ -12,12 +12,18 @@ from __future__ import annotations
 import os
 import sys
 import json
-import time
 import shlex
 import logging
-import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional, Set, List
+
+from agent.governance_exemptions import (
+    evaluate_governance_transform,
+    filter_governance_subjects,
+    governance_skip_reason,
+    is_governance_subject,
+)
+from agent.joy_zoning import get_layer, validate_joy_zoning
 
 # Safely resolve parent path to import core tool runners
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -34,110 +40,42 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def run_joyzoning_gate(files: List[str]) -> Dict[str, Any]:
-    """Execute TS-based JoyZoning policy checks on specific target files.
+    """Run JoyZoning policy checks on governable source files only.
 
-    Returns the gate results dict.
+    Skips docs, manifests, DB/ORM artifacts, and other paths that cannot
+    carry ``[LAYER: TYPE]`` headers (see ``is_governance_subject``).
     """
-    body = f"""
-    const jz = await import('../utils/joy-zoning.js');
-    const {{ SpiderEngine }} = await import('../core/policy/SpiderEngine.js');
-    
-    const files = {json.dumps(files)};
-    const spider = new SpiderEngine(process.cwd());
-    await spider.warmUp();
-
-    const singleResults = [];
-    let hasLayeringCheck = false;
-    const layeringViolations = [];
-
-    for (const file of files) {{
-        if (!fs.existsSync(file)) continue;
-        const stat = fs.statSync(file);
-        if (stat.isDirectory()) continue;
-
-        // Skip binary and non-JS/TS/JSON files
-        if (!file.match(/\\.[jt]sx?$/)) continue;
-
-        // Run single-file tag checks
-        const check = await jz.checkSingleFile(file);
-        if (!check.valid) {{
-            singleResults.push({{
-                file,
-                layer: check.layer,
-                errors: check.errors,
-            }});
-        }}
-
-        // Run dependency layering check
-        const node = spider.nodes.get(file);
-        if (node) {{
-            hasLayeringCheck = true;
-            const sourceLayer = node.layer || jz.getLayer(node.path);
-            
-            // Domain & Core cannot import Infrastructure or UI
-            const FORBIDDEN = {{
-                'domain': ['infrastructure', 'ui'],
-                'core': ['infrastructure', 'ui'],
-            }};
-            
-            const forbidden = FORBIDDEN[sourceLayer];
-            if (forbidden) {{
-                for (const imp of node.imports) {{
-                    const resolved = node.resolvedImports.get(imp.specifier);
-                    if (!resolved) continue;
-                    const targetNode = spider.nodes.get(resolved);
-                    if (!targetNode) continue;
-                    const targetLayer = targetNode.layer || jz.getLayer(targetNode.path);
-
-                    if (forbidden.includes(targetLayer)) {{
-                        const err = `${{sourceLayer}} layer in ${{file}} cannot import from ${{targetLayer}} (${{resolved}}).`;
-                        let existing = singleResults.find(r => r.file === file);
-                        if (!existing) {{
-                            existing = {{ file, layer: sourceLayer, errors: [] }};
-                            singleResults.push(existing);
-                        }}
-                        existing.errors.push(err);
-                        layeringViolations.push({{
-                            file,
-                            sourceLayer,
-                            target: resolved,
-                            targetLayer,
-                            importSpec: imp.specifier,
-                        }});
-                    }}
-                }}
-            }}
-        }}
-    }}
-
-    console.log(JSON.stringify({{
-        success: singleResults.length === 0,
-        singleResults,
-        layeringViolations,
-        hasLayeringCheck,
-    }}));
-    """
-    try:
-        res_str = run_standalone_script(body)
-        return json.loads(res_str)
-    except Exception as e:
-        logger.exception("Error executing JoyZoning gate script")
-        return {"success": False, "error": str(e), "singleResults": [], "layeringViolations": []}
+    single_results: List[Dict[str, Any]] = []
+    for file_path in filter_governance_subjects(files):
+        if not os.path.isfile(file_path):
+            continue
+        try:
+            with open(file_path, encoding="utf-8", errors="ignore") as handle:
+                content = handle.read()
+        except OSError as exc:
+            logger.warning("JoyZoning gate could not read %s: %s", file_path, exc)
+            continue
+        if not is_governance_subject(file_path, content):
+            continue
+        audit = validate_joy_zoning(file_path, content)
+        if audit.get("success") or audit.get("skipped"):
+            continue
+        single_results.append({
+            "file": file_path,
+            "layer": get_layer(file_path, content),
+            "errors": audit.get("errors") or [],
+        })
+    return {
+        "success": len(single_results) == 0,
+        "singleResults": single_results,
+        "layeringViolations": [],
+        "hasLayeringCheck": bool(single_results),
+    }
 
 
 # ---------------------------------------------------------------------------
 # transform_tool_result Hook - Mandatory Governance Gate
 # ---------------------------------------------------------------------------
-
-def _extract_paths_from_args(args: Dict[str, Any]) -> Set[str]:
-    """Inspect arguments of tool run to locate target files proactively."""
-    paths = set()
-    for key in ("path", "file_path", "target_file", "filepath", "target"):
-        val = args.get(key)
-        if isinstance(val, str) and val:
-            paths.add(val)
-    return paths
-
 
 def _on_transform_tool_result(
     tool_name: str = "",
@@ -146,73 +84,12 @@ def _on_transform_tool_result(
     **_: Any,
 ) -> Optional[str]:
     """Intercept tool outputs, scan modified files, and block architectural leaks."""
-    if tool_name not in ("write_file", "patch", "execute_code", "terminal", "multi_replace_file_content", "replace_file_content"):
-        return None
-
-    # Track dirty files via git status
-    dirty_files = []
-    try:
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if status.returncode == 0:
-            for line in status.stdout.splitlines():
-                if len(line) > 3:
-                    file_path = line[3:].strip()
-                    dirty_files.append(file_path)
-    except Exception:
-        pass
-
-    # Also check args passed to the tool directly (e.g. write_file target path)
-    if isinstance(args, dict):
-        for p in _extract_paths_from_args(args):
-            if p and p not in dirty_files:
-                dirty_files.append(p)
-
-    if not dirty_files:
-        return None
-
-    # Filter for source code files
-    target_files = [f for f in dirty_files if f.endswith((".ts", ".tsx", ".js", ".jsx"))]
-    if not target_files:
-        return None
-
-    # Run JoyZoning architectural gate checks
-    gate = run_joyzoning_gate(target_files)
-    if gate.get("success", True):
-        return None
-
-    # Generate polished governance fault report
-    failures_log = []
-    for item in gate.get("singleResults", []):
-        failures_log.append(f"  • {item['file']} [Layer: {item.get('layer', 'unknown')}]")
-        for err in item.get("errors", []):
-            failures_log.append(f"    - {err}")
-
-    report = (
-        "==============================================================\n"
-        "🛑 GOVERNANCE FAULT: JoyZoning Layering Violations Detected!\n"
-        "==============================================================\n"
-        "Your changes succeeded at the filesystem level, but they breached\n"
-        "the strict structural architecture policies of this codebase.\n"
-        "You MUST resolve these violations immediately before calling any other tool.\n\n"
-        "📂 Tag & Format Compliance Failures:\n" + "\n".join(failures_log) + "\n\n"
-        "==============================================================\n"
-        "🔧 RECOMMENDATION:\n"
-        "  1. Add correct `/** [LAYER: TYPE] */` headers to TS/JS files.\n"
-        "  2. Refactor forbidden imports using Dependency Inversion.\n"
-        "=============================================================="
+    return evaluate_governance_transform(
+        tool_name,
+        args if isinstance(args, dict) else {},
+        result,
+        run_gate=run_joyzoning_gate,
     )
-
-    return json.dumps({
-        "success": False,
-        "error": report,
-        "dirty_files": target_files,
-        "original_result": result,
-    })
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +239,13 @@ def _handle_joyzoning(raw_args: str) -> Optional[str]:
         if len(argv) < 2:
             return "Usage: /joyzoning check <file>"
         target = argv[1]
+        skip = governance_skip_reason(target)
+        if skip:
+            return (
+                f"ℹ️ '{target}' is exempt from layer governance ({skip}). "
+                "JoyZoning does not require [LAYER: TYPE] tags on docs, manifests, "
+                "migrations, or other non-source artifacts."
+            )
         gate = run_joyzoning_gate([target])
         if gate.get("success", True):
             return f"✅ File '{target}' is fully compliant with JoyZoning policies!"
@@ -375,6 +259,12 @@ def _handle_joyzoning(raw_args: str) -> Optional[str]:
         if len(argv) < 2:
             return "Usage: /joyzoning suggest <file>"
         target = argv[1]
+        skip = governance_skip_reason(target)
+        if skip:
+            return (
+                f"ℹ️ '{target}' is exempt from layer assignment ({skip}). "
+                "No [LAYER: TYPE] tag is required."
+            )
         body = f"""
         const jz = await import('../utils/joy-zoning.js');
         const layer = jz.getLayer({json.dumps(target)});
@@ -391,6 +281,12 @@ def _handle_joyzoning(raw_args: str) -> Optional[str]:
         if len(argv) < 2:
             return "Usage: /joyzoning refactor <file>"
         target = argv[1]
+        skip = governance_skip_reason(target)
+        if skip:
+            return (
+                f"ℹ️ '{target}' is exempt from layer refactoring ({skip}). "
+                "Governance applies to application source under src/, not manifests or docs."
+            )
         body = f"""
         const {{ SpiderEngine }} = await import('../core/policy/SpiderEngine.js');
         const spider = new SpiderEngine(process.cwd());

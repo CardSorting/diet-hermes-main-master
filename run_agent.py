@@ -1784,7 +1784,20 @@ class AIAgent:
         landed = file_mutation_result_landed(tool_name, result)
         if is_error and not landed:
             preview = _extract_error_preview(result)
+            try:
+                from agent.governance_exemptions import (
+                    is_governance_fault_error,
+                    is_governance_subject,
+                )
+            except ImportError:
+                is_governance_fault_error = None  # type: ignore[assignment,misc]
+                is_governance_subject = None  # type: ignore[assignment,misc]
             for path in targets:
+                # Governance blocks must not mark exempt artifacts (README, package.json, …)
+                # as failed writes in the file-mutation verifier footer.
+                if is_governance_fault_error and is_governance_subject:
+                    if is_governance_fault_error(preview) and not is_governance_subject(path):
+                        continue
                 # Keep the FIRST error we saw for a given path unless we
                 # later see success.  A repeated failure with a different
                 # message shouldn't silently overwrite the original.

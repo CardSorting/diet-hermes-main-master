@@ -15,7 +15,7 @@ import { PathResolver } from "./spider/PathResolver.js"
 import { PersistenceManager } from "./spider/PersistenceManager.js"
 import { SpiderEntropyReport, SpiderNode, SpiderRegistryPayload, SpiderSnapshot, SpiderViolation } from "./spider/types.js"
 import { SymbolRegistry } from "./spider/SymbolRegistry.js"
-import { validateJoyZoning } from "../../utils/joy-zoning.js"
+import { isGovernanceSubject, validateJoyZoning } from "../../utils/joy-zoning.js"
 
 export type { SpiderNode, SpiderEntropyReport, SpiderViolation, SpiderSnapshot, SpiderRegistryPayload }
 
@@ -858,6 +858,7 @@ export class SpiderEngine {
 			const absPath = path.resolve(this.cwd, node.path)
 			if (fs.existsSync(absPath)) {
 				const content = fs.readFileSync(absPath, "utf-8")
+				if (!isGovernanceSubject(node.path, content)) continue
 				const joyResult = validateJoyZoning(node.path, content)
 				if (!joyResult.success) {
 					for (const error of joyResult.errors) {

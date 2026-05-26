@@ -794,7 +794,8 @@ def _check_file_staleness(filepath: str, task_id: str) -> str | None:
 
 def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> None:
     try:
-        from agent.joy_zoning import get_layer, generate_layer_comment, parse_layer_tag, is_layer_tag_supported
+        from agent.governance_exemptions import is_governance_subject
+        from agent.joy_zoning import get_layer, generate_layer_comment, parse_layer_tag
         # Read the file content from the terminal environment using file_ops
         read_res = file_ops.read_file_raw(filepath)
         if not read_res.error and read_res.content:
@@ -803,8 +804,8 @@ def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> N
                 resolved_abs_path = str(_resolve_path_for_task(filepath, task_id))
             except Exception:
                 resolved_abs_path = filepath
-                
-            if is_layer_tag_supported(resolved_abs_path, content) and not parse_layer_tag(content):
+
+            if is_governance_subject(resolved_abs_path, content) and not parse_layer_tag(content):
                 layer = get_layer(resolved_abs_path, content)
                 new_content = generate_layer_comment(resolved_abs_path, layer, content)
                 file_ops.write_file(filepath, new_content)
@@ -815,11 +816,14 @@ def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> N
 
 def _run_joy_zoning_audit(filepath: str, result_dict: dict) -> None:
     try:
+        from agent.governance_exemptions import is_governance_subject
         from agent.joy_zoning import validate_joy_zoning
         resolved = str(_resolve_path(filepath))
         if not result_dict.get("error") and os.path.exists(resolved):
             with open(resolved, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
+            if not is_governance_subject(resolved, content):
+                return
             audit = validate_joy_zoning(resolved, content)
             if not audit["success"]:
                 violations = audit["errors"]
@@ -851,13 +855,14 @@ def write_file_tool(path: str, content: str, task_id: str = "default") -> str:
         )
     # Autonomous header tag injection:
     try:
-        from agent.joy_zoning import get_layer, generate_layer_comment, parse_layer_tag, is_layer_tag_supported
+        from agent.governance_exemptions import is_governance_subject
+        from agent.joy_zoning import get_layer, generate_layer_comment, parse_layer_tag
         try:
             resolved_abs_path = str(_resolve_path_for_task(path, task_id))
         except Exception:
             resolved_abs_path = path
-            
-        if is_layer_tag_supported(resolved_abs_path, content) and not parse_layer_tag(content):
+
+        if is_governance_subject(resolved_abs_path, content) and not parse_layer_tag(content):
             layer = get_layer(resolved_abs_path, content)
             content = generate_layer_comment(resolved_abs_path, layer, content)
     except Exception as e:

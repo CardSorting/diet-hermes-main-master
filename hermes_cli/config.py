@@ -1550,6 +1550,11 @@ DEFAULT_CONFIG = {
     "joyzoning": {
         # Off by default — per-tool plugin hooks; enable for kanban/convergence.
         "enabled": False,
+        # Layer-governance transform hook (joyzoning_governance plugin).
+        "governance": {
+            # Extra path substrings that skip [LAYER: TYPE] enforcement (docs, etc.).
+            "extra_exempt_paths": [],
+        },
         # Off by default — per-tool SQLite commits add noticeable latency.
         "execution_journal": False,
         "journal_path": "",

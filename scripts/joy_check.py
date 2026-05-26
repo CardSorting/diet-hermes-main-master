@@ -17,9 +17,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from agent.joy_zoning import (
     validate_joy_zoning,
     get_layer,
-    is_layer_tag_supported,
-    find_workspace_root
+    find_workspace_root,
 )
+from agent.governance_exemptions import is_governance_subject
 
 def run_joy_audit():
     parser = argparse.ArgumentParser(description="Joy-Zoning Sovereign Radar CLI")
@@ -83,7 +83,7 @@ def run_joy_audit():
         except Exception:
             continue
             
-        if is_layer_tag_supported(full_path, content):
+        if is_governance_subject(full_path, content):
             layer = get_layer(full_path, content)
             if layer in layers_files:
                 layers_files[layer].append(rel_path)

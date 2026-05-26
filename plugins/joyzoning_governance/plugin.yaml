@@ -1,5 +1,5 @@
 name: joyzoning_governance
 version: 1.0.0
-description: Mandatory JoyZoning governance gate that validates layering compliance and structural integrity during tool execution.
+description: JoyZoning governance gate for governable TS/JS source only; exempts docs, manifests, and DB/ORM artifacts.
 author: Antigravity
 kind: backend

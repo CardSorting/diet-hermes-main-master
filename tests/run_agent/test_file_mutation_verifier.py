@@ -269,6 +269,22 @@ class TestRecordFileMutationResult:
         assert agent._turn_failed_file_mutations == {}
 
 
+    def test_governance_fault_on_exempt_path_not_tracked(self):
+        """Exempt artifacts must not appear in the file-mutation verifier footer."""
+        agent = _bare_agent()
+        fault = (
+            "==============================================================\n"
+            "🛑 GOVERNANCE FAULT: JoyZoning Layering Violations Detected!\n"
+        )
+        agent._record_file_mutation_result(
+            "write_file",
+            {"path": "/tmp/README.md", "content": "# x"},
+            json.dumps({"success": False, "error": fault}),
+            is_error=True,
+        )
+        assert agent._turn_failed_file_mutations == {}
+
+
 # ---------------------------------------------------------------------------
 # _format_file_mutation_failure_footer
 # ---------------------------------------------------------------------------

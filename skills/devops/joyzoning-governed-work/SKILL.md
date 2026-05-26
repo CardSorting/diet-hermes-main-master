@@ -63,6 +63,8 @@ Combine with kanban worker flow: `kanban_show()` → `kanban_broccolidb_context(
 
 ## Pitfalls
 
+- Layer governance applies to governable `.ts`/`.js` source only — not `.md`,
+  `package.json`, SQL/migrations, or other non-layerable artifacts
 - Do not call tools to self-mark CONVERGED when control plane is configured
 - Do not `kanban_complete` before `request_review` + habitat merge
 - Habitat UI “pet” state is not execution authority

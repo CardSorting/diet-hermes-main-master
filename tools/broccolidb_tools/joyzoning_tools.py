@@ -143,6 +143,13 @@ def broccolidb_validate_file(file_path: str, task_id: str = None) -> str:
 
     if (!fs.existsSync(absPath)) {{
       console.log(JSON.stringify({{ success: false, error: 'File not found: ' + filePath }}));
+    }} else if (jz.isGovernanceArtifactPath(filePath)) {{
+      console.log(JSON.stringify({{
+        success: true,
+        skipped: true,
+        filePath,
+        reason: 'exempt from layer governance',
+      }}));
     }} else {{
       const content = fs.readFileSync(absPath, 'utf-8');
       const result = jz.validateJoyZoning(filePath, content);
