@@ -2,6 +2,9 @@
 
 This document describes the **Hermes native RPC execution layer** added to the Diet Hermes fork: how Python tools, the DietCode dashboard, and Kanban orchestration talk to BroccoliDB and BroccoliQ with higher throughput than the original “spawn `npx tsx` per call” design.
 
+**Measured results (p50/p95, cold vs warm, batch):** [broccolidb-throughput-benchmark-results.md](./broccolidb-throughput-benchmark-results.md)  
+**Fork doc index:** [README.md](./README.md) · **User overview:** [../README.md](../README.md#broccolidb--broccolidq)
+
 **Audience:** developers extending tools, debugging dashboard latency, or profiling Kanban ↔ hive sync.
 
 **Related code:**
@@ -172,6 +175,15 @@ These are **not** guarantees—Node version, disk, and DB size dominate. Use the
 - `tools/broccolidb_tools/exec.py` unified import surface.
 - Worker optional `HERMES_BROCCOLIDB_PRELOAD_AGENT` for AgentContext warm on first request.
 - One-shot path (`hermes_oneshot.ts`) forces `process.exit(0)` after emitting the JSON result to avoid event-loop hangs from pooled DB timers.
+
+### Pass 6 — Production hardening + benchmarks
+
+- **Lazy ready:** worker prints `{"ready":true}` before `getDb()`; schema self-heal runs on first RPC (Python first-call timeout extended).
+- **Stdout hygiene:** redirect `console.log/info/debug` → stderr in `hermes_rpc.ts` and `hermes_oneshot.ts`; DbPool/schema logs use `console.warn`.
+- **Python gateway:** skip non-JSON stdout lines when matching response `id`; `select`-based read timeouts; stderr drainer thread.
+- **Oneshot:** `process.stdout.write` + `process.exit(0)` after result (no 120 s hang).
+- **Benchmark harness:** `scripts/benchmark_broccolidb_native_rpc.py` (p50/p95, batch vs sequential).
+- **Results doc:** [broccolidb-throughput-benchmark-results.md](./broccolidb-throughput-benchmark-results.md).
 
 ---
 

@@ -1,5 +1,9 @@
 # BroccoliDB Native RPC — Benchmark Results (Hard Numbers)
 
+Companion to [broccolidb-native-execution-throughput.md](./broccolidb-native-execution-throughput.md) (architecture and implementation). Summarizes **what improved** after the native RPC worker, shared handlers, and production hardening passes.
+
+**Headline:** oneshot subprocess calls sit at **~1 s p50**; a warm persistent worker serves the same operations at **~1–2 ms p50** (~**550–880×** faster for the cases below).
+
 Measured on the Diet Hermes checkout with a live `broccolidb.db`. Reproduce with:
 
 ```bash

@@ -11,7 +11,7 @@
   <a href="https://nousresearch.com"><img src="https://img.shields.io/badge/Origin-Nous%20Research-blueviolet?style=for-the-badge" alt="Origin: Nous Research"></a>
 </p>
 
-**DietCode** is a specialized fork of [**Hermes Agent**](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com) — the self-improving, tool-calling AI agent with CLI, TUI, messaging gateway, skills, memory, and scheduled jobs. This repository adds **BroccoliDB**, **JoyZoning governance**, **Kanban ↔ BroccoliQ orchestration**, and a **DietCode control-plane** UI on top of that core.
+**DietCode** is a specialized fork of [**Hermes Agent**](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com) — the self-improving, tool-calling AI agent with CLI, TUI, messaging gateway, skills, memory, and scheduled jobs. This repository adds **BroccoliDB** (with a **native RPC worker** for sub-millisecond warm DB/queue calls), **JoyZoning governance**, **Kanban ↔ BroccoliQ orchestration**, and a **DietCode control-plane** UI on top of that core.
 
 Use **`dietcode`** as the primary CLI (a **`hermes`** alias remains for compatibility). Data lives under **`~/.dietcode`**, separate from a vanilla **`~/.hermes`** install, so you can run both side by side.
 
@@ -67,7 +67,7 @@ Same behavior via `dietcode --tui` if this checkout is your active install (`sou
 | Data directory | `~/.hermes` | **`~/.dietcode`** |
 | Home env var | `HERMES_HOME` | **`DIETCODE_HOME`** (mirrored to `HERMES_HOME` in code) |
 | Default CLI skin | Hermes gold | **`dietcode`** cola theme |
-| Extra integrations | — | BroccoliDB, JoyZoning, Kanban bridge, DietCode UI |
+| Extra integrations | — | BroccoliDB native RPC, JoyZoning, Kanban bridge, DietCode UI |
 
 Internal Python package names (`hermes_cli`, `hermes_constants`, etc.) stay aligned with upstream on purpose so `git merge upstream/main` stays tractable.
 
@@ -89,7 +89,77 @@ A reviewer-friendly dashboard for bounded, approval-gated code changes:
 |-------|--------|
 | TypeScript engine | `broccolidb/` (includes vendored **BroccoliQ** queue/hive under `broccolidb/infrastructure/`) |
 | Python tools | `tools/broccolidb.py`, `tools/broccolidb_tools/` |
+| **Native RPC** | `broccolidb/infrastructure/hermes/` — persistent worker + shared handlers |
 | Toolset | `broccolidb` in `toolsets.py` |
+
+#### Native RPC execution (new)
+
+Hot BroccoliDB/BroccoliQ paths no longer spawn a fresh `npx tsx` subprocess on every tool call. Python talks to a **persistent TypeScript worker** over newline-delimited JSON on stdin/stdout; a unified **oneshot** fallback runs the same handlers when the worker is unavailable.
+
+```
+Python tools → tools/broccolidb_tools/exec.py
+            → db_gateway.py (BroccoliDbGateway)
+            → hermes_rpc.ts → rpc_handlers.ts → SQLite / AgentContext
+            ↳ fallback: hermes_oneshot.ts (same handlers, one process per call)
+```
+
+**What changed (high level):**
+
+| Before | After |
+|--------|--------|
+| New `tsx` process per call (~1 s fixed overhead) | Persistent worker; warm calls ~**1–2 ms** p50 |
+| Inline TS strings + duplicate scripts | Single implementation in `rpc_handlers.ts` |
+| Full-table queue scans | SQL `GROUP BY` in `queue_metrics.ts` |
+| Cold `AgentContext` per graph call | `agent_invoke` RPC on a warm worker |
+| Kanban intel: 2+ subprocesses | `run_db_rpc_batch` (one round-trip) |
+
+**RPC surface (v4):** `ping`, `rpc_health`, `dashboard_snapshot`, `queue_status`, `shard_status`, `hive_integrity`, `hive_sync`, `hive_drift`, `hive_board_intel`, `proposal_action`, `agent_invoke`, `pool_flush`, `batch`.
+
+**Production hardening (recent):**
+
+- Worker emits `{"ready":true}` **before** `getDb()` / schema self-heal (no handshake stall).
+- **stdout is JSON-only**; logs go to stderr (`console.log` redirected in the worker).
+- Python skips non-JSON stdout lines; real timeouts via `select` on the response stream.
+- Oneshot exits immediately after printing JSON (no event-loop hang).
+- Node ABI: gateway pins `PATH` to `which node`; rebuild hint on `better-sqlite3` mismatch.
+
+**Measured throughput** (live `broccolidb.db`, Node 20, n=9 — see full tables in the benchmark doc):
+
+| Path | p50 latency |
+|------|-------------|
+| Oneshot (per call) | ~955–1,004 ms |
+| RPC warm | ~1–2 ms |
+| Speedup vs oneshot | **~550–880×** |
+
+Re-run benchmarks:
+
+```bash
+source .venv/bin/activate   # or: source venv/bin/activate
+python scripts/benchmark_broccolidb_native_rpc.py -n 9 -o /tmp/broccolidb_bench.json
+```
+
+**Environment (optional):**
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HERMES_BROCCOLIDB_RPC` | `1` | Set `0` to force oneshot only |
+| `HERMES_BROCCOLIDB_DB` | auto | Path to `broccolidb.db` |
+| `HERMES_BROCCOLIDB_RPC_IDLE_SEC` | — | Recycle idle worker after N seconds |
+| `HERMES_BROCCOLIDB_PRELOAD_AGENT` | — | Warm `AgentContext` on first RPC |
+
+If native modules fail after a Node upgrade:
+
+```bash
+cd broccolidb && npm rebuild better-sqlite3
+```
+
+**Fork docs:**
+
+| Doc | Contents |
+|-----|----------|
+| [docs/broccolidb-native-execution-throughput.md](docs/broccolidb-native-execution-throughput.md) | Architecture, five implementation passes, RPC protocol, config |
+| [docs/broccolidb-throughput-benchmark-results.md](docs/broccolidb-throughput-benchmark-results.md) | Hard numbers: p50/p95, cold vs warm, batch vs sequential |
+| [broccolidb/infrastructure/hermes/README.md](broccolidb/infrastructure/hermes/README.md) | Worker file map + local smoke test |
 
 ### JoyZoning governance
 
@@ -101,6 +171,8 @@ Policy and workflow hooks for governed agent runs: `plugins/joyzoning_governance
 |-------|--------|
 | Plugin | `plugins/kanban_broccolidb/` |
 | Tools | `tools/kanban_broccolidb_tools.py`, `tools/kanban_broccolidb_bridge.py` |
+
+Kanban hive sync, drift checks, and board intel use the **native RPC** path when `broccolidb/` is present in the workspace (`kanban_broccolidb_board_intel` batches hive metrics + drift in one `run_db_rpc_batch` call). JoyZoning convergence fields are attached to hive sync payloads when scope env vars are set.
 
 ### CLI / TUI branding
 
@@ -140,6 +212,14 @@ Switch models with **`dietcode model`** — same provider ecosystem as upstream,
 | Interrupt | `Ctrl+C` or new message | `/stop` or new message |
 
 Upstream references: [CLI guide](https://hermes-agent.nousresearch.com/docs/user-guide/cli), [Messaging gateway](https://hermes-agent.nousresearch.com/docs/user-guide/messaging).
+
+### Documentation map (this fork)
+
+| Topic | Link |
+|-------|------|
+| BroccoliDB native RPC & throughput | [docs/broccolidb-native-execution-throughput.md](docs/broccolidb-native-execution-throughput.md) |
+| Benchmark results (p50/p95, cold/warm) | [docs/broccolidb-throughput-benchmark-results.md](docs/broccolidb-throughput-benchmark-results.md) |
+| Reinstall / dev setup | [Developing this fork](#developing-this-fork) below |
 
 ### Documentation map (upstream)
 
@@ -248,9 +328,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv venv .venv --python 3.11
 source .venv/bin/activate
 uv pip install -e ".[all,dev]"
-cd broccolidb && npm ci && cd ..
+cd broccolidb && npm ci && npm rebuild better-sqlite3 && cd ..
 cd web && npm ci && npm run build && cd ..
 scripts/run_tests.sh
+```
+
+After pulling RPC changes, reinstall the Python package so tools pick up `db_gateway.py` and friends:
+
+```bash
+source .venv/bin/activate   # or: source venv/bin/activate
+python -m pip install -e .
+python scripts/benchmark_broccolidb_native_rpc.py -n 9   # optional smoke + timings
 ```
 
 Agent and contributor conventions for the Hermes codebase: see **`AGENTS.md`** in this tree (same upstream layout; profile paths use `get_hermes_home()` / `display_hermes_home()` which resolve to `~/.dietcode` here).
