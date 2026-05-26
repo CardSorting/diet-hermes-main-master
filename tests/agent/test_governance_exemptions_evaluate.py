@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 
 from agent.governance_exemptions import (
-    evaluate_governance_transform,
+    enforce_governance_on_mutation,
     is_governance_transform_result,
 )
 
 
 def test_evaluate_returns_none_for_exempt_only_write():
-    out = evaluate_governance_transform(
+    out = enforce_governance_on_mutation(
         "write_file",
         {"path": "README.md", "content": "# hi"},
         json.dumps({"bytes_written": 3}),
@@ -32,7 +32,7 @@ def test_evaluate_blocks_governed_ts():
             ],
         }
 
-    out = evaluate_governance_transform(
+    out = enforce_governance_on_mutation(
         "patch",
         {"path": "src/domain/x.ts", "patch": "@@\n+const a=1"},
         json.dumps({"success": True}),
@@ -47,7 +47,7 @@ def test_evaluate_blocks_governed_ts():
 
 
 def test_evaluate_lists_exempt_skipped_on_block():
-    out = evaluate_governance_transform(
+    out = enforce_governance_on_mutation(
         "patch",
         {
             "mode": "patch",

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.governance_exemptions import is_governance_artifact_path, is_governance_subject
+from agent.governance_exemptions import resolve_governance_path_kind
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,9 +47,10 @@ def test_tracked_non_source_files_are_exempt(tracked_files: list[str]):
     for rel in tracked_files:
         if _is_app_source(rel):
             continue
-        if is_governance_subject(rel):
+        kind = resolve_governance_path_kind(rel)
+        if kind == "subject":
             continue
-        if not is_governance_artifact_path(rel):
+        if kind != "exempt":
             failures.append(rel)
     assert not failures, "expected exempt:\n" + "\n".join(failures[:30])
 
@@ -58,7 +59,7 @@ def test_tracked_broccolidb_ts_is_governable_or_exempt_test_only(tracked_files: 
     ts = [p for p in tracked_files if p.startswith("broccolidb/") and p.endswith((".ts", ".tsx"))]
     if not ts:
         pytest.skip("no broccolidb TS")
-    subjects = [p for p in ts if is_governance_subject(p)]
-    exempt = [p for p in ts if is_governance_artifact_path(p)]
+    subjects = [p for p in ts if resolve_governance_path_kind(p) == "subject"]
+    exempt = [p for p in ts if resolve_governance_path_kind(p) == "exempt"]
     assert subjects, "expected governable broccolidb TS"
     assert len(subjects) + len(exempt) == len(ts)

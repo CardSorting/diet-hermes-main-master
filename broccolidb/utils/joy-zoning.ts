@@ -160,7 +160,7 @@ export function getLayer(filePath: string, content?: string): Layer {
 	return layer
 }
 
-/** Keep in sync with agent/governance_exemptions.py (policy v10+) */
+/** Keep in sync with agent/governance_exemptions.py (policy v16+) */
 const GOVERNANCE_EXEMPT_BASENAMES = new Set([
 	"package.json",
 	"package-lock.json",

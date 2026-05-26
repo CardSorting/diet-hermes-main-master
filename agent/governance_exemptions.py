@@ -10,19 +10,109 @@ or flagged by the file-mutation verifier as layering failures.
 Python gates, ``joyzoning_governance``, ``file_tools`` audits, and
 ``scripts/joy_check.py`` all import from this module.
 
+Central pipeline::
+
+  enforce_governance_on_mutation → extract_and_partition (1-pass)
+    → run_governance_validation_gate → iter_governance_subject_files
+    → validate_joy_zoning(skip_subject_check=True)
+
 Keep ``broccolidb/utils/joy-zoning.ts`` ``GOVERNANCE_*`` constants aligned when
 editing this file (search for ``Keep in sync with agent/governance_exemptions``).
 """
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Literal, NamedTuple, Optional, Set, Tuple
 
 # Bump when exemption policy changes (tests assert monotonic awareness).
-GOVERNANCE_POLICY_VERSION = 10
+GOVERNANCE_POLICY_VERSION = 16
+
+GovernancePathKind = Literal["exempt", "subject", "ineligible"]
+
+__all__ = (
+    "GOVERNANCE_POLICY_VERSION",
+    "GovernancePathKind",
+    "GOVERNANCE_EXEMPT_BASENAMES",
+    "GOVERNANCE_EXEMPT_EXTENSIONS",
+    "GOVERNANCE_EXEMPT_PATH_MARKERS",
+    "GOVERNANCE_SOURCE_EXTENSIONS",
+    "GOVERNANCE_FAULT_MARKER",
+    "enforce_governance_on_mutation",
+    "evaluate_governance_transform",
+    "extract_and_partition_governance_paths",
+    "extract_governance_tool_paths",
+    "filter_governance_subjects",
+    "governance_gate_targets",
+    "governance_policy_summary",
+    "governance_skip_reason",
+    "invalidate_governance_path_cache",
+    "is_governance_artifact_path",
+    "is_governance_fault_error",
+    "is_governance_subject",
+    "is_governance_subject_content",
+    "is_governance_transform_result",
+    "iter_governance_subject_files",
+    "normalize_governance_path",
+    "partition_governance_paths",
+    "resolve_governance_path_kind",
+    "run_governance_validation_gate",
+    "classify_governance_artifact",
+)
+
+
+class _GovPathContext(NamedTuple):
+    """Cached path classification + parsed components (single LRU entry per path)."""
+
+    kind: GovernancePathKind
+    normalized_lower: str
+    basename: str
+    ext: str
+
+
+class _PathBuckets:
+    """Mutable partition accumulator (exempt vs subject lists)."""
+
+    __slots__ = ("exempt", "subjects", "_seen_exempt", "_seen_subjects")
+
+    def __init__(self) -> None:
+        self.exempt: List[str] = []
+        self.subjects: List[str] = []
+        self._seen_exempt: Set[str] = set()
+        self._seen_subjects: Set[str] = set()
+
+    def add(self, path: str, kind: GovernancePathKind) -> None:
+        if kind == "exempt":
+            if path not in self._seen_exempt:
+                self._seen_exempt.add(path)
+                self.exempt.append(path)
+        elif kind == "subject":
+            if path not in self._seen_subjects:
+                self._seen_subjects.add(path)
+                self.subjects.append(path)
+
+    def as_tuple(self) -> Tuple[List[str], List[str]]:
+        return self.exempt, self.subjects
+
+_GOVERNANCE_SKIP_LABELS: Dict[str, str] = {
+    "documentation": "documentation/markdown",
+    "database": "database/ORM artifact",
+    "package_manifest": "package manifest",
+    "config": "toolchain/config file",
+    "test_artifact": "test or spec file",
+    "storybook": "Storybook artifact",
+    "declaration": "TypeScript declaration stub",
+    "web_asset": "web/markup asset (not TS/JS source)",
+    "non_js_language": "non-JavaScript language source",
+    "infrastructure": "infrastructure-as-code",
+    "vendor_or_build": "vendor or build output",
+    "ci_cd": "CI/CD configuration",
+    "environment": "environment file",
+    "non_layerable_artifact": "non-layerable artifact",
+}
 
 # Re-use style/blocklist from joy_zoning without circular import at module level.
 _STRICT_BLOCKLIST = frozenset({
@@ -322,6 +412,35 @@ GOVERNANCE_EXEMPT_SEGMENT_PREFIXES = (
     "herm-tui/bin/",
 )
 
+
+def _build_infix_path_markers() -> Tuple[str, ...]:
+    """Merge path markers + segment prefixes into one substring scan (except ``skills/``)."""
+    seen: Set[str] = set(GOVERNANCE_EXEMPT_PATH_MARKERS)
+    ordered: List[str] = list(GOVERNANCE_EXEMPT_PATH_MARKERS)
+    for seg in GOVERNANCE_EXEMPT_SEGMENT_PREFIXES:
+        if seg == "skills/":
+            continue
+        for form in (seg, f"/{seg}"):
+            if form not in seen:
+                seen.add(form)
+                ordered.append(form)
+    return tuple(ordered)
+
+
+# Single-pass directory / tree exemption scan (built once at import).
+_GOVERNANCE_INFIX_MARKERS: Tuple[str, ...] = _build_infix_path_markers()
+_GOVERNANCE_INFIX_RE = re.compile(
+    "|".join(re.escape(marker) for marker in _GOVERNANCE_INFIX_MARKERS)
+)
+_EXEMPT_DB_PATH_RE = re.compile(
+    r"/(?:migrations|prisma|drizzle|seeders)/"
+)
+_EXEMPT_VENDOR_RE = re.compile(
+    r"(?:^|/)(?:node_modules|dist|build|\.next|coverage)(?:/|$)"
+)
+_EXEMPT_DOC_PATH_RE = re.compile(r"/(?:docs|reports|website)/")
+_EXEMPT_CI_PATH_RE = re.compile(r"/(?:\.github/workflows/|\.gitlab-ci|\.husky/)")
+
 GOVERNANCE_SOURCE_EXTENSIONS = frozenset({".ts", ".tsx", ".js", ".jsx"})
 
 GOVERNANCE_FAULT_MARKER = "GOVERNANCE FAULT"
@@ -338,6 +457,17 @@ _FILE_MUTATION_TOOLS = frozenset({
 _GOVERNANCE_TRANSFORM_TOOLS = _FILE_MUTATION_TOOLS
 
 _USER_EXEMPT_MARKERS_CACHE: Optional[frozenset[str]] = None
+_VALIDATE_JOY_ZONING: Optional[Callable[..., Dict[str, Any]]] = None
+_GET_LAYER: Optional[Callable[[str, Optional[str]], str]] = None
+_LAYER_TAG_SUPPORTED: Optional[Callable[..., bool]] = None
+
+# Reused gate success payload (avoid per-call dict allocation on hot hook path).
+_GOVERNANCE_GATE_OK: Dict[str, Any] = {
+    "success": True,
+    "singleResults": [],
+    "layeringViolations": [],
+    "hasLayeringCheck": False,
+}
 
 
 def _user_extra_exempt_markers() -> frozenset[str]:
@@ -365,6 +495,37 @@ def _user_extra_exempt_markers() -> frozenset[str]:
 def normalize_governance_path(file_path: str) -> str:
     """Normalize a path for governance policy checks."""
     return file_path.replace("\\", "/").strip()
+
+
+def _joy_zoning_validate() -> Callable[..., Dict[str, Any]]:
+    global _VALIDATE_JOY_ZONING
+    if _VALIDATE_JOY_ZONING is None:
+        from agent.joy_zoning import validate_joy_zoning
+
+        _VALIDATE_JOY_ZONING = validate_joy_zoning
+    return _VALIDATE_JOY_ZONING
+
+
+def _joy_zoning_get_layer() -> Callable[[str, Optional[str]], str]:
+    global _GET_LAYER
+    if _GET_LAYER is None:
+        from agent.joy_zoning import get_layer
+
+        _GET_LAYER = get_layer
+    return _GET_LAYER
+
+
+def _layer_tag_supported_fn() -> Callable[..., bool]:
+    global _LAYER_TAG_SUPPORTED
+    if _LAYER_TAG_SUPPORTED is None:
+        from agent.joy_zoning import is_layer_tag_supported
+
+        _LAYER_TAG_SUPPORTED = is_layer_tag_supported
+    return _LAYER_TAG_SUPPORTED
+
+
+def _path_has_infix_marker(normalized_lower: str) -> bool:
+    return _GOVERNANCE_INFIX_RE.search(normalized_lower) is not None
 
 
 def _is_lockfile_basename(basename: str) -> bool:
@@ -397,10 +558,7 @@ def _iter_path_extensions(file_path: str) -> Tuple[str, ...]:
 
 
 def _is_compound_exempt_path(normalized_path: str) -> bool:
-    for suffix in GOVERNANCE_COMPOUND_SUFFIXES:
-        if normalized_path.endswith(suffix):
-            return True
-    return False
+    return normalized_path.endswith(GOVERNANCE_COMPOUND_SUFFIXES)
 
 
 def _is_env_file_basename(basename: str) -> bool:
@@ -509,49 +667,102 @@ def _is_editor_rc_basename(basename: str) -> bool:
     return False
 
 
-def is_governance_artifact_path(file_path: str) -> bool:
-    """Return True when the path cannot carry [LAYER: TYPE] tags (exempt)."""
-    if not file_path or not str(file_path).strip():
-        return True
-    normalized = normalize_governance_path(file_path).lower()
-    basename = os.path.basename(normalized)
+def _basename_exempt_heuristics(basename: str, normalized: str) -> bool:
+    """Fast basename / path-shape checks (no extension table walk)."""
     if basename in GOVERNANCE_EXEMPT_BASENAMES:
         return True
-    if _is_lockfile_basename(basename) or _is_editor_rc_basename(basename):
-        return True
-    if _is_env_file_basename(basename) or _is_makefile_variant(basename):
-        return True
-    if _is_build_system_basename(basename) or _is_release_or_plan_doc(basename):
-        return True
-    if _is_config_tool_basename(basename):
+    if (
+        _is_lockfile_basename(basename)
+        or _is_editor_rc_basename(basename)
+        or _is_env_file_basename(basename)
+        or _is_makefile_variant(basename)
+        or _is_build_system_basename(basename)
+        or _is_release_or_plan_doc(basename)
+        or _is_config_tool_basename(basename)
+    ):
         return True
     if _is_repo_root_skills_tree(normalized) or _is_paste_or_local_store(normalized):
         return True
-    if _is_extensionless_artifact_basename(basename, normalized) or _is_test_harness_source(normalized, basename):
+    if _is_extensionless_artifact_basename(basename, normalized) or _is_test_harness_source(
+        normalized, basename
+    ):
         return True
     if _is_compound_exempt_path(normalized):
         return True
-    for suffix in GOVERNANCE_EXEMPT_BASENAME_SUFFIXES:
-        if basename.endswith(suffix):
-            return True
-    for ext in _iter_path_extensions(file_path):
-        if ext in GOVERNANCE_EXEMPT_EXTENSIONS:
-            return True
-    if any(marker in normalized for marker in GOVERNANCE_EXEMPT_PATH_MARKERS):
-        return True
-    for seg in GOVERNANCE_EXEMPT_SEGMENT_PREFIXES:
-        if seg == "skills/":
-            if _is_repo_root_skills_tree(normalized):
-                return True
-            continue
-        if normalized.startswith(seg) or f"/{seg}" in normalized:
-            return True
     if basename in {"dockerfile", "containerfile"} or basename.startswith("dockerfile."):
         return True
+    return False
+
+
+def _artifact_exempt_impl(normalized_lower: str, basename: str) -> bool:
+    """Uncached exemption decision (``normalized_lower`` is already lowercased)."""
+    if _basename_exempt_heuristics(basename, normalized_lower):
+        return True
+    if basename.endswith(GOVERNANCE_EXEMPT_BASENAME_SUFFIXES):
+        return True
+    primary_ext = os.path.splitext(normalized_lower)[1]
+    if primary_ext in GOVERNANCE_EXEMPT_EXTENSIONS:
+        return True
+    for ext in _iter_path_extensions(normalized_lower)[1:]:
+        if ext in GOVERNANCE_EXEMPT_EXTENSIONS:
+            return True
+    if _path_has_infix_marker(normalized_lower):
+        return True
     for extra in _user_extra_exempt_markers():
-        if extra in normalized or normalized.endswith(extra):
+        if extra in normalized_lower or normalized_lower.endswith(extra):
             return True
     return False
+
+
+def _compute_path_context(normalized_lower: str) -> _GovPathContext:
+    basename = os.path.basename(normalized_lower)
+    ext = os.path.splitext(normalized_lower)[1]
+    if _artifact_exempt_impl(normalized_lower, basename):
+        kind: GovernancePathKind = "exempt"
+    elif ext not in GOVERNANCE_SOURCE_EXTENSIONS:
+        kind = "ineligible"
+    else:
+        kind = "subject"
+    return _GovPathContext(kind, normalized_lower, basename, ext)
+
+
+@functools.lru_cache(maxsize=8192)
+def _governance_path_context(file_path: str) -> _GovPathContext:
+    """Cached classification + parsed path components for a single lookup per path."""
+    return _compute_path_context(normalize_governance_path(file_path).lower())
+
+
+def invalidate_governance_path_cache() -> None:
+    """Clear path-classifier LRUs (e.g. after ``extra_exempt_paths`` config changes)."""
+    global _USER_EXEMPT_MARKERS_CACHE
+    _USER_EXEMPT_MARKERS_CACHE = None
+    _governance_path_context.cache_clear()
+
+
+def resolve_governance_path_kind(file_path: str) -> GovernancePathKind:
+    """Single classifier: exempt artifact, governable TS/JS subject, or ineligible."""
+    if not file_path or not str(file_path).strip():
+        return "exempt"
+    return _governance_path_context(file_path).kind
+
+
+def is_governance_subject_content(file_path: str, content: Optional[str] = None) -> bool:
+    """Content eligibility when path is already classified as a ``subject``."""
+    return _layer_tag_supported_fn()(file_path, content, skip_artifact_check=True)
+
+
+def read_governance_file_text(file_path: str) -> Optional[str]:
+    """Read UTF-8 text for gate/audit pipelines (returns None on failure)."""
+    try:
+        with open(file_path, encoding="utf-8", errors="ignore") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def is_governance_artifact_path(file_path: str) -> bool:
+    """Return True when the path cannot carry [LAYER: TYPE] tags (exempt)."""
+    return resolve_governance_path_kind(file_path) == "exempt"
 
 
 def governance_policy_summary() -> Dict[str, Any]:
@@ -563,8 +774,10 @@ def governance_policy_summary() -> Dict[str, Any]:
         "exempt_path_markers": len(GOVERNANCE_EXEMPT_PATH_MARKERS),
         "exempt_basename_suffixes": len(GOVERNANCE_EXEMPT_BASENAME_SUFFIXES),
         "exempt_segment_prefixes": len(GOVERNANCE_EXEMPT_SEGMENT_PREFIXES),
+        "infix_markers": len(_GOVERNANCE_INFIX_MARKERS),
         "compound_suffixes": len(GOVERNANCE_COMPOUND_SUFFIXES),
         "source_extensions": sorted(GOVERNANCE_SOURCE_EXTENSIONS),
+        "path_cache_info": _governance_path_context.cache_info()._asdict(),
     }
 
 
@@ -578,35 +791,89 @@ def is_governance_transform_result(payload: Dict[str, Any]) -> bool:
 
 def is_governance_subject(file_path: str, content: Optional[str] = None) -> bool:
     """Return True when JoyZoning layering rules apply to this file path."""
-    if is_governance_artifact_path(file_path):
+    if _governance_path_context(file_path).kind != "subject":
         return False
-    ext = os.path.splitext(file_path)[1].lower()
-    if ext not in GOVERNANCE_SOURCE_EXTENSIONS:
-        return False
-    from agent.joy_zoning import is_layer_tag_supported
+    return is_governance_subject_content(file_path, content)
 
-    return is_layer_tag_supported(file_path, content)
+
+def _partition_raw_path(
+    raw: str,
+    buckets: _PathBuckets,
+    *,
+    kind: Optional[GovernancePathKind] = None,
+) -> None:
+    """Classify one path into exempt/subject lists (deduped, stable append)."""
+    if not raw:
+        return
+    p = normalize_governance_path(raw)
+    resolved_kind = kind if kind is not None else _governance_path_context(raw).kind
+    buckets.add(p, resolved_kind)
 
 
 def partition_governance_paths(paths: List[str]) -> Tuple[List[str], List[str]]:
     """Split paths into (exempt artifacts, governable subjects), deduped, stable order."""
-    exempt: List[str] = []
-    subjects: List[str] = []
-    seen_exempt: Set[str] = set()
-    seen_subjects: Set[str] = set()
+    buckets = _PathBuckets()
     for raw in paths:
-        if not raw:
-            continue
+        _partition_raw_path(raw, buckets)
+    return buckets.as_tuple()
+
+
+def _iter_governance_tool_paths(tool_name: str, args: Dict[str, Any]) -> Iterator[str]:
+    """Yield unique normalized paths from a file-mutating tool invocation."""
+    seen: Set[str] = set()
+
+    def _yield_raw(raw: str) -> Iterator[str]:
         p = normalize_governance_path(raw)
-        if is_governance_artifact_path(p):
-            if p not in seen_exempt:
-                seen_exempt.add(p)
-                exempt.append(p)
-        elif is_governance_subject(p):
-            if p not in seen_subjects:
-                seen_subjects.add(p)
-                subjects.append(p)
-    return exempt, subjects
+        if p and p not in seen:
+            seen.add(p)
+            yield p
+
+    if not isinstance(args, dict):
+        return
+
+    for key in ("path", "file_path", "target_file", "filepath", "target", "filename"):
+        val = args.get(key)
+        if isinstance(val, str) and val:
+            yield from _yield_raw(val)
+        elif isinstance(val, list):
+            for item in val:
+                if isinstance(item, str) and item:
+                    yield from _yield_raw(item)
+
+    for key in ("files", "paths", "file_paths", "targets"):
+        val = args.get(key)
+        if not isinstance(val, list):
+            continue
+        for item in val:
+            if isinstance(item, str) and item:
+                yield from _yield_raw(item)
+            elif isinstance(item, dict):
+                nested = item.get("path") or item.get("file_path")
+                if isinstance(nested, str) and nested:
+                    yield from _yield_raw(nested)
+
+    if tool_name in _FILE_MUTATION_TOOLS:
+        from agent.tool_dispatch_helpers import _extract_file_mutation_targets
+
+        for p in _extract_file_mutation_targets(tool_name, args):
+            yield from _yield_raw(p)
+
+    if tool_name == "patch" and (args.get("mode") or "replace") == "patch":
+        body = args.get("patch") or ""
+        if isinstance(body, str):
+            for match in _V4A_FILE_HEADER.finditer(body):
+                yield from _yield_raw(match.group(1).strip())
+
+
+def extract_and_partition_governance_paths(
+    tool_name: str,
+    args: Dict[str, Any],
+) -> Tuple[List[str], List[str]]:
+    """Tool-hook entry: extract + classify mutation targets in a single pass."""
+    buckets = _PathBuckets()
+    for p in _iter_governance_tool_paths(tool_name, args):
+        buckets.add(p, _governance_path_context(p).kind)
+    return buckets.as_tuple()
 
 
 def filter_governance_subjects(paths: List[str]) -> List[str]:
@@ -616,29 +883,83 @@ def filter_governance_subjects(paths: List[str]) -> List[str]:
 
 def governance_gate_targets(tool_name: str, args: Dict[str, Any]) -> List[str]:
     """Paths to run through the governance gate for a tool call (may be empty)."""
-    _, subjects = partition_governance_paths(extract_governance_tool_paths(tool_name, args))
-    return subjects
+    return extract_and_partition_governance_paths(tool_name, args)[1]
 
 
-def classify_governance_artifact(file_path: str) -> Optional[str]:
-    """Return exemption category label, or None if the path is governable."""
-    if not is_governance_artifact_path(file_path):
-        return None
-    norm = normalize_governance_path(file_path).lower()
-    basename = os.path.basename(norm)
-    ext = os.path.splitext(file_path)[1].lower()
+def iter_governance_subject_files(
+    file_paths: List[str],
+    *,
+    subjects_only: bool = False,
+) -> Iterator[Tuple[str, str]]:
+    """Yield ``(path, content)`` for governable subjects that pass content eligibility."""
+    if subjects_only:
+        candidates = file_paths
+    else:
+        _, candidates = partition_governance_paths(file_paths)
+    tag_fn = _layer_tag_supported_fn()
+    for file_path in candidates:
+        if not os.path.isfile(file_path):
+            continue
+        content = read_governance_file_text(file_path)
+        if content is None:
+            continue
+        norm = normalize_governance_path(file_path)
+        if not tag_fn(norm, content, skip_artifact_check=True):
+            continue
+        yield file_path, content
+
+
+def run_governance_validation_gate(
+    files: List[str],
+    *,
+    validate: Optional[Callable[..., Dict[str, Any]]] = None,
+    get_layer: Optional[Callable[[str, Optional[str]], str]] = None,
+    subjects_only: bool = False,
+) -> Dict[str, Any]:
+    """Run layering validation on governable subjects only (central gate pipeline).
+
+    When ``subjects_only`` is True, ``files`` is already partitioned (hook fast-path).
+    """
+    validate_fn = validate or _joy_zoning_validate()
+    layer_fn = get_layer or _joy_zoning_get_layer()
+    single_results: List[Dict[str, Any]] = []
+
+    for file_path, content in iter_governance_subject_files(files, subjects_only=subjects_only):
+        audit = validate_fn(file_path, content, skip_subject_check=True)
+        if audit.get("success") or audit.get("skipped"):
+            continue
+        single_results.append({
+            "file": file_path,
+            "layer": layer_fn(file_path, content),
+            "errors": audit.get("errors") or [],
+        })
+    if not single_results:
+        return {**_GOVERNANCE_GATE_OK}
+    return {
+        "success": False,
+        "singleResults": single_results,
+        "layeringViolations": [],
+        "hasLayeringCheck": True,
+    }
+
+
+def _classify_exempt_category(ctx: _GovPathContext) -> str:
+    """Map an exempt path context to a category label (ctx.kind must be ``exempt``)."""
+    norm = ctx.normalized_lower
+    basename = ctx.basename
+    ext = ctx.ext
 
     if ext in {".md", ".mdx", ".mdc", ".rst", ".txt", ".adoc"}:
         return "documentation"
     if ext in {".sql", ".prisma", ".db", ".sqlite", ".sqlite3", ".dbml"}:
         return "database"
-    if any(m in norm for m in ("/migrations/", "/prisma/", "/drizzle/", "/seeders/")):
+    if _EXEMPT_DB_PATH_RE.search(norm):
         return "database"
     if basename == "package.json" or ext in {".json", ".json5"} or "lock" in basename:
         return "package_manifest"
     if ext in {".yaml", ".yml", ".toml"} or basename.endswith(".config.ts"):
         return "config"
-    if any(basename.endswith(s) for s in GOVERNANCE_EXEMPT_BASENAME_SUFFIXES):
+    if basename.endswith(GOVERNANCE_EXEMPT_BASENAME_SUFFIXES):
         if ".test." in basename or ".spec." in basename or basename.endswith((".test.ts", ".spec.ts")):
             return "test_artifact"
         if ".stories." in basename:
@@ -653,15 +974,11 @@ def classify_governance_artifact(file_path: str) -> Optional[str]:
         return "non_js_language"
     if ext in {".tf", ".hcl"}:
         return "infrastructure"
-    _vendor_markers = (
-        "/node_modules/", "node_modules/", "/dist/", "dist/",
-        "/build/", "build/", "/.next/", "/coverage/", "coverage/",
-    )
-    if any(m in norm for m in _vendor_markers):
+    if _EXEMPT_VENDOR_RE.search(norm):
         return "vendor_or_build"
-    if any(m in norm for m in ("/docs/", "/reports/", "/website/")):
+    if _EXEMPT_DOC_PATH_RE.search(norm):
         return "documentation"
-    if any(m in norm for m in ("/.github/workflows/", "/.gitlab-ci", "/.husky/")):
+    if _EXEMPT_CI_PATH_RE.search(norm):
         return "ci_cd"
     if _is_env_file_basename(basename):
         return "environment"
@@ -670,28 +987,20 @@ def classify_governance_artifact(file_path: str) -> Optional[str]:
     return "non_layerable_artifact"
 
 
+def classify_governance_artifact(file_path: str) -> Optional[str]:
+    """Return exemption category label, or None if the path is governable."""
+    ctx = _governance_path_context(file_path)
+    if ctx.kind != "exempt":
+        return None
+    return _classify_exempt_category(ctx)
+
+
 def governance_skip_reason(file_path: str) -> Optional[str]:
     """Human-readable reason a path is exempt from layering (for CLI/tools)."""
     category = classify_governance_artifact(file_path)
     if not category:
         return None
-    _LABELS = {
-        "documentation": "documentation/markdown",
-        "database": "database/ORM artifact",
-        "package_manifest": "package manifest",
-        "config": "toolchain/config file",
-        "test_artifact": "test or spec file",
-        "storybook": "Storybook artifact",
-        "declaration": "TypeScript declaration stub",
-        "web_asset": "web/markup asset (not TS/JS source)",
-        "non_js_language": "non-JavaScript language source",
-        "infrastructure": "infrastructure-as-code",
-        "vendor_or_build": "vendor or build output",
-        "ci_cd": "CI/CD configuration",
-        "environment": "environment file",
-        "non_layerable_artifact": "non-layerable artifact",
-    }
-    return _LABELS.get(category, category)
+    return _GOVERNANCE_SKIP_LABELS.get(category, category)
 
 
 def is_governance_fault_error(preview: str) -> bool:
@@ -701,83 +1010,49 @@ def is_governance_fault_error(preview: str) -> bool:
 
 def extract_governance_tool_paths(tool_name: str, args: Dict[str, Any]) -> List[str]:
     """Collect file paths targeted by a file-mutating tool invocation."""
-    paths: List[str] = []
-    seen: Set[str] = set()
-
-    def _add(raw: str) -> None:
-        p = normalize_governance_path(raw)
-        if p and p not in seen:
-            seen.add(p)
-            paths.append(p)
-
-    if not isinstance(args, dict):
-        return paths
-
-    for key in ("path", "file_path", "target_file", "filepath", "target", "filename"):
-        val = args.get(key)
-        if isinstance(val, str) and val:
-            _add(val)
-        elif isinstance(val, list):
-            for item in val:
-                if isinstance(item, str) and item:
-                    _add(item)
-
-    for key in ("files", "paths", "file_paths", "targets"):
-        val = args.get(key)
-        if not isinstance(val, list):
-            continue
-        for item in val:
-            if isinstance(item, str) and item:
-                _add(item)
-            elif isinstance(item, dict):
-                nested = item.get("path") or item.get("file_path")
-                if isinstance(nested, str) and nested:
-                    _add(nested)
-
-    if tool_name in _FILE_MUTATION_TOOLS:
-        from agent.tool_dispatch_helpers import _extract_file_mutation_targets
-
-        for p in _extract_file_mutation_targets(tool_name, args):
-            _add(p)
-
-    if tool_name == "patch" and (args.get("mode") or "replace") == "patch":
-        body = args.get("patch") or ""
-        if isinstance(body, str):
-            for match in _V4A_FILE_HEADER.finditer(body):
-                _add(match.group(1).strip())
-
-    return paths
+    return list(_iter_governance_tool_paths(tool_name, args))
 
 
-def evaluate_governance_transform(
+def enforce_governance_on_mutation(
     tool_name: str,
     args: Dict[str, Any],
     result: Any,
     *,
-    run_gate: Callable[[List[str]], Dict[str, Any]],
+    run_gate: Optional[Callable[[List[str]], Dict[str, Any]]] = None,
 ) -> Optional[str]:
-    """Run the governance gate; return replacement JSON when violations exist.
+    """Run the governance gate on file mutations; return replacement JSON when blocked.
 
-    ``run_gate`` is typically ``run_joyzoning_gate`` from ``joyzoning_governance``
-    (injected to avoid a circular import at module load).
+    When ``run_gate`` is omitted, uses the built-in validation pipeline
+    (``subjects_only`` — no second partition). Inject ``run_gate`` in tests only.
     """
-    if tool_name not in _GOVERNANCE_TRANSFORM_TOOLS:
-        return None
-    if not isinstance(args, dict):
+    if tool_name not in _GOVERNANCE_TRANSFORM_TOOLS or not isinstance(args, dict):
         return None
 
-    tool_paths = extract_governance_tool_paths(tool_name, args)
-    if not tool_paths:
-        return None
-
-    _exempt, target_files = partition_governance_paths(tool_paths)
+    exempt, target_files = extract_and_partition_governance_paths(tool_name, args)
     if not target_files:
         return None
 
-    gate = run_gate(target_files)
+    gate = (
+        run_gate(target_files)
+        if run_gate is not None
+        else run_governance_validation_gate(target_files, subjects_only=True)
+    )
     if gate.get("success", True):
         return None
 
+    return json.dumps(_governance_fault_payload(target_files, exempt, gate, result))
+
+
+# Back-compat alias (tests and older imports).
+evaluate_governance_transform = enforce_governance_on_mutation
+
+
+def _governance_fault_payload(
+    dirty_files: List[str],
+    exempt_skipped: List[str],
+    gate: Dict[str, Any],
+    original_result: Any,
+) -> Dict[str, Any]:
     failures_log: List[str] = []
     for item in gate.get("singleResults", []):
         failures_log.append(f"  • {item['file']} [Layer: {item.get('layer', 'unknown')}]")
@@ -799,11 +1074,10 @@ def evaluate_governance_transform(
         "  3. Exempt (no layer tags): .md, package.json, lockfiles, SQL/migrations, ORM.\n"
         "=============================================================="
     )
-
-    return json.dumps({
+    return {
         "success": False,
         "error": report,
-        "dirty_files": target_files,
-        "exempt_skipped": _exempt,
-        "original_result": result,
-    })
+        "dirty_files": dirty_files,
+        "exempt_skipped": exempt_skipped,
+        "original_result": original_result,
+    }

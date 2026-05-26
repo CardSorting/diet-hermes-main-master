@@ -9,21 +9,17 @@ Provides the ultimate codebase governance:
 """
 from __future__ import annotations
 
-import os
 import sys
 import json
 import shlex
-import logging
 from pathlib import Path
-from typing import Any, Dict, Optional, Set, List
+from typing import Any, Dict, Optional, List
 
 from agent.governance_exemptions import (
-    evaluate_governance_transform,
-    filter_governance_subjects,
+    enforce_governance_on_mutation,
     governance_skip_reason,
-    is_governance_subject,
+    run_governance_validation_gate,
 )
-from agent.joy_zoning import get_layer, validate_joy_zoning
 
 # Safely resolve parent path to import core tool runners
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -33,44 +29,13 @@ except ImportError:
     # Fallback to direct imports if pathing differs
     from ...tools.broccolidb_tools.runner import run_standalone_script, run_agent_context_script
 
-logger = logging.getLogger(__name__)
-
 # ---------------------------------------------------------------------------
 # Core JoyZoning Policy Checker (Subprocess Standalone Runner)
 # ---------------------------------------------------------------------------
 
 def run_joyzoning_gate(files: List[str]) -> Dict[str, Any]:
-    """Run JoyZoning policy checks on governable source files only.
-
-    Skips docs, manifests, DB/ORM artifacts, and other paths that cannot
-    carry ``[LAYER: TYPE]`` headers (see ``is_governance_subject``).
-    """
-    single_results: List[Dict[str, Any]] = []
-    for file_path in filter_governance_subjects(files):
-        if not os.path.isfile(file_path):
-            continue
-        try:
-            with open(file_path, encoding="utf-8", errors="ignore") as handle:
-                content = handle.read()
-        except OSError as exc:
-            logger.warning("JoyZoning gate could not read %s: %s", file_path, exc)
-            continue
-        if not is_governance_subject(file_path, content):
-            continue
-        audit = validate_joy_zoning(file_path, content)
-        if audit.get("success") or audit.get("skipped"):
-            continue
-        single_results.append({
-            "file": file_path,
-            "layer": get_layer(file_path, content),
-            "errors": audit.get("errors") or [],
-        })
-    return {
-        "success": len(single_results) == 0,
-        "singleResults": single_results,
-        "layeringViolations": [],
-        "hasLayeringCheck": bool(single_results),
-    }
+    """Run JoyZoning policy checks on governable source files only."""
+    return run_governance_validation_gate(files)
 
 
 # ---------------------------------------------------------------------------
@@ -84,11 +49,10 @@ def _on_transform_tool_result(
     **_: Any,
 ) -> Optional[str]:
     """Intercept tool outputs, scan modified files, and block architectural leaks."""
-    return evaluate_governance_transform(
+    return enforce_governance_on_mutation(
         tool_name,
         args if isinstance(args, dict) else {},
         result,
-        run_gate=run_joyzoning_gate,
     )
 
 

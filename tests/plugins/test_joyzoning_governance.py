@@ -99,7 +99,7 @@ def test_transform_hook_does_not_block_readme_write(tmp_path, monkeypatch):
     dirty_ts.parent.mkdir(parents=True)
     dirty_ts.write_text("import x from '../ui/widget';\n")
 
-    def fake_gate(files):
+    def fake_gate(files, **_kwargs):
         if any(f.endswith("bad.ts") for f in files):
             return {
                 "success": False,
@@ -108,7 +108,7 @@ def test_transform_hook_does_not_block_readme_write(tmp_path, monkeypatch):
         return {"success": True, "singleResults": []}
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("plugins.joyzoning_governance.run_joyzoning_gate", fake_gate)
+    monkeypatch.setattr("agent.governance_exemptions.run_governance_validation_gate", fake_gate)
 
     blocked = _on_transform_tool_result(
         tool_name="write_file",
@@ -124,8 +124,8 @@ def test_transform_hook_does_not_block_package_json_patch(tmp_path, monkeypatch)
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "plugins.joyzoning_governance.run_joyzoning_gate",
-        lambda files: {"success": False, "singleResults": [{"file": "x", "errors": ["x"]}]},
+        "agent.governance_exemptions.run_governance_validation_gate",
+        lambda files, **_kwargs: {"success": False, "singleResults": [{"file": "x", "errors": ["x"]}]},
     )
 
     blocked = _on_transform_tool_result(
@@ -143,8 +143,8 @@ def test_transform_hook_blocks_governed_ts_with_violations(tmp_path, monkeypatch
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "plugins.joyzoning_governance.run_joyzoning_gate",
-        lambda files: {
+        "agent.governance_exemptions.run_governance_validation_gate",
+        lambda files, **_kwargs: {
             "success": False,
             "singleResults": [
                 {
@@ -195,11 +195,11 @@ def test_transform_hook_v4a_only_gates_governable_files(tmp_path, monkeypatch):
 
     gated: list[str] = []
 
-    def fake_gate(files):
+    def fake_gate(files, **_kwargs):
         gated.extend(files)
         return {"success": True, "singleResults": []}
 
-    monkeypatch.setattr("plugins.joyzoning_governance.run_joyzoning_gate", fake_gate)
+    monkeypatch.setattr("agent.governance_exemptions.run_governance_validation_gate", fake_gate)
 
     body = (
         f"*** Update File: {ts_file}\n@@\n+x\n"

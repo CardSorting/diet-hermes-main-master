@@ -1787,16 +1787,19 @@ class AIAgent:
             try:
                 from agent.governance_exemptions import (
                     is_governance_fault_error,
-                    is_governance_subject,
+                    resolve_governance_path_kind,
                 )
             except ImportError:
                 is_governance_fault_error = None  # type: ignore[assignment,misc]
-                is_governance_subject = None  # type: ignore[assignment,misc]
+                resolve_governance_path_kind = None  # type: ignore[assignment,misc]
             for path in targets:
                 # Governance blocks must not mark exempt artifacts (README, package.json, …)
                 # as failed writes in the file-mutation verifier footer.
-                if is_governance_fault_error and is_governance_subject:
-                    if is_governance_fault_error(preview) and not is_governance_subject(path):
+                if is_governance_fault_error and resolve_governance_path_kind:
+                    if (
+                        is_governance_fault_error(preview)
+                        and resolve_governance_path_kind(path) != "subject"
+                    ):
                         continue
                 # Keep the FIRST error we saw for a given path unless we
                 # later see success.  A repeated failure with a different

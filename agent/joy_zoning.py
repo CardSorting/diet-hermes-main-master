@@ -31,6 +31,13 @@ from agent.governance_exemptions import (
     is_governance_transform_result,
     classify_governance_artifact,
     governance_policy_summary,
+    resolve_governance_path_kind,
+    run_governance_validation_gate,
+    invalidate_governance_path_cache,
+    is_governance_subject_content,
+    read_governance_file_text,
+    iter_governance_subject_files,
+    extract_and_partition_governance_paths,
     GOVERNANCE_COMPOUND_SUFFIXES,
 )
 
@@ -127,9 +134,14 @@ def get_layer(file_path: str, content: Optional[str] = None) -> str:
     else:
         return "infrastructure"
 
-def is_layer_tag_supported(file_path: str, content: Optional[str] = None) -> bool:
+def is_layer_tag_supported(
+    file_path: str,
+    content: Optional[str] = None,
+    *,
+    skip_artifact_check: bool = False,
+) -> bool:
     """Determines if a file supports architectural [LAYER: TYPE] tags."""
-    if is_governance_artifact_path(file_path):
+    if not skip_artifact_check and is_governance_artifact_path(file_path):
         return False
 
     normalized = file_path.replace("\\", "/")
@@ -145,9 +157,12 @@ def is_layer_tag_supported(file_path: str, content: Optional[str] = None) -> boo
     if not style:
         return False
 
-    exclude_dirs = ["node_modules/", ".venv/", "venv/", "tests/", ".git/", ".github/", "dist/", "build/"]
-    if any(d in normalized for d in exclude_dirs):
-        return False
+    if not skip_artifact_check:
+        exclude_dirs = [
+            "node_modules/", ".venv/", "venv/", "tests/", ".git/", ".github/", "dist/", "build/",
+        ]
+        if any(d in normalized for d in exclude_dirs):
+            return False
         
     if content:
         if not content.strip():
@@ -409,9 +424,14 @@ def validate_layering(file_path: str, content: str) -> List[str]:
                     
     return errors
 
-def validate_joy_zoning(file_path: str, content: str) -> Dict[str, Any]:
+def validate_joy_zoning(
+    file_path: str,
+    content: str,
+    *,
+    skip_subject_check: bool = False,
+) -> Dict[str, Any]:
     """Full Joy-Zoning validation for a file."""
-    if not is_governance_subject(file_path, content):
+    if not skip_subject_check and not is_governance_subject(file_path, content):
         return {"success": True, "errors": [], "skipped": True}
 
     all_errors = []

@@ -14,12 +14,11 @@ import argparse
 # Ensure project root is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from agent.joy_zoning import (
-    validate_joy_zoning,
-    get_layer,
-    find_workspace_root,
+from agent.joy_zoning import get_layer, find_workspace_root
+from agent.governance_exemptions import (
+    _joy_zoning_validate,
+    iter_governance_subject_files,
 )
-from agent.governance_exemptions import is_governance_subject
 
 def run_joy_audit():
     parser = argparse.ArgumentParser(description="Joy-Zoning Sovereign Radar CLI")
@@ -70,39 +69,31 @@ def run_joy_audit():
             for filename in filenames:
                 files_to_scan.append(os.path.join(dirpath, filename))
 
-    for full_path in files_to_scan:
-        rel_path = os.path.relpath(full_path, root)
-        
-        # Skip hidden files
+    validate_fn = _joy_zoning_validate()
+    for full_path, content in iter_governance_subject_files(files_to_scan):
+        rel_path = os.path.relpath(full_path, root).replace("\\", "/")
         if os.path.basename(full_path).startswith("."):
             continue
-            
-        try:
-            with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-        except Exception:
-            continue
-            
-        if is_governance_subject(full_path, content):
-            layer = get_layer(full_path, content)
-            if layer in layers_files:
-                layers_files[layer].append(rel_path)
-            
-            audit = validate_joy_zoning(full_path, content)
-            if not audit["success"]:
-                for err in audit["errors"]:
-                    # Determine if missing tag should be treated as a failure or warning
-                    is_missing_tag = "Missing mandatory [LAYER: TYPE] header tag" in err
-                    
-                    if is_missing_tag:
-                        # Enforce strictly on core directories or if --strict is specified
-                        is_core_dir = any(rel_path.startswith(prefix) for prefix in ["agent/", "tools/", "broccolidb/"])
-                        if is_core_dir or args.strict:
-                            all_violations.append((rel_path, err))
-                        else:
-                            all_warnings.append((rel_path, err))
-                    else:
+
+        layer = get_layer(full_path, content)
+        if layer in layers_files:
+            layers_files[layer].append(rel_path)
+
+        audit = validate_fn(full_path, content, skip_subject_check=True)
+        if not audit["success"]:
+            for err in audit["errors"]:
+                is_missing_tag = "Missing mandatory [LAYER: TYPE] header tag" in err
+                if is_missing_tag:
+                    is_core_dir = any(
+                        rel_path.startswith(prefix)
+                        for prefix in ("agent/", "tools/", "broccolidb/")
+                    )
+                    if is_core_dir or args.strict:
                         all_violations.append((rel_path, err))
+                    else:
+                        all_warnings.append((rel_path, err))
+                else:
+                    all_violations.append((rel_path, err))
 
     # Display layer summaries
     layers = ["domain", "core", "infrastructure", "plumbing", "ui"]
