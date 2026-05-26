@@ -355,8 +355,15 @@ class MemoryManager:
                 )
         return "\n\n".join(parts)
 
+    @property
+    def has_external_provider(self) -> bool:
+        """True when a non-builtin memory plugin is registered."""
+        return self._has_external
+
     def queue_prefetch_all(self, query: str, *, session_id: str = "") -> None:
         """Queue background prefetch on all providers for the next turn."""
+        if not self._has_external:
+            return
         for provider in self._providers:
             try:
                 provider.queue_prefetch(query, session_id=session_id)

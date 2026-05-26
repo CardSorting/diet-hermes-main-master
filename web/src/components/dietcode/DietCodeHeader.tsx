@@ -2,6 +2,7 @@ import { Badge } from "@nous-research/ui/ui/components/badge";
 import { HelpCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
+  DIETCODE_DEMO_BANNER,
   DIETCODE_PITCH,
   DIETCODE_TAGLINES,
   HOW_IT_WORKS,
@@ -50,6 +51,13 @@ export function DietCodeHeader() {
           </button>
         </div>
       </div>
+
+      <p
+        role="status"
+        className="m-0 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-midground/95 normal-case tracking-normal leading-relaxed"
+      >
+        {DIETCODE_DEMO_BANNER}
+      </p>
 
       <p
         key={taglineIdx}

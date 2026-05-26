@@ -1,22 +1,17 @@
 import { useState, useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 import {
   Shield,
   Terminal,
-  CheckCircle2,
-  AlertTriangle,
-  Play,
-  Check,
-  X,
   FileText,
   Database,
   Download,
   TrendingUp,
   Activity,
   Gauge,
-  History,
+  ExternalLink,
 } from "lucide-react";
 import { Badge } from "@nous-research/ui/ui/components/badge";
-import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -27,16 +22,12 @@ import {
   DietCodeWorkflowStepper,
   OPERATOR_FLAVORS,
   SETUP_SECTIONS,
+  DIETCODE_DASHBOARD_DEMO_MODE,
+  DIETCODE_LIVE_AGENT_CTA,
   DIETCODE_PITCH,
-  SODA_APPROVE_LINES,
-  SODA_APPLY_SUCCESS,
   SODA_BOOT_LINES,
-  SODA_CANCEL,
   SODA_FLAVOR_SWITCH,
   SODA_REPO_SWITCH,
-  SODA_SESSION_START,
-  SODA_SPILL_LINES,
-  SODA_TELEMETRY_LINES,
   type DietCodeTabId,
   type SessionStatus,
 } from "@/components/dietcode";
@@ -170,7 +161,12 @@ const MOCK_DIFFS: Record<string, { path: string; diff: string }> = {
   },
 };
 
+/** Static example for dashboard demo mode (no setTimeout fake progress). */
+const DEMO_EXAMPLE_STATUS: SessionStatus = "proposed";
+
 export default function DietCodePage() {
+  const isDemo = DIETCODE_DASHBOARD_DEMO_MODE;
+
   // Navigation header setup
   const [activeRepo, setActiveRepo] = useState(DETECTED_REPOS[0]);
   const [activeProfile, setActiveProfile] = useState(OPERATOR_PROFILES[0]);
@@ -182,18 +178,31 @@ export default function DietCodePage() {
     maxTestRuntimeMinutes: 5,
   });
 
-  // State flags for interactive workflow
+  // Live workflow state (disabled in demo mode — use DEMO_EXAMPLE_STATUS for preview UI)
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>("idle");
+  const displayStatus = isDemo ? DEMO_EXAMPLE_STATUS : sessionStatus;
   const [activeTab, setActiveTab] = useState<DietCodeTabId>("home");
   const [logs, setLogs] = useState<string[]>([]);
-  const [wakeupsCount, setWakeupsCount] = useState(0);
-  const [budgetUsage, setBudgetUsage] = useState({
-    files: 0,
-    runtime: 0,
-    toolCalls: 0,
-    patchSize: 0,
+  const demoBudgetUsage = {
+    files: 1,
+    runtime: 1,
+    toolCalls: 3,
+    patchSize: 280,
     testRuntime: 0,
-  });
+  };
+  const [wakeupsCount] = useState(0);
+  const [budgetUsage, setBudgetUsage] = useState(
+    isDemo
+      ? demoBudgetUsage
+      : {
+          files: 0,
+          runtime: 0,
+          toolCalls: 0,
+          patchSize: 0,
+          testRuntime: 0,
+        }
+  );
+  const displayBudgetUsage = isDemo ? demoBudgetUsage : budgetUsage;
 
   const [argsHash] = useState("sha256-a4c892b11ef937a01dcd4a22c5e4f71a9b23e80d");
   const [policyHash] = useState("sha256-8c42ff65aef33b0dd4a221f7c9e0134b3f114ea2");
@@ -230,121 +239,8 @@ export default function DietCodePage() {
     appendLog(`Ready: ${DIETCODE_PITCH.slice(0, 72)}…`, "info");
   }, []);
 
-  // Handler: Start Operator Session
-  const handleStartSession = () => {
-    setSessionStatus("preflight");
-    setLogs([]);
-    setWakeupsCount(0);
-    setBudgetUsage({ files: 0, runtime: 0, toolCalls: 0, patchSize: 0, testRuntime: 0 });
-    
-    appendSodaLines([SODA_REPO_SWITCH(activeRepo.name)]);
-    appendLog(`Framework: ${activeRepo.framework} · profile ${activeProfile.name}`, "info");
-
-    setTimeout(() => {
-      appendSodaLines(SODA_SESSION_START);
-      setBudgetUsage((prev: { files: number; runtime: number; toolCalls: number; patchSize: number; testRuntime: number }) => ({ ...prev, files: 1, toolCalls: 3, runtime: 1 }));
-      setSessionStatus("proposed");
-      appendLog("Pre-mutation snapshot canned (12.4 MB) → gs://operator-artifacts/recovery/", "success");
-    }, 1500);
-  };
-
-  // Handler: Approve and Apply Changes
-  const handleApprove = () => {
-    setSessionStatus("applying");
-    appendSodaLines(SODA_APPROVE_LINES);
-    appendLog(`Args hash verified [${argsHash.substring(0, 12)}…]`, "success");
-    setWakeupsCount(1);
-
-    setTimeout(() => {
-      appendLog("Worker respawned from GCS checkpoint — workspace reconstituted.", "success");
-      appendLog("Pouring approved changes into the workspace…", "info");
-      
-      const fileCount = activeProfile.name === "TypingOperator" ? 1 : 2;
-      const patchLen = activeProfile.name === "TestFixOperator" ? 450 : 280;
-      setBudgetUsage((prev: { files: number; runtime: number; toolCalls: number; patchSize: number; testRuntime: number }) => ({
-        ...prev,
-        files: fileCount,
-        toolCalls: prev.toolCalls + 4,
-        patchSize: patchLen,
-        runtime: prev.runtime + 2,
-      }));
-
-      setSessionStatus("testing");
-      appendLog(`Test shaker: "${activeRepo.testCommand}"`, "info");
-
-      setTimeout(() => {
-        appendSodaLines(SODA_APPLY_SUCCESS);
-        setBudgetUsage((prev: { files: number; runtime: number; toolCalls: number; patchSize: number; testRuntime: number }) => ({ ...prev, testRuntime: 1, runtime: prev.runtime + 1 }));
-        setSessionStatus("success");
-        appendLog(`Bounded session flat-out success in ~${budgetUsage.runtime + 3} min.`, "success");
-      }, 1500);
-
-    }, 1500);
-  };
-
-  // Handler: Trigger Policy Budget Violation Simulation
-  const handleTriggerViolation = () => {
-    setSessionStatus("applying");
-    appendLog("Control Plane: Resuming worker execution...", "info");
-    
-    setTimeout(() => {
-      appendLog("Worker Runtime: Respawned worker container.", "success");
-      appendLog("Worker Runtime: Applying out-of-bounds file write proposal...", "warn");
-      appendLog("Worker Runtime: Checking constraints...", "info");
-      
-      // Simulate exceeding files budget
-      setBudgetUsage((prev: { files: number; runtime: number; toolCalls: number; patchSize: number; testRuntime: number }) => ({
-        ...prev,
-        files: 15, // Over limit
-        toolCalls: 30, // Over limit
-        patchSize: 6500, // Over limit
-      }));
-
-      setSessionStatus("violation");
-      appendSodaLines(SODA_SPILL_LINES);
-      appendLog("Budget: max 10 files, attempted 15.", "error");
-
-      setTimeout(() => {
-        setSessionStatus("reverted");
-        appendLog("Rollback poured — workspace restored.", "success");
-      }, 1000);
-
-    }, 1200);
-  };
-
-  // Golden Benchmarks Simulation State
-  const [benchStats, setBenchStats] = useState({
-    running: false,
-    completed: false,
-    successRate: 100,
-    rollbackRate: 0,
-    avgDurationSec: 4.2,
-    totalRuns: 4,
-    benchmarks: [
-      { name: "fix failing test", status: "passed", duration: "3.2s", cost: "$0.0021" },
-      { name: "rename symbol", status: "passed", duration: "4.8s", cost: "$0.0034" },
-      { name: "upgrade vitest devDependency", status: "passed", duration: "5.1s", cost: "$0.0019" },
-      { name: "add types for spine session", status: "passed", duration: "3.9s", cost: "$0.0028" },
-    ]
-  });
-
-  const runGoldenSuite = () => {
-    setBenchStats((prev: { running: boolean; completed: boolean; successRate: number; rollbackRate: number; avgDurationSec: number; totalRuns: number; benchmarks: Array<{ name: string; status: string; duration: string; cost: string }> }) => ({ ...prev, running: true, completed: false }));
-    appendLog("Golden pour suite — shaking 250 operators…", "info");
-
-    setTimeout(() => {
-      setBenchStats((prev: { running: boolean; completed: boolean; successRate: number; rollbackRate: number; avgDurationSec: number; totalRuns: number; benchmarks: Array<{ name: string; status: string; duration: string; cost: string }> }) => ({
-        ...prev,
-        running: false,
-        completed: true,
-        successRate: 98.4,
-        rollbackRate: 1.6,
-        avgDurationSec: 4.1,
-        totalRuns: 250,
-      }));
-      appendLog(SODA_TELEMETRY_LINES[0], "success");
-      appendLog(SODA_TELEMETRY_LINES[1], "telemetry");
-    }, 2000);
+  const openLiveAgent = () => {
+    window.location.assign(DIETCODE_LIVE_AGENT_CTA.chatPath);
   };
 
   return (
@@ -361,9 +257,10 @@ export default function DietCodePage() {
           className="flex flex-col gap-6"
         >
           <DietCodeSessionBanner
-            status={sessionStatus}
-            onStart={handleStartSession}
+            status={displayStatus}
+            onStart={openLiveAgent}
             onReset={() => setSessionStatus("idle")}
+            demoMode={isDemo}
           />
 
           <Card className={CARD_SODA}>
@@ -373,7 +270,7 @@ export default function DietCodePage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4">
-              <DietCodeWorkflowStepper status={sessionStatus} />
+              <DietCodeWorkflowStepper status={displayStatus} />
             </CardContent>
           </Card>
 
@@ -407,7 +304,12 @@ export default function DietCodePage() {
                         appendSodaLines([SODA_REPO_SWITCH(repo.name)]);
                       }
                     }}
-                    disabled={sessionStatus !== "idle" && sessionStatus !== "success" && sessionStatus !== "reverted"}
+                    disabled={
+                      !isDemo &&
+                      sessionStatus !== "idle" &&
+                      sessionStatus !== "success" &&
+                      sessionStatus !== "reverted"
+                    }
                   >
                     {DETECTED_REPOS.map((repo) => (
                       <option key={repo.name} value={repo.name}>
@@ -460,7 +362,12 @@ export default function DietCodePage() {
                         appendSodaLines([SODA_FLAVOR_SWITCH(profile.name)]);
                       }
                     }}
-                    disabled={sessionStatus !== "idle" && sessionStatus !== "success" && sessionStatus !== "reverted"}
+                    disabled={
+                      !isDemo &&
+                      sessionStatus !== "idle" &&
+                      sessionStatus !== "success" &&
+                      sessionStatus !== "reverted"
+                    }
                   >
                     {OPERATOR_PROFILES.map((p) => {
                       const flavor = OPERATOR_FLAVORS[p.name];
@@ -528,31 +435,33 @@ export default function DietCodePage() {
                   </div>
                 </div>
                 
-                {sessionStatus !== "idle" && (
+                {displayStatus !== "idle" && (
                   <div className="border-t border-current/10 pt-3 mt-2 flex flex-col gap-2">
-                    <span className="text-[9px] text-primary font-bold">Active Runtime Budget Consumed:</span>
+                    <span className="text-[9px] text-primary font-bold">
+                      {isDemo ? "Example budget (illustrative):" : "Active Runtime Budget Consumed:"}
+                    </span>
                     <div className="flex flex-col gap-1.5 text-[10px]">
                       <div>
                         <div className="flex justify-between mb-0.5">
                           <span>Files Edited</span>
-                          <span>{budgetUsage.files} / {budgetLimit.maxFiles}</span>
+                          <span>{displayBudgetUsage.files} / {budgetLimit.maxFiles}</span>
                         </div>
                         <div className="w-full dc-progress-fizz h-1.5 border border-current/10 rounded-full overflow-hidden">
                           <div
                             className="h-full transition-all duration-300"
-                            style={{ width: `${(budgetUsage.files / budgetLimit.maxFiles) * 100}%` }}
+                            style={{ width: `${(displayBudgetUsage.files / budgetLimit.maxFiles) * 100}%` }}
                           />
                         </div>
                       </div>
                       <div>
                         <div className="flex justify-between mb-0.5">
                           <span>Tool Calls</span>
-                          <span>{budgetUsage.toolCalls} / {budgetLimit.maxToolCalls}</span>
+                          <span>{displayBudgetUsage.toolCalls} / {budgetLimit.maxToolCalls}</span>
                         </div>
                         <div className="w-full dc-progress-fizz h-1.5 border border-current/10 rounded-full overflow-hidden">
                           <div
                             className="h-full transition-all duration-300"
-                            style={{ width: `${(budgetUsage.toolCalls / budgetLimit.maxToolCalls) * 100}%` }}
+                            style={{ width: `${(displayBudgetUsage.toolCalls / budgetLimit.maxToolCalls) * 100}%` }}
                           />
                         </div>
                       </div>
@@ -565,24 +474,28 @@ export default function DietCodePage() {
 
           {/* RIGHT: proposal, diff, logs */}
           <div className="lg:col-span-2 flex flex-col gap-6">
-            {sessionStatus !== "idle" && (
+            {displayStatus !== "idle" && (
               <div className="flex flex-wrap gap-3 text-[10px] normal-case tracking-normal px-1 text-midground/65">
                 <span>
                   Worker:{" "}
                   <strong className="text-midground">
-                    {sessionStatus === "proposed"
+                    {displayStatus === "proposed"
                       ? "Paused — waiting for you"
                       : "Running"}
                   </strong>
                 </span>
                 <span>
-                  Checkpoints saved: <strong className="text-midground">{wakeupsCount}</strong>
+                  Checkpoints saved:{" "}
+                  <strong className="text-midground">{isDemo ? 0 : wakeupsCount}</strong>
                 </span>
+                {isDemo && (
+                  <span className="text-warning/90">Example UI only — not connected to BroccoliDB</span>
+                )}
               </div>
             )}
 
             {/* Proposed changes — review before approve */}
-            {sessionStatus !== "idle" && sessionStatus !== "preflight" && (
+            {displayStatus !== "idle" && displayStatus !== "preflight" && (
               <Card className={CARD_SODA}>
                 <CardHeader className="border-b border-current/20 p-3">
                   <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2 uppercase normal-case">
@@ -644,112 +557,28 @@ export default function DietCodePage() {
                         <span>pre-mutation.tar.gz</span>
                         <Download className="h-3 w-3 text-primary" />
                       </div>
-                      <div className={`flex items-center justify-between border border-current/10 p-2 ${sessionStatus !== "proposed" && sessionStatus !== "applying" ? "bg-black/40" : "opacity-30"}`}>
+                      <div className={`flex items-center justify-between border border-current/10 p-2 ${displayStatus !== "proposed" && displayStatus !== "applying" ? "bg-black/40" : "opacity-30"}`}>
                         <span>post-mutation.tar.gz</span>
-                        <Download className="h-3 w-3 text-primary" />
+                        <Download className="h-3 w-3 text-primary opacity-40" aria-hidden />
                       </div>
-                      <div className={`flex items-center justify-between border border-current/10 p-2 ${sessionStatus === "success" ? "bg-black/40" : "opacity-30"}`}>
+                      <div className={`flex items-center justify-between border border-current/10 p-2 ${displayStatus === "success" ? "bg-black/40" : "opacity-30"}`}>
                         <span>post-test.tar.gz</span>
-                        <Download className="h-3 w-3 text-primary" />
+                        <Download className="h-3 w-3 text-primary opacity-40" aria-hidden />
                       </div>
                     </div>
                   </div>
 
-                  {/* Action Buttons */}
-                  {sessionStatus === "proposed" && (
-                    <div className="flex flex-col sm:flex-row gap-3 border-t border-current/15 pt-4">
-                      <Button
-                        onClick={handleApprove}
-                        className="flex-1 h-9 px-4 text-xs font-bold tracking-widest bg-success text-black hover:bg-success/80"
-                      >
-                        <Check className="mr-1.5 h-3.5 w-3.5" />
-                        Approve & apply
-                      </Button>
-                      
-                      <Button
-                        onClick={handleTriggerViolation}
-                        className="flex-1 h-9 px-4 text-xs font-bold tracking-widest bg-warning text-black hover:bg-warning/80"
-                      >
-                        <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-                        Test safety limit (demo)
-                      </Button>
-
-                      <Button
-                        onClick={() => {
-                          setSessionStatus("idle");
-                          appendSodaLines([SODA_CANCEL()]);
-                        }}
-                        className="h-9 px-4 text-xs font-bold tracking-widest bg-transparent border border-current/20 text-destructive hover:bg-destructive/5"
-                      >
-                        <X className="mr-1.5 h-3.5 w-3.5" />
-                        Reject
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* Active applying states */}
-                  {sessionStatus === "applying" && (
-                    <div className="flex items-center justify-center py-6 gap-3 border-t border-current/15">
-                      <Spinner className="text-primary text-xl" />
-                      <span className="text-xs font-bold animate-pulse text-primary">Control Plane: Enqueuing task to wake up worker container...</span>
-                    </div>
-                  )}
-
-                  {sessionStatus === "testing" && (
-                    <div className="flex flex-col gap-2 border-t border-current/15 pt-4">
-                      <div className="flex items-center justify-center py-3 gap-3">
-                        <Spinner className="text-primary text-lg" />
-                        <span className="text-xs font-bold animate-pulse text-primary">Worker Runtime: Running test suite command: "{activeRepo.testCommand}"</span>
-                      </div>
-                      <div className="bg-black p-3 border border-current/20 rounded-sm font-mono text-[10px] text-success overflow-x-auto leading-relaxed max-h-32">
-                        <div>&gt; {activeRepo.testCommand}</div>
-                        <div className="text-muted-foreground mt-1">RUNS  src/__tests__/spine.test.ts</div>
-                        <div>✓ should enforce Bounded Operator pipeline constraints (12ms)</div>
-                        <div>✓ should enforce strict hash binding for alpha (8ms)</div>
-                        <div className="text-success font-bold mt-1">Test Suites: 1 passed, 1 total</div>
-                        <div className="text-success font-bold">Tests:       2 passed, 2 total</div>
-                        <div className="text-success font-bold">Snapshots:   0 total</div>
-                        <div className="text-muted-foreground">Time:        0.84s</div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Success State */}
-                  {sessionStatus === "success" && (
-                    <div className="border border-success/30 bg-success/5 p-4 rounded-sm flex flex-col gap-2">
-                      <span className="text-xs font-bold text-success flex items-center gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-success" />
-                        Operator Changes Applied & Tested Successfully!
-                      </span>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        The single-use Worker Runtime container has successfully run your test suite, uploaded the final post-test workspace snapshot, and terminated cleanly. All mutations are durably written.
+                  {isDemo && displayStatus === "proposed" && (
+                    <div className="flex flex-col gap-3 border-t border-current/15 pt-4">
+                      <p className="text-[11px] text-midground/75 m-0 leading-relaxed normal-case">
+                        {DIETCODE_LIVE_AGENT_CTA.hint} Approve/reject and operator budgets are not wired to this page yet.
                       </p>
-                    </div>
-                  )}
-
-                  {/* Violation Simulation State */}
-                  {sessionStatus === "violation" && (
-                    <div className="border border-destructive/30 bg-destructive/5 p-4 rounded-sm flex flex-col gap-2">
-                      <span className="text-xs font-bold text-destructive flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4 text-destructive" />
-                        BUDGET VIOLATION DETECTED!
-                      </span>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        The active worker exceeded the Mutated Files threshold limit of 10 (mutated 15 files). Executing automatic workspace recovery rollback protocol instantly...
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Reverted State */}
-                  {sessionStatus === "reverted" && (
-                    <div className="border border-warning/30 bg-warning/5 p-4 rounded-sm flex flex-col gap-2">
-                      <span className="text-xs font-bold text-warning flex items-center gap-2">
-                        <History className="h-4 w-4 text-warning" />
-                        Rollback Audit Recovery Succeeded
-                      </span>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        The volatile workspace has been completely restored to git commit checkout base `cf2390a` using the GCS `pre-mutation.tar.gz` recovery snapshot. Parity validated.
-                      </p>
+                      <Button asChild className="h-9 px-4 text-xs font-bold dc-btn-primary normal-case tracking-normal">
+                        <Link to={DIETCODE_LIVE_AGENT_CTA.chatPath}>
+                          <ExternalLink className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                          {DIETCODE_LIVE_AGENT_CTA.label}
+                        </Link>
+                      </Button>
                     </div>
                   )}
                 </CardContent>
@@ -761,7 +590,7 @@ export default function DietCodePage() {
               <CardHeader className="border-b border-current/20 p-3">
                 <CardTitle className="text-xs font-bold tracking-[0.12em] flex items-center gap-2 uppercase normal-case">
                   <Terminal className="h-3.5 w-3.5 text-primary" />
-                  Live activity (this session)
+                  {isDemo ? "Example activity log" : "Live activity (this session)"}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-3">
@@ -799,60 +628,50 @@ export default function DietCodePage() {
           aria-labelledby="dietcode-tab-quality"
         >
         <Card className={CARD_SODA}>
-          <CardHeader className="border-b border-current/20 p-4 flex flex-row items-center justify-between">
+          <CardHeader className="border-b border-current/20 p-4 flex flex-row items-center justify-between gap-4">
             <div>
               <CardTitle className="text-base font-bold flex items-center gap-2 uppercase tracking-wide">
                 <TrendingUp className="h-5 w-5 text-primary" />
                 Automated quality checks
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5 normal-case tracking-normal">
-                See how often proposed changes pass tests and stay within safety limits—like a taste test for your codebase.
+                {isDemo
+                  ? "Sample metrics for layout preview. Run real checks from the live agent terminal."
+                  : "See how often proposed changes pass tests and stay within safety limits—like a taste test for your codebase."}
               </p>
             </div>
-            
-            <Button
-              onClick={runGoldenSuite}
-              disabled={benchStats.running}
-              className="h-8 px-4 text-xs font-bold dc-btn-primary"
-            >
-              {benchStats.running ? (
-                <>
-                  <Spinner className="mr-1.5" />
-                  Running checks…
-                </>
-              ) : (
-                <>
-                  <Play className="mr-1.5 h-3.5 w-3.5" />
-                  Run all checks
-                </>
-              )}
-            </Button>
+
+            {isDemo ? (
+              <Button asChild className="h-8 px-4 text-xs font-bold dc-btn-primary shrink-0">
+                <Link to={DIETCODE_LIVE_AGENT_CTA.chatPath}>
+                  <ExternalLink className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                  {DIETCODE_LIVE_AGENT_CTA.label}
+                </Link>
+              </Button>
+            ) : null}
           </CardHeader>
           <CardContent className="p-4 flex flex-col gap-6">
-            
-            {/* Stats Overview */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="border border-current/10 p-3 bg-black/40 text-center rounded-sm">
                 <span className="text-[10px] text-muted-foreground block uppercase">Total Operators Run</span>
-                <span className="text-xl font-bold font-mono text-primary">{benchStats.totalRuns}</span>
+                <span className="text-xl font-bold font-mono text-primary">4</span>
               </div>
               <div className="border border-current/10 p-3 bg-black/40 text-center rounded-sm">
                 <span className="text-[10px] text-muted-foreground block uppercase">Success Rate</span>
-                <span className="text-xl font-bold font-mono text-success">{benchStats.successRate}%</span>
+                <span className="text-xl font-bold font-mono text-success">100%</span>
               </div>
               <div className="border border-current/10 p-3 bg-black/40 text-center rounded-sm">
                 <span className="text-[10px] text-muted-foreground block uppercase">Rollback Rate</span>
-                <span className="text-xl font-bold font-mono text-warning">{benchStats.rollbackRate}%</span>
+                <span className="text-xl font-bold font-mono text-warning">0%</span>
               </div>
               <div className="border border-current/10 p-3 bg-black/40 text-center rounded-sm">
                 <span className="text-[10px] text-muted-foreground block uppercase">Avg Exec Time</span>
-                <span className="text-xl font-bold font-mono text-primary">{benchStats.avgDurationSec}s</span>
+                <span className="text-xl font-bold font-mono text-primary">4.2s</span>
               </div>
             </div>
 
-            {/* Benchmarks List */}
             <div className="flex flex-col gap-2">
-              <span className="text-xs font-bold">Standard Suite Scenarios:</span>
+              <span className="text-xs font-bold">Standard Suite Scenarios (sample):</span>
               <div className="border border-current/15 rounded-sm overflow-hidden bg-black/30">
                 <table className="w-full text-left text-xs font-mono">
                   <thead>
@@ -864,7 +683,12 @@ export default function DietCodePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {benchStats.benchmarks.map((bench: { name: string; status: string; duration: string; cost: string }, idx: number) => (
+                    {[
+                      { name: "fix failing test", status: "passed", duration: "3.2s", cost: "$0.0021" },
+                      { name: "rename symbol", status: "passed", duration: "4.8s", cost: "$0.0034" },
+                      { name: "upgrade vitest devDependency", status: "passed", duration: "5.1s", cost: "$0.0019" },
+                      { name: "add types for spine session", status: "passed", duration: "3.9s", cost: "$0.0028" },
+                    ].map((bench, idx) => (
                       <tr key={idx} className="border-b border-current/5">
                         <td className="p-3 font-bold text-midground">{bench.name}</td>
                         <td className="p-3">
@@ -880,18 +704,6 @@ export default function DietCodePage() {
                 </table>
               </div>
             </div>
-            
-            {benchStats.completed && (
-              <div className="border border-success/20 bg-success/5 p-4 rounded-sm flex items-start gap-3">
-                <CheckCircle2 className="h-5 w-5 text-success shrink-0 mt-0.5" />
-                <div>
-                  <span className="text-xs font-bold text-success">Golden Regressions Validation Succeeded!</span>
-                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-                    Zero regressions detected. The single-node operator workspace boundary safely isolated and completed all mutations, verifying full consistency under concurrent load tests.
-                  </p>
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
         </div>
@@ -910,7 +722,9 @@ export default function DietCodePage() {
               System activity & metrics
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5 normal-case tracking-normal">
-              Technical traces for operators and engineers—latency, costs, and background job health.
+              {isDemo
+                ? "Sample telemetry for layout preview only — not live OpenTelemetry."
+                : "Technical traces for operators and engineers—latency, costs, and background job health."}
             </p>
           </CardHeader>
           <CardContent className="p-4 flex flex-col gap-4 font-mono text-xs">

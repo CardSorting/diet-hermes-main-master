@@ -2023,10 +2023,24 @@ class AIAgent:
                 original_user_message, final_response,
                 session_id=self.session_id or "",
             )
-            self._memory_manager.queue_prefetch_all(
-                original_user_message,
-                session_id=self.session_id or "",
-            )
+            # DietCode: CLI/TUI skip background prefetch threads — turn-start
+            # prefetch_all() still warms context on the next message.
+            _skip_bg_prefetch = False
+            if self.platform in ("cli", "tui"):
+                try:
+                    from hermes_cli.config import cfg_get
+
+                    _mem_cfg = cfg_get("memory", {}) or {}
+                    _skip_bg_prefetch = bool(
+                        _mem_cfg.get("cli_skip_background_prefetch", True)
+                    )
+                except Exception:
+                    _skip_bg_prefetch = True
+            if not _skip_bg_prefetch:
+                self._memory_manager.queue_prefetch_all(
+                    original_user_message,
+                    session_id=self.session_id or "",
+                )
         except Exception:
             pass
 

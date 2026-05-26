@@ -6,6 +6,19 @@
 export const DIETCODE_PITCH =
   "DietCode is like a diet cola for your codebase: lighter risk, same refreshing results. The AI suggests edits in a safe sandbox—you review, approve, and we run tests before anything sticks.";
 
+/** This dashboard page is an interactive walkthrough — not wired to a live operator backend. */
+export const DIETCODE_DASHBOARD_DEMO_MODE = true;
+
+export const DIETCODE_DEMO_BANNER =
+  "Preview walkthrough — simulated session flow only. For a live agent, run dietcode --tui (or open Dashboard → Chat for the embedded terminal).";
+
+/** Primary CTA when dashboard demo mode is on (no fake progress timers). */
+export const DIETCODE_LIVE_AGENT_CTA = {
+  label: "Open live agent",
+  hint: "Runs the real Hermes TUI in Dashboard → Chat (embedded terminal).",
+  chatPath: "/chat",
+} as const;
+
 export const DIETCODE_TAGLINES = [
   "Just for the diff of it.",
   "Break builds, not hearts.",

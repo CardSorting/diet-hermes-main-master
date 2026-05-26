@@ -1,18 +1,22 @@
-import { Play, RotateCw } from "lucide-react";
+import { ExternalLink, Play, RotateCw } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
-import { SESSION_STATUS_COPY, type SessionStatus } from "./copy";
+import { DIETCODE_LIVE_AGENT_CTA, SESSION_STATUS_COPY, type SessionStatus } from "./copy";
 
 interface DietCodeSessionBannerProps {
   status: SessionStatus;
   onStart: () => void;
   onReset: () => void;
+  /** Dashboard preview — no simulated session progression. */
+  demoMode?: boolean;
 }
 
 export function DietCodeSessionBanner({
   status,
   onStart,
   onReset,
+  demoMode = false,
 }: DietCodeSessionBannerProps) {
   const copy = SESSION_STATUS_COPY[status];
   const busy =
@@ -43,24 +47,38 @@ export function DietCodeSessionBanner({
         </div>
       </div>
 
-      <div className="flex gap-2 shrink-0">
-        {status === "idle" && (
+      <div className="flex gap-2 shrink-0 flex-wrap justify-end">
+        {demoMode ? (
           <Button
-            onClick={onStart}
+            asChild
             className="dc-btn-primary h-10 px-5 text-xs font-bold normal-case"
           >
-            <Play className="mr-2 h-4 w-4" aria-hidden />
-            Start session
+            <Link to={DIETCODE_LIVE_AGENT_CTA.chatPath}>
+              <ExternalLink className="mr-2 h-4 w-4" aria-hidden />
+              {DIETCODE_LIVE_AGENT_CTA.label}
+            </Link>
           </Button>
-        )}
-        {status !== "idle" && (
-          <Button
-            onClick={onReset}
-            className="h-9 px-4 text-xs font-semibold bg-black/50 border border-current/20 text-midground hover:bg-white/5 normal-case tracking-normal"
-          >
-            <RotateCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-            Start over
-          </Button>
+        ) : (
+          <>
+            {status === "idle" && (
+              <Button
+                onClick={onStart}
+                className="dc-btn-primary h-10 px-5 text-xs font-bold normal-case"
+              >
+                <Play className="mr-2 h-4 w-4" aria-hidden />
+                Start session
+              </Button>
+            )}
+            {status !== "idle" && (
+              <Button
+                onClick={onReset}
+                className="h-9 px-4 text-xs font-semibold bg-black/50 border border-current/20 text-midground hover:bg-white/5 normal-case tracking-normal"
+              >
+                <RotateCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Start over
+              </Button>
+            )}
+          </>
         )}
       </div>
     </section>

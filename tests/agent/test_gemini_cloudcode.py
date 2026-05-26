@@ -555,6 +555,19 @@ class TestResolveProjectContext:
 # gemini_cloudcode_adapter.py — request/response translation
 # =============================================================================
 
+class TestCoerceContentToText:
+    def test_image_url_becomes_visible_placeholder(self):
+        from agent.gemini_cloudcode_adapter import _coerce_content_to_text
+
+        text = _coerce_content_to_text([
+            {"type": "text", "text": "see this"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+        ])
+        assert "see this" in text
+        assert "text-only" in text
+        assert "vision_analyze" in text
+
+
 class TestBuildGeminiRequest:
     def test_user_assistant_messages(self):
         from agent.gemini_cloudcode_adapter import build_gemini_request

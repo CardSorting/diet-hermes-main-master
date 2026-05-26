@@ -329,7 +329,7 @@ class SessionDB:
     _WRITE_RETRY_MAX_S = 0.150   # 150ms
     # Attempt a PASSIVE WAL checkpoint every N successful writes.
     # DietCode: less frequent WAL checkpoint — fewer fsyncs on hot transcript writes.
-    _CHECKPOINT_EVERY_N_WRITES = 100
+    _CHECKPOINT_EVERY_N_WRITES = 200
 
     def __init__(self, db_path: Path = None):
         self.db_path = db_path or DEFAULT_DB_PATH

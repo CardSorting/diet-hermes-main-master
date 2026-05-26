@@ -533,7 +533,8 @@ DEFAULT_CONFIG = {
         # this to 1 if you use fallback providers and want fast failover
         # on flaky primaries; raise it if you prefer to tolerate longer
         # provider hiccups on a single provider.
-        "api_max_retries": 3,
+        # DietCode: 2 — one Hermes-level retry then failover (SDK retries stay off).
+        "api_max_retries": 2,
         "service_tier": "",
         # Tool-use enforcement: injects system prompt guidance that tells the
         # model to actually call tools instead of describing intended actions.
@@ -594,7 +595,8 @@ DEFAULT_CONFIG = {
         "backend": "local",
         "modal_mode": "auto",
         "cwd": ".",  # Use current directory
-        "timeout": 180,
+        # DietCode: 120s — still generous for builds; less wall-clock on hung shells.
+        "timeout": 120,
         # Environment variables to pass through to sandboxed execution
         # (terminal and execute_code).  Skill-declared required_environment_variables
         # are passed through automatically; this list is for non-skill use cases.
@@ -675,11 +677,14 @@ DEFAULT_CONFIG = {
         "backend": "",           # shared fallback — applies to both search and extract
         "search_backend": "",    # per-capability override for web_search (e.g. "searxng")
         "extract_backend": "",   # per-capability override for web_extract (e.g. "native")
+        # DietCode: HTTP timeout hint for web_search plugins that read config (seconds).
+        "search_timeout_seconds": 45,
     },
 
     "browser": {
-        "inactivity_timeout": 120,
-        "command_timeout": 30,  # Timeout for browser commands in seconds (screenshot, navigate, etc.)
+        # DietCode: tighter caps — fail faster on stuck tabs / slow CDP.
+        "inactivity_timeout": 90,
+        "command_timeout": 25,  # Timeout for browser commands in seconds (screenshot, navigate, etc.)
         "record_sessions": False,  # Auto-record browser sessions as WebM videos
         "allow_private_urls": False,  # Allow navigating to private/internal IPs (localhost, 192.168.x.x, etc.)
         # Browser engine for local mode.  Passed as ``--engine <value>`` to
@@ -1211,6 +1216,9 @@ DEFAULT_CONFIG = {
         # "hindsight", "holographic", "retaindb", "byterover".
         # Only ONE external provider is allowed at a time.
         "provider": "",
+        # When true, CLI/TUI skip queue_prefetch_all after each turn (no
+        # background prefetch thread).  Turn-start prefetch_all() still runs.
+        "cli_skip_background_prefetch": True,
     },
 
     # Subagent delegation — override the provider:model used by delegate_task
@@ -1765,7 +1773,8 @@ DEFAULT_CONFIG = {
         # Master toggle.  Setting this to false disables the entire
         # subsystem — no servers spawn, no background event loop, no
         # cost.
-        "enabled": True,
+        # DietCode: off — skips LSP spawn/wait on write_file and patch hot path.
+        "enabled": False,
 
         # Diagnostic-wait mode for the post-write check.
         # ``"document"`` waits up to ``wait_timeout`` seconds for the

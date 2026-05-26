@@ -36,3 +36,20 @@ def test_logging_and_model_catalog_quiet_by_default():
     assert DEFAULT_CONFIG["logging"]["level"] == "WARNING"
     assert DEFAULT_CONFIG["logging"]["memory_monitor"]["enabled"] is False
     assert DEFAULT_CONFIG["model_catalog"]["enabled"] is False
+
+
+def test_api_retries_and_lsp_tuned_for_throughput():
+    assert DEFAULT_CONFIG["agent"]["api_max_retries"] == 2
+    assert DEFAULT_CONFIG["lsp"]["enabled"] is False
+
+
+def test_tool_timeout_defaults_tuned_for_throughput():
+    assert DEFAULT_CONFIG["terminal"]["timeout"] == 120
+    assert DEFAULT_CONFIG["browser"]["command_timeout"] == 25
+    assert DEFAULT_CONFIG["browser"]["inactivity_timeout"] == 90
+    assert DEFAULT_CONFIG["web"]["search_timeout_seconds"] == 45
+
+
+def test_memory_cli_skips_background_prefetch_by_default():
+    assert DEFAULT_CONFIG["memory"]["cli_skip_background_prefetch"] is True
+    assert DEFAULT_CONFIG["checkpoints"]["enabled"] is False

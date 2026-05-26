@@ -76,9 +76,17 @@ def _coerce_content_to_text(content: Any) -> str:
             elif isinstance(p, dict):
                 if p.get("type") == "text" and isinstance(p.get("text"), str):
                     pieces.append(p["text"])
-                # Multimodal (image_url, etc.) — stub for now; log and skip
-                elif p.get("type") in {"image_url", "input_audio"}:
-                    logger.debug("Dropping multimodal part (not yet supported): %s", p.get("type"))
+                elif p.get("type") == "image_url":
+                    pieces.append(
+                        "[Attached image omitted — Gemini Code Assist path is text-only; "
+                        "use a vision-capable provider or vision_analyze.]"
+                    )
+                    logger.debug("Replaced image_url part with text placeholder for Gemini Code Assist")
+                elif p.get("type") == "input_audio":
+                    pieces.append(
+                        "[Attached audio omitted — Gemini Code Assist path does not accept audio input.]"
+                    )
+                    logger.debug("Replaced input_audio part with text placeholder for Gemini Code Assist")
         return "\n".join(pieces)
     return str(content)
 
