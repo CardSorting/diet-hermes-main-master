@@ -1,107 +1,52 @@
 """
 BroccoliDB Graph Tools — Knowledge graph CRUD, search, and memory.
 
-These tools provide the agent with epistemic graph capabilities:
-adding knowledge nodes, querying the graph, fetching task context,
-contributing to shared memory, and performing Skeptical Audits via
-structural/epistemic sovereignty verification.
-
-Design principles (mirroring industry standards):
-  - Skeptical Audits: Epistemic validation incorporating git signals, evidence
-    discounting, and adaptive calibration to detect stale, low-confidence, or
-    contradictory knowledge in the graph.
+Uses native AgentContext RPC (persistent worker) when available; falls back to
+one-shot AgentContext bootstrap via run_agent_context_script.
 """
-import json
 from tools.registry import registry
-from tools.broccolidb_tools.runner import (
-    check_requirements,
-    run_agent_context_script,
-)
+from tools.broccolidb_tools.runner import check_requirements
+from tools.broccolidb_tools.agent_rpc import run_agent_rpc
 
-
-# ─── Handlers ───
 
 def broccolidb_add_knowledge(kb_id: str, type: str, content: str, tags: str = None) -> str:
     """Add a new cognitive node to the BroccoliDB Knowledge Graph."""
-    body = f"""\
-  const tagsStr = {repr(tags or "")};
-  const tagsArray = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
-  const newId = await context.addKnowledge(
-    {repr(kb_id)},
-    {repr(type)},
-    {repr(content)},
-    {{ tags: tagsArray }}
-  );
-  console.log(JSON.stringify({{ success: true, kbId: newId }}));
-"""
-    return run_agent_context_script(body)
+    return run_agent_rpc(
+        "add_knowledge",
+        {"kb_id": kb_id, "type": type, "content": content, "tags": tags or ""},
+    )
 
 
 def broccolidb_query_graph(query: str, tags: str = None, limit: int = 10) -> str:
     """Search the BroccoliDB Knowledge Graph with confidence metrics."""
-    body = f"""\
-  const tagsStr = {repr(tags or "")};
-  const tagsArray = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : undefined;
-  const results = await context.searchKnowledge({repr(query)}, tagsArray, {limit});
-  console.log(JSON.stringify({{
-    success: true,
-    resultCount: results.length,
-    results: results.map(r => ({{
-      id: r.itemId,
-      type: r.type,
-      content: r.content.substring(0, 500),
-      confidence: r.confidence,
-      tags: r.tags,
-      edgeCount: (r.edges || []).length,
-    }})),
-  }}));
-"""
-    return run_agent_context_script(body)
+    return run_agent_rpc(
+        "query_graph",
+        {"query": query, "tags": tags or "", "limit": limit},
+        flush=False,
+    )
 
 
 def broccolidb_get_task_context(task_id: str) -> str:
     """Retrieve contextual intelligence for a task."""
-    body = f"""\
-  const taskContext = await context.getTaskContext({repr(task_id)});
-  console.log(JSON.stringify({{
-    success: true,
-    taskId: {repr(task_id)},
-    context: taskContext,
-  }}));
-"""
-    return run_agent_context_script(body)
+    return run_agent_rpc(
+        "get_task_context",
+        {"task_id": task_id},
+        flush=False,
+    )
 
 
 def broccolidb_append_shared_memory(memory: str) -> str:
     """Contribute a global guideline to the swarm-wide Shared Rulebook."""
-    body = f"""\
-  await context.appendSharedMemory({repr(memory)});
-  console.log(JSON.stringify({{ success: true, message: 'Memory appended to shared rulebook.' }}));
-"""
-    return run_agent_context_script(body)
+    return run_agent_rpc("append_shared_memory", {"memory": memory})
 
 
 def broccolidb_verify_sovereignty(kb_id: str) -> str:
-    """Verify structural & epistemic sovereignty of a knowledge node.
-
-    This performs a 'Skeptical Audit' on the knowledge node, incorporating
-    git distance signals, evidence discounting, and adaptive threshold calibration.
-    """
-    body = f"""\
-  const nodeId = {repr(kb_id)};
-  const result = await context.reasoningService.verifySovereignty(nodeId);
-  const caveat = await context.reasoningService.getSovereignCaveat(nodeId);
-
-  console.log(JSON.stringify({{
-    success: true,
-    kbId: nodeId,
-    isValid: result.isValid,
-    metrics: result.metrics,
-    caveat: caveat || null,
-    verdict: result.isValid ? 'SOVEREIGN' : 'UNRELIABLE',
-  }}));
-"""
-    return run_agent_context_script(body)
+    """Verify structural & epistemic sovereignty of a knowledge node."""
+    return run_agent_rpc(
+        "verify_sovereignty",
+        {"kb_id": kb_id},
+        flush=False,
+    )
 
 
 # ─── Registrations ───

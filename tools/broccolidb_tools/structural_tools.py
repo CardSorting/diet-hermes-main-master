@@ -14,10 +14,10 @@ Design principles (mirroring industry standards):
 """
 import json
 from tools.registry import registry
+from tools.broccolidb_tools.agent_rpc import run_agent_rpc
 from tools.broccolidb_tools.runner import (
     check_requirements,
     run_standalone_script,
-    run_agent_context_script,
     _AUDIT_TIMEOUT,
     _BOOTSTRAP_TIMEOUT,
 )
@@ -293,28 +293,7 @@ def broccolidb_heal(task_id: str = None) -> str:
     recalculates hub scores via HITS, applies age decay, and penalizes
     high-churn evidence. Requires DB access.
     """
-    body = """\
-    const healResult = await context.selfHealGraph();
-
-    // Also run structural ghost-node pruning
-    const spider = context.spider;
-    await spider.bootstrapGraph();
-    const integrityResult = await spider.verifyGraphIntegrity(false);
-
-    console.log(JSON.stringify({
-      success: true,
-      epistemic: {
-        prunedNodes: healResult.prunedNodes.length,
-        prunedNodeIds: healResult.prunedNodes.slice(0, 20),
-        prunedEdges: healResult.prunedEdges,
-      },
-      structural: {
-        ghostNodesPruned: integrityResult.pruned,
-      },
-      totalHealed: healResult.prunedNodes.length + integrityResult.pruned,
-    }));
-"""
-    return run_agent_context_script(body, timeout=180)
+    return run_agent_rpc("heal", {}, timeout=180)
 
 
 def broccolidb_violations(file_path: str = None, task_id: str = None) -> str:

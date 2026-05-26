@@ -2,116 +2,17 @@
  * DietCode dashboard snapshot — JSON to stdout for hermes_cli/dietcode_broccolidb.py.
  *
  * Invoked via: npx tsx infrastructure/dashboard/snapshot.ts (cwd = broccolidb root)
+ * Prefer Hermes RPC (`dashboard_snapshot`) when the persistent worker is available.
  */
-import * as fs from "node:fs";
-import { getActiveShards, getDb } from "../db/Config.js";
+import { setDbPath } from "../db/Config.js";
+import { buildDashboardSnapshot } from "./snapshot_core.js";
 
-async function safeSelect<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-	try {
-		return await fn();
-	} catch {
-		return fallback;
-	}
-}
+const dbEnv = process.env.HERMES_BROCCOLIDB_DB;
+if (dbEnv) setDbPath(dbEnv);
 
 async function main() {
-	const shards = getActiveShards().length ? getActiveShards() : ["main"];
-	const shardId = shards.includes("kanban") ? "kanban" : shards[0]!;
-	const db = await getDb(shardId);
-
-	const knowledge = await safeSelect(
-		() => db.selectFrom("knowledge").selectAll().execute(),
-		[] as Array<{ edges?: string | null; hubScore?: number | null }>,
-	);
-	const edgeCount = knowledge.reduce(
-		(acc, n) => acc + JSON.parse(n.edges || "[]").length,
-		0,
-	);
-	const hubCount = knowledge.filter((n) => (n.hubScore || 0) > 5).length;
-
-	let dbSizeMb = 0;
-	const dbPath = process.env.HERMES_BROCCOLIDB_DB;
-	if (dbPath && fs.existsSync(dbPath)) {
-		dbSizeMb = Number((fs.statSync(dbPath).size / (1024 * 1024)).toFixed(2));
-	}
-
-	const sessions = await safeSelect(
-		() =>
-			db
-				.selectFrom("hive_agent_sessions")
-				.selectAll()
-				.orderBy("start_time", "desc")
-				.limit(20)
-				.execute(),
-		[],
-	);
-
-	const proposals = await safeSelect(
-		() =>
-			db
-				.selectFrom("hive_healing_proposals")
-				.selectAll()
-				.orderBy("created_at", "desc")
-				.limit(15)
-				.execute(),
-		[],
-	);
-
-	const audit = await safeSelect(
-		() =>
-			db
-				.selectFrom("hive_audit")
-				.selectAll()
-				.orderBy("timestamp", "desc")
-				.limit(40)
-				.execute(),
-		[],
-	);
-
-	const tasks = await safeSelect(
-		() =>
-			db
-				.selectFrom("hive_tasks")
-				.selectAll()
-				.orderBy("updated_at", "desc")
-				.limit(15)
-				.execute(),
-		[],
-	);
-
-	const byStatus: Record<string, number> = {};
-	let queueTotal = 0;
-	const queueRows = await safeSelect(
-		() => db.selectFrom("queue_jobs").select(["status"]).execute(),
-		[] as Array<{ status: string }>,
-	);
-	for (const row of queueRows) {
-		byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
-		queueTotal += 1;
-	}
-
-	const pendingProposal = proposals.find(
-		(p) => (p.status || "").toLowerCase() === "pending",
-	);
-
-	console.log(
-		JSON.stringify({
-			success: true,
-			shard_id: shardId,
-			graph: {
-				nodes: knowledge.length,
-				edges: edgeCount,
-				hub_count: hubCount,
-				db_size_mb: dbSizeMb,
-			},
-			sessions,
-			proposals,
-			pending_proposal_id: pendingProposal?.id ?? null,
-			audit,
-			tasks,
-			queue: { total: queueTotal, by_status: byStatus },
-		}),
-	);
+	const snapshot = await buildDashboardSnapshot();
+	console.log(JSON.stringify(snapshot));
 }
 
 main().catch((e: unknown) => {

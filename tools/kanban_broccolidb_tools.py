@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any, Optional
 
 from tools.registry import registry, tool_error
 from tools.kanban_tools import (
@@ -18,11 +19,48 @@ from tools.kanban_broccolidb_bridge import (
     sync_kanban_task_id,
     validate_task_id,
 )
+from tools.broccolidb_tools.agent_rpc import run_agent_rpc
 from tools.broccolidb_tools.runner import (
     resolve_broccolidb_root,
-    run_agent_context_script,
-    run_hive_board_intel,
+    run_db_rpc_batch,
 )
+
+
+def _drift_report_from_hive_rows(
+    board_summary: dict[str, Any],
+    hive_rows: list[dict[str, Any]],
+    *,
+    shard_id: str,
+    limit: int,
+) -> dict[str, Any]:
+    """Build drift report from kanban board summary + hive_drift rows (batch RPC path)."""
+    kanban_map = {
+        str(t["id"]).lower(): t["status"]
+        for t in board_summary.get("tasks", [])
+        if isinstance(t, dict) and t.get("id")
+    }
+    hive_map = {
+        str(r["task_id"]).lower(): r["status"]
+        for r in hive_rows
+        if isinstance(r, dict) and r.get("task_id")
+    }
+    missing_in_hive = [tid for tid in kanban_map if tid not in hive_map]
+    status_mismatch = [
+        {"task_id": tid, "kanban": kanban_map[tid], "hive": hive_map[tid]}
+        for tid in kanban_map
+        if tid in hive_map and kanban_map[tid] != hive_map[tid]
+    ]
+    return {
+        "success": True,
+        "limit": limit,
+        "shard_id": shard_id,
+        "kanban_tasks": len(kanban_map),
+        "hive_tasks_matched": len(hive_map),
+        "missing_in_hive": missing_in_hive[:50],
+        "status_mismatch": status_mismatch[:50],
+        "in_sync": not missing_in_hive and not status_mismatch,
+        "batched": True,
+    }
 
 
 def _check_kanban_broccolidb_mode() -> bool:
@@ -58,16 +96,15 @@ def kanban_broccolidb_context(task_id: str = None, sync_first: bool = True) -> s
         if not parsed.get("success") and not parsed.get("skipped"):
             return tool_error(f"pre-sync failed: {parsed.get('error', sync_raw)}")
 
-    body = f"""
-  const ctx = await context.getTaskContext({json.dumps(tid)});
-  console.log(JSON.stringify({{
-    success: true,
-    taskId: {json.dumps(tid)},
-    broccolidb_root: {json.dumps(resolve_broccolidb_root())},
-    context: ctx,
-  }}));
-"""
-    return run_agent_context_script(body)
+    raw = run_agent_rpc("get_task_context", {"task_id": tid}, flush=False)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    if isinstance(data, dict) and data.get("success"):
+        data["broccolidb_root"] = resolve_broccolidb_root()
+        return json.dumps(data)
+    return raw
 
 
 def kanban_broccolidb_sync(task_id: str = None, event: str = "sync") -> str:
@@ -99,17 +136,22 @@ def kanban_broccolidb_record(
     tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
     tag_list.extend(["kanban", tid])
     kb_key = f"kanban_{tid}_{kb_type}"
-    body = f"""
-  const tags = {json.dumps(tag_list)};
-  const kbId = await context.addKnowledge(
-    {json.dumps(kb_key)},
-    {json.dumps(kb_type)},
-    {json.dumps(summary.strip())},
-    {{ tags }}
-  );
-  console.log(JSON.stringify({{ success: true, kbId, taskId: {json.dumps(tid)} }}));
-"""
-    result = run_agent_context_script(body)
+    result = run_agent_rpc(
+        "add_knowledge",
+        {
+            "kb_id": kb_key,
+            "type": kb_type,
+            "content": summary.strip(),
+            "tags": ",".join(tag_list),
+        },
+    )
+    try:
+        data = json.loads(result)
+        if isinstance(data, dict) and data.get("success"):
+            data["taskId"] = tid
+            result = json.dumps(data)
+    except json.JSONDecodeError:
+        pass
     sync_kanban_task_id(tid, event="record", force=True)
     return result
 
@@ -148,18 +190,49 @@ def kanban_broccolidb_board_intel(board: str = None, limit: int = 25) -> str:
         return tool_error(f"kanban board read failed: {exc}")
 
     from tools.kanban_broccolidb_bridge import get_config
+
     cfg = get_config()
-    raw = run_hive_board_intel({
+    intel_params = {
         "shard_id": cfg.shard_id,
         "queue_limit": max(lim * 10, 100),
         "hive_limit": max(lim * 10, 100),
-    })
-    try:
-        hive_metrics = json.loads(raw)
-    except json.JSONDecodeError:
-        hive_metrics = {"parse_error": raw[:500]}
+    }
 
-    drift = compute_drift(board=board, limit=lim)
+    # One RPC round-trip for BroccoliQ metrics + hive drift probe
+    task_ids = [t["id"] for t in board_summary.get("tasks", []) if isinstance(t, dict) and t.get("id")]
+    batch_calls: list[tuple[str, dict]] = [("hive_board_intel", intel_params)]
+    if task_ids:
+        batch_calls.append((
+            "hive_drift",
+            {"shard_id": cfg.shard_id, "task_ids": task_ids},
+        ))
+
+    raw_batch = run_db_rpc_batch(batch_calls, timeout=60)
+    hive_metrics: dict = {}
+    drift_from_batch: Optional[dict] = None
+    try:
+        batch_data = json.loads(raw_batch)
+        if batch_data.get("success") and isinstance(batch_data.get("results"), list):
+            for entry in batch_data["results"]:
+                if not entry.get("ok"):
+                    continue
+                m = entry.get("method")
+                res = entry.get("result") if isinstance(entry.get("result"), dict) else {}
+                if m == "hive_board_intel":
+                    hive_metrics = res
+                elif m == "hive_drift":
+                    drift_from_batch = _drift_report_from_hive_rows(
+                        board_summary,
+                        res.get("rows") if isinstance(res.get("rows"), list) else [],
+                        shard_id=cfg.shard_id,
+                        limit=lim,
+                    )
+        if not hive_metrics:
+            hive_metrics = batch_data
+    except json.JSONDecodeError:
+        hive_metrics = {"parse_error": raw_batch[:500]}
+
+    drift = drift_from_batch if drift_from_batch is not None else compute_drift(board=board, limit=lim)
 
     return json.dumps({
         "success": True,

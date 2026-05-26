@@ -30,6 +30,7 @@ _BROCCOLIDB_ROOT = "broccolidb"
 _HIVE_SYNC_SCRIPT = "infrastructure/kanban/hive_sync.ts"
 _HIVE_DRIFT_SCRIPT = "infrastructure/kanban/hive_drift.ts"
 _HIVE_BOARD_INTEL_SCRIPT = "infrastructure/kanban/hive_board_intel.ts"
+_HERMES_RPC_SCRIPT = "infrastructure/hermes/hermes_rpc.ts"
 
 # Maximum output size to prevent memory exhaustion from runaway processes
 _MAX_OUTPUT_BYTES = 512 * 1024  # 512KB
@@ -141,12 +142,18 @@ def check_requirements() -> bool:
     sync_script = Path(root) / _HIVE_SYNC_SCRIPT
     drift_script = Path(root) / _HIVE_DRIFT_SCRIPT
     intel_script = Path(root) / _HIVE_BOARD_INTEL_SCRIPT
+    hermes_rpc = Path(root) / "infrastructure" / "hermes" / "hermes_rpc.ts"
+    hermes_handlers = Path(root) / "infrastructure" / "hermes" / "rpc_handlers.ts"
+    hermes_oneshot = Path(root) / "infrastructure" / "hermes" / "hermes_oneshot.ts"
     return (
         Path(root, "package.json").is_file()
         and Path(root, "core").is_dir()
         and sync_script.is_file()
         and drift_script.is_file()
         and intel_script.is_file()
+        and hermes_rpc.is_file()
+        and hermes_handlers.is_file()
+        and hermes_oneshot.is_file()
     )
 
 
@@ -439,18 +446,18 @@ run();
 """
 
 _TS_CONTEXT = """\
-import { Connection } from '../core/connection.js';
-import { AgentContext } from '../core/agent-context.js';
-import { Workspace } from '../core/workspace.js';
-import * as path from 'path';
+import { setDbPath } from './infrastructure/db/Config.js';
+import { Connection } from './core/connection.js';
+import { AgentContext } from './core/agent-context.js';
+import { Workspace } from './core/workspace.js';
+
+const __hermesDb = process.env.HERMES_BROCCOLIDB_DB;
+if (__hermesDb) setDbPath(__hermesDb);
 
 async function run() {
   try {
-    const dbPath = path.resolve(process.cwd(), '../broccolidb.db');
-    const conn = new Connection({ dbPath });
+    const conn = new Connection();
     const pool = conn.getPool();
-    await pool.ensureDb();
-
     const userId = 'local-user';
     const workspaceId = 'local-workspace';
     const workspace = new Workspace(pool, userId, workspaceId);
@@ -553,7 +560,11 @@ def _run_kanban_ts_module(
 
 
 def run_hive_sync(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> str:
-    """Execute the canonical Kanban-to-hive sync TypeScript module."""
+    """Execute Kanban-to-hive sync (native RPC when available)."""
+    from tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
+
+    if rpc_available():
+        return run_db_rpc("hive_sync", payload, timeout=timeout)
     return _run_kanban_ts_module(
         _HIVE_SYNC_SCRIPT,
         "KANBAN_HIVE_SYNC_PAYLOAD",
@@ -565,6 +576,10 @@ def run_hive_sync(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> s
 
 def run_hive_drift(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> str:
     """Fetch hive_tasks statuses for kanban drift detection."""
+    from tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
+
+    if rpc_available():
+        return run_db_rpc("hive_drift", payload, timeout=timeout)
     return _run_kanban_ts_module(
         _HIVE_DRIFT_SCRIPT,
         "KANBAN_HIVE_DRIFT_PAYLOAD",
@@ -576,6 +591,10 @@ def run_hive_drift(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> 
 
 def run_hive_board_intel(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> str:
     """Fetch bounded BroccoliQ queue/hive metrics for orchestrator board intel."""
+    from tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
+
+    if rpc_available():
+        return run_db_rpc("hive_board_intel", payload, timeout=timeout)
     return _run_kanban_ts_module(
         _HIVE_BOARD_INTEL_SCRIPT,
         "KANBAN_HIVE_BOARD_INTEL_PAYLOAD",
@@ -598,8 +617,35 @@ def run_standalone_script(body: str, timeout: int = _DEFAULT_TIMEOUT) -> str:
 def run_agent_context_script(body: str, timeout: int = _BOOTSTRAP_TIMEOUT) -> str:
     """Execute a TypeScript snippet within a fully bootstrapped AgentContext.
 
-    Use this for operations that need DB access, knowledge graph, or services.
-    Slower startup due to DB connection and service initialization.
+    Prefer ``run_agent_rpc`` for known graph ops (persistent worker). This path
+    is for one-off scripts (e.g. structural heal) when RPC cannot map the body.
     """
     script = _TS_CONTEXT.replace("%BODY%", body)
     return run_ts_script(script, timeout=timeout)
+
+
+def run_db_rpc(
+    method: str,
+    params: Optional[dict[str, Any]] = None,
+    *,
+    timeout: int = _DEFAULT_TIMEOUT,
+) -> str:
+    """Native BroccoliDB/BroccoliQ RPC (persistent worker when available).
+
+    Prefer this over inline ``run_ts_script`` for hot read/write paths — see
+    ``rpc_handlers.ts`` for the canonical method list.
+    """
+    from tools.broccolidb_tools.db_gateway import run_db_rpc as _rpc
+
+    return _rpc(method, params, timeout=timeout)
+
+
+def run_db_rpc_batch(
+    calls: list[tuple[str, dict[str, Any]]],
+    *,
+    timeout: int = _DEFAULT_TIMEOUT,
+) -> str:
+    """Batch multiple native RPC calls in one worker round-trip."""
+    from tools.broccolidb_tools.db_gateway import run_db_rpc_batch as _batch
+
+    return _batch(calls, timeout=timeout)

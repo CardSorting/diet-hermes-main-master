@@ -11,11 +11,16 @@ def _seed_broccolidb(tmp_path):
     root = tmp_path / "broccolidb"
     (root / "core").mkdir(parents=True)
     (root / "infrastructure" / "kanban").mkdir(parents=True)
+    (root / "infrastructure" / "hermes").mkdir(parents=True)
     (root / "package.json").write_text('{"name":"broccolidb"}')
     for name in ("hive_sync.ts", "hive_drift.ts", "hive_board_intel.ts"):
         sync = root / "infrastructure" / "kanban" / name
         if not sync.is_file():
             sync.write_text(f"// test stub\nconsole.log(JSON.stringify({{success:true}}));\n")
+    for name in ("hermes_rpc.ts", "rpc_handlers.ts", "hermes_oneshot.ts", "queue_metrics.ts"):
+        p = root / "infrastructure" / "hermes" / name
+        if not p.is_file():
+            p.write_text("// test stub\n")
     return root
 
 

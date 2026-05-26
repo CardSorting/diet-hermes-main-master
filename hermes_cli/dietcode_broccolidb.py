@@ -2,7 +2,7 @@
 DietCode dashboard ↔ BroccoliDB bridge.
 
 Exposes health checks and live hive/graph snapshots for the web dashboard.
-Uses existing tools/broccolidb_tools/runner.py subprocess infrastructure.
+Hot paths use native BroccoliDB RPC (tools/broccolidb_tools/db_gateway.py).
 """
 from __future__ import annotations
 
@@ -13,43 +13,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 _log = logging.getLogger(__name__)
-
-_SNAPSHOT_SCRIPT = "infrastructure/dashboard/snapshot.ts"
-_PROPOSAL_ACTION_SCRIPT = """\
-import { getActiveShards, getDb } from './infrastructure/db/Config.js';
-
-const proposalId = process.env.DIETCODE_PROPOSAL_ID || '';
-const action = (process.env.DIETCODE_PROPOSAL_ACTION || '').toLowerCase();
-
-if (!proposalId || !['approve', 'deny'].includes(action)) {
-  console.log(JSON.stringify({ success: false, error: 'Missing proposal id or invalid action' }));
-  process.exit(1);
-}
-
-const shards = getActiveShards().length ? getActiveShards() : ['main'];
-const shardId = shards.includes('kanban') ? 'kanban' : shards[0];
-const db = await getDb(shardId);
-const nextStatus = action === 'approve' ? 'approved' : 'rejected';
-
-const row = await db
-  .selectFrom('hive_healing_proposals')
-  .selectAll()
-  .where('id', '=', proposalId)
-  .executeTakeFirst();
-
-if (!row) {
-  console.log(JSON.stringify({ success: false, error: 'Proposal not found' }));
-  process.exit(1);
-}
-
-await db
-  .updateTable('hive_healing_proposals')
-  .set({ status: nextStatus, applied_at: action === 'approve' ? Date.now() : row.applied_at })
-  .where('id', '=', proposalId)
-  .execute();
-
-console.log(JSON.stringify({ success: true, id: proposalId, status: nextStatus }));
-"""
 
 
 def _dietcode_dashboard_cfg() -> dict:
@@ -78,21 +41,42 @@ def get_health() -> dict[str, Any]:
         resolve_broccolidb_root,
     )
 
+    from tools.broccolidb_tools.db_gateway import rpc_available
+    from tools.broccolidb_tools.db_native import RPC_VERSION, warm_db_rpc
+
     root = resolve_broccolidb_root()
     db_path = resolve_broccolidb_db_path()
     db_exists = bool(db_path and Path(db_path).is_file())
     enabled = dashboard_broccolidb_enabled()
+    available = check_requirements()
+    live = enabled and available and db_exists
+    rpc_ok = rpc_available()
+
+    if live and rpc_ok and dash_warm_rpc_enabled():
+        warm_db_rpc(preload_agent=dash_preload_agent_enabled())
 
     return {
         "enabled": enabled,
-        "available": check_requirements(),
+        "available": available,
         "root": root,
         "db_path": db_path,
         "db_exists": db_exists,
         "node_ok": shutil.which("npx") is not None,
-        "live": enabled and check_requirements() and db_exists,
-        "message": _health_message(enabled, check_requirements(), db_exists),
+        "rpc_available": rpc_ok,
+        "rpc_version": RPC_VERSION if rpc_ok else None,
+        "live": live,
+        "message": _health_message(enabled, available, db_exists),
     }
+
+
+def dash_warm_rpc_enabled() -> bool:
+    dash = _dietcode_dashboard_cfg()
+    return bool(dash.get("warm_rpc", True))
+
+
+def dash_preload_agent_enabled() -> bool:
+    dash = _dietcode_dashboard_cfg()
+    return bool(dash.get("preload_agent_context", False))
 
 
 def _health_message(enabled: bool, available: bool, db_exists: bool) -> str:
@@ -126,22 +110,10 @@ def get_snapshot() -> dict[str, Any]:
             "error": health.get("message") or "BroccoliDB unavailable",
         }
 
-    from tools.broccolidb_tools.runner import resolve_broccolidb_root, run_ts_script
+    from tools.broccolidb_tools.runner import run_db_rpc
 
-    root = resolve_broccolidb_root()
-    if not root:
-        return {"success": False, "live": False, "error": "BroccoliDB root not resolved"}
-
-    script_path = Path(root) / _SNAPSHOT_SCRIPT
-    if not script_path.is_file():
-        return {
-            "success": False,
-            "live": False,
-            "error": f"Missing dashboard script: {script_path.name}",
-        }
-
-    script = script_path.read_text(encoding="utf-8")
-    raw = run_ts_script(script, timeout=45)
+    # Single RPC round-trip for dashboard poll (graph + queue + hive tables)
+    raw = run_db_rpc("dashboard_snapshot", timeout=45)
     data = _parse_runner_json(raw)
     data["live"] = bool(data.get("success"))
     data["health"] = health
@@ -162,24 +134,11 @@ def set_proposal_action(proposal_id: str, action: str) -> dict[str, Any]:
     if not pid:
         return {"success": False, "error": "proposal_id required"}
 
-    import os
+    from tools.broccolidb_tools.runner import run_db_rpc
 
-    from tools.broccolidb_tools.runner import run_ts_script
-
-    prev_id = os.environ.get("DIETCODE_PROPOSAL_ID")
-    prev_action = os.environ.get("DIETCODE_PROPOSAL_ACTION")
-    try:
-        os.environ["DIETCODE_PROPOSAL_ID"] = pid
-        os.environ["DIETCODE_PROPOSAL_ACTION"] = action_lc
-        raw = run_ts_script(_PROPOSAL_ACTION_SCRIPT, timeout=30)
-    finally:
-        if prev_id is None:
-            os.environ.pop("DIETCODE_PROPOSAL_ID", None)
-        else:
-            os.environ["DIETCODE_PROPOSAL_ID"] = prev_id
-        if prev_action is None:
-            os.environ.pop("DIETCODE_PROPOSAL_ACTION", None)
-        else:
-            os.environ["DIETCODE_PROPOSAL_ACTION"] = prev_action
-
+    raw = run_db_rpc(
+        "proposal_action",
+        {"proposalId": pid, "action": action_lc},
+        timeout=30,
+    )
     return _parse_runner_json(raw)

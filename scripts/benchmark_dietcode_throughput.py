@@ -241,14 +241,26 @@ def bench_broccolidb_snapshot() -> dict[str, Any] | None:
         row["note"] = "snapshot skipped — broccolidb.db not live (run broccolidb_init)"
         return row
 
+    from tools.broccolidb_tools.db_native import warm_db_rpc
+    from tools.broccolidb_tools.runner import run_db_rpc
+
+    warm_db_rpc(block=True)
+
+    ping_times: list[float] = []
+    for _ in range(3):
+        t0 = time.perf_counter()
+        run_db_rpc("rpc_health", timeout=15)
+        ping_times.append((time.perf_counter() - t0) * 1000)
+
     snap_times: list[float] = []
     for _ in range(3):
         t0 = time.perf_counter()
         get_snapshot()
         snap_times.append((time.perf_counter() - t0) * 1000)
     return {
-        "label": "broccolidb get_snapshot (live)",
+        "label": "broccolidb get_snapshot (live, warm RPC)",
         "live": True,
+        "rpc_health_median_ms": round(statistics.median(ping_times), 2),
         "median_ms": round(statistics.median(snap_times), 2),
         "min_ms": round(min(snap_times), 2),
         "max_ms": round(max(snap_times), 2),
