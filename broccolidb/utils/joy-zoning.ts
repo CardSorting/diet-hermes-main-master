@@ -97,6 +97,18 @@ export function getLayer(filePath: string, content?: string): Layer {
 
 	if (PATH_LAYER_CACHE.has(normalized)) return PATH_LAYER_CACHE.get(normalized)!
 
+	const layer = getPathLayer(filePath)
+	PATH_LAYER_CACHE.set(normalized, layer)
+	return layer
+}
+
+/**
+ * Path-only layer resolution (no content tags or pattern hints).
+ * Used for PGA checks in ``validateJoyZoning`` and auto-injected headers.
+ */
+export function getPathLayer(filePath: string): Layer {
+	const normalized = filePath.replace(/\\/g, "/")
+
 	// Try to load spider.spec.json for custom domain/layer mappings (Cached)
 	if (SPEC_CACHE === null) {
 		try {
@@ -112,7 +124,6 @@ export function getLayer(filePath: string, content?: string): Layer {
 	}
 
 	if (SPEC_CACHE?.resources) {
-		// Check if any resource path matches
 		for (const [_key, resource] of Object.entries(SPEC_CACHE.resources)) {
 			const res = resource as { path?: string; domain?: string }
 			if (res.path && normalized.includes(res.path)) {
@@ -130,34 +141,60 @@ export function getLayer(filePath: string, content?: string): Layer {
 		}
 	}
 
-	const layer =
-		normalized.includes("src/domain/") || normalized.endsWith("/src/domain")
-			? "domain"
-			: normalized.includes("src/infrastructure/") || normalized.endsWith("/src/infrastructure")
-				? "infrastructure"
-				: normalized.includes("src/plumbing/") ||
-						normalized.endsWith("/src/plumbing") ||
-						normalized.includes("src/shared/utils/")
-					? "plumbing"
-					: normalized.includes("src/ui/") || normalized.endsWith("/src/ui") || normalized.includes("webview-ui/")
-						? "ui"
-					: normalized.includes("src/core/") || normalized.endsWith("/src/core") || normalized.endsWith("/run_agent.py") || normalized === "run_agent.py" || normalized.includes("agent/")
-						? "core"
-						: normalized.includes("src/services/") ||
-								normalized.includes("src/integrations/") ||
-								normalized.includes("src/generated/") ||
-								normalized.includes("src/hosts/") ||
-								normalized.includes("src/packages/") ||
-								normalized.includes("src/shared/")
-							? "infrastructure"
-							: normalized.includes("src/utils/")
-								? "plumbing"
-								: normalized.includes("webview-ui/") || normalized.endsWith("/cli.py") || normalized === "cli.py"
-									? "ui"
-									: "infrastructure"
-
-	PATH_LAYER_CACHE.set(normalized, layer)
-	return layer
+	if (normalized.includes("src/domain/") || normalized.endsWith("/src/domain") || normalized.includes("broccolidb/domain/")) {
+		return "domain"
+	}
+	if (
+		normalized.includes("src/infrastructure/") ||
+		normalized.endsWith("/src/infrastructure") ||
+		normalized.includes("broccolidb/infrastructure/")
+	) {
+		return "infrastructure"
+	}
+	if (
+		normalized.includes("src/plumbing/") ||
+		normalized.endsWith("/src/plumbing") ||
+		normalized.includes("src/shared/utils/") ||
+		normalized.includes("broccolidb/utils/") ||
+		normalized.includes("broccolidb/shared/")
+	) {
+		return "plumbing"
+	}
+	if (normalized.includes("src/ui/") || normalized.endsWith("/src/ui") || normalized.includes("webview-ui/")) {
+		return "ui"
+	}
+	if (
+		normalized.includes("src/core/") ||
+		normalized.endsWith("/src/core") ||
+		normalized.includes("broccolidb/core/") ||
+		normalized.endsWith("/run_agent.py") ||
+		normalized === "run_agent.py" ||
+		normalized.includes("agent/")
+	) {
+		return "core"
+	}
+	if (
+		normalized.includes("src/services/") ||
+		normalized.includes("src/integrations/") ||
+		normalized.includes("src/generated/") ||
+		normalized.includes("src/hosts/") ||
+		normalized.includes("src/packages/") ||
+		normalized.includes("src/shared/")
+	) {
+		return "infrastructure"
+	}
+	if (normalized.includes("src/utils/")) {
+		return "plumbing"
+	}
+	if (
+		normalized.endsWith("/cli.py") ||
+		normalized === "cli.py" ||
+		normalized.includes("herm-tui/") ||
+		normalized.includes("broccolidb/cli/")
+	) {
+		return "ui"
+	}
+	return "infrastructure"
 }
 
 /** Keep in sync with agent/governance_exemptions.py (policy v16+) */
@@ -868,7 +905,7 @@ export function validateJoyZoning(
 
 	// 1. Tag Locality & PGA (Principle of Geographic Alignment)
 	const tag = parseLayerTag(content)
-	const pathLayer = getLayer(filePath)
+	const pathLayer = getPathLayer(filePath)
 
 	if (!tag) {
 		if (isLayerTagSupported(filePath)) {

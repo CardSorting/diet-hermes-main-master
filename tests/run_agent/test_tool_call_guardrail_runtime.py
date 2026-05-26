@@ -304,3 +304,41 @@ def test_config_enabled_hard_stop_run_conversation_returns_controlled_guardrail_
         call_ids = [tc["id"] for tc in assistant_msg["tool_calls"]]
         following_results = [m for m in result["messages"] if m.get("role") == "tool" and m.get("tool_call_id") in call_ids]
         assert len(following_results) == len(call_ids)
+
+
+def test_governance_fault_halts_run_conversation_by_default_after_two_repeats():
+    """Regression: governance blocks must not allow infinite retry loops."""
+    agent = _make_agent("write_file", max_iterations=10)
+    args = {"path": "src/domain/x.ts", "content": "export const x = 1;"}
+
+    responses = [
+        _mock_response(
+            content="",
+            finish_reason="tool_calls",
+            tool_calls=[_mock_tool_call("write_file", json.dumps(args), f"g{i}")],
+        )
+        for i in range(1, 6)
+    ]
+    agent.client.chat.completions.create.side_effect = responses
+
+    underlying = json.dumps({"bytes_written": 10})
+    governance_wrapped = json.dumps(
+        {
+            "success": False,
+            "error": "GOVERNANCE FAULT: JoyZoning Layering Violations Detected!",
+            "original_result": underlying,
+        }
+    )
+
+    with (
+        patch("run_agent.handle_function_call", return_value=governance_wrapped) as mock_hfc,
+        patch.object(agent, "_persist_session"),
+        patch.object(agent, "_save_trajectory"),
+        patch.object(agent, "_cleanup_task_resources"),
+    ):
+        result = agent.run_conversation("write file but governance blocks")
+
+    # Should stop quickly (second identical governance block), not burn iterations.
+    assert mock_hfc.call_count == 2
+    assert result["turn_exit_reason"] == "guardrail_halt"
+    assert result.get("guardrail", {}).get("code") == "governance_fault_halt"

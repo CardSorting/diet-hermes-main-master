@@ -14,7 +14,10 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from utils import safe_json_loads
-from agent.tool_result_classification import file_mutation_result_landed
+from agent.tool_result_classification import (
+    FILE_MUTATING_TOOL_NAMES,
+    file_mutation_result_landed,
+)
 
 
 IDEMPOTENT_TOOL_NAMES = frozenset(
@@ -197,6 +200,16 @@ def classify_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str
     """
     if result is None:
         return False, ""
+    if tool_name in FILE_MUTATING_TOOL_NAMES:
+        data = safe_json_loads(result)
+        if isinstance(data, dict):
+            try:
+                from agent.governance_exemptions import is_governance_transform_result
+
+                if is_governance_transform_result(data):
+                    return True, " [governance]"
+            except ImportError:
+                pass
     if file_mutation_result_landed(tool_name, result):
         return False, ""
 
@@ -302,6 +315,34 @@ class ToolCallGuardrailController:
 
             same_count = self._same_tool_failure_counts.get(tool_name, 0) + 1
             self._same_tool_failure_counts[tool_name] = same_count
+
+            # Special-case: JoyZoning governance blocks are frequently a stable
+            # "retry won't help" failure mode (tagging/architecture policy).
+            # Even when hard-stop guardrails are disabled, halt after two
+            # identical governance blocks to prevent long no-progress loops.
+            if tool_name in FILE_MUTATING_TOOL_NAMES and result:
+                parsed = safe_json_loads(result)
+                if isinstance(parsed, dict):
+                    try:
+                        from agent.governance_exemptions import is_governance_transform_result
+
+                        if is_governance_transform_result(parsed) and exact_count >= 2:
+                            decision = ToolGuardrailDecision(
+                                action="halt",
+                                code="governance_fault_halt",
+                                message=(
+                                    "Stopped: JoyZoning governance blocked this mutation repeatedly. "
+                                    "Do not keep retrying the same write/patch; fix the layer tag and/or "
+                                    "the import-direction violation, then retry once."
+                                ),
+                                tool_name=tool_name,
+                                count=exact_count,
+                                signature=signature,
+                            )
+                            self._halt_decision = decision
+                            return decision
+                    except ImportError:
+                        pass
 
             if self.config.hard_stop_enabled and same_count >= self.config.same_tool_failure_halt_after:
                 decision = ToolGuardrailDecision(

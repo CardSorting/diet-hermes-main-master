@@ -98,41 +98,67 @@ def parse_layer_tag(content: str) -> Optional[str]:
         return "plumbing"
     return tag
 
+def get_path_layer(file_path: str) -> str:
+    """Resolve architectural layer from path conventions only (no content heuristics).
+
+    Used for geographic-alignment (PGA) checks and auto-injected ``[LAYER: TYPE]``
+    headers. Content-aware resolution (tags, pattern hints) belongs in ``get_layer``.
+    """
+    normalized = file_path.replace("\\", "/")
+
+    if "src/domain/" in normalized or normalized.endswith("/src/domain") or "broccolidb/domain/" in normalized:
+        return "domain"
+    if "src/infrastructure/" in normalized or normalized.endswith("/src/infrastructure") or "broccolidb/infrastructure/" in normalized:
+        return "infrastructure"
+    if (
+        "src/plumbing/" in normalized
+        or normalized.endswith("/src/plumbing")
+        or "src/shared/utils/" in normalized
+        or "broccolidb/utils/" in normalized
+        or "broccolidb/shared/" in normalized
+    ):
+        return "plumbing"
+    if "src/ui/" in normalized or normalized.endswith("/src/ui") or "webview-ui/" in normalized:
+        return "ui"
+    if (
+        "src/core/" in normalized
+        or normalized.endswith("/src/core")
+        or "broccolidb/core/" in normalized
+        or normalized.endswith("/run_agent.py")
+        or normalized == "run_agent.py"
+        or "agent/" in normalized
+    ):
+        return "core"
+    if (
+        "src/services/" in normalized
+        or "src/integrations/" in normalized
+        or "src/generated/" in normalized
+        or "src/hosts/" in normalized
+        or "src/packages/" in normalized
+        or "src/shared/" in normalized
+    ):
+        return "infrastructure"
+    if "src/utils/" in normalized:
+        return "plumbing"
+    if normalized.endswith("/cli.py") or normalized == "cli.py" or "herm-tui/" in normalized or "broccolidb/cli/" in normalized:
+        return "ui"
+    return "infrastructure"
+
+
 def get_layer(file_path: str, content: Optional[str] = None) -> str:
     """Determines the layer of a given file path based on Joy-Zoning conventions.
     Archetypal Primacy: The [LAYER: TYPE] tag in content overrides the file path.
     """
-    normalized = file_path.replace("\\", "/")
-    
-    # 1. Archetypal Primacy
     if content:
         tag = parse_layer_tag(content)
         if tag:
             return tag
-            
+
         suggestion = suggest_layer_for_content(content)
         if suggestion:
             return suggestion["layer"]
-            
-    # Path-based layer detection
-    if "src/domain/" in normalized or normalized.endswith("/src/domain"):
-        return "domain"
-    elif "src/infrastructure/" in normalized or normalized.endswith("/src/infrastructure"):
-        return "infrastructure"
-    elif "src/plumbing/" in normalized or normalized.endswith("/src/plumbing") or "src/shared/utils/" in normalized:
-        return "plumbing"
-    elif "src/ui/" in normalized or normalized.endswith("/src/ui") or "webview-ui/" in normalized:
-        return "ui"
-    elif "src/core/" in normalized or normalized.endswith("/src/core") or normalized.endswith("/run_agent.py") or normalized == "run_agent.py" or "agent/" in normalized:
-        return "core"
-    elif "src/services/" in normalized or "src/integrations/" in normalized or "src/generated/" in normalized or "src/hosts/" in normalized or "src/packages/" in normalized or "src/shared/" in normalized:
-        return "infrastructure"
-    elif "src/utils/" in normalized:
-        return "plumbing"
-    elif normalized.endswith("/cli.py") or normalized == "cli.py" or "herm-tui/" in normalized:
-        return "ui"
-    else:
-        return "infrastructure"
+
+    return get_path_layer(file_path)
 
 def is_layer_tag_supported(
     file_path: str,
@@ -437,7 +463,7 @@ def validate_joy_zoning(
     all_errors = []
 
     tag = parse_layer_tag(content)
-    path_layer = get_layer(file_path)
+    path_layer = get_path_layer(file_path)
     
     if not tag:
         if is_layer_tag_supported(file_path, content):

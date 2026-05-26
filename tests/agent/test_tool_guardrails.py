@@ -147,6 +147,21 @@ def test_file_mutation_lint_error_result_is_not_a_tool_failure():
     assert classify_tool_failure("patch", patch_result) == (False, "")
 
 
+def test_governance_blocks_halt_by_default_after_two_identical_failures():
+    controller = ToolCallGuardrailController(ToolCallGuardrailConfig())
+    args = {"path": "src/domain/x.ts", "content": "x"}
+    wrapped = json.dumps({
+        "success": False,
+        "error": "GOVERNANCE FAULT: JoyZoning Layering Violations Detected!",
+        "original_result": json.dumps({"bytes_written": 1}),
+    })
+    first = controller.after_call("write_file", args, wrapped, failed=None)
+    assert first.action in {"allow", "warn"}
+    second = controller.after_call("write_file", args, wrapped, failed=None)
+    assert second.action == "halt"
+    assert second.code == "governance_fault_halt"
+
+
 def test_same_tool_varying_args_warns_by_default_without_halting():
     controller = ToolCallGuardrailController(
         ToolCallGuardrailConfig(same_tool_failure_warn_after=2, same_tool_failure_halt_after=3)

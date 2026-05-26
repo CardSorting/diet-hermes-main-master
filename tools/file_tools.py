@@ -806,7 +806,7 @@ def _check_file_staleness(filepath: str, task_id: str) -> str | None:
 
 def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> None:
     try:
-        from agent.joy_zoning import get_layer, generate_layer_comment, parse_layer_tag
+        from agent.joy_zoning import generate_layer_comment, get_path_layer, parse_layer_tag
         # Read the file content from the terminal environment using file_ops
         read_res = file_ops.read_file_raw(filepath)
         if not read_res.error and read_res.content:
@@ -817,7 +817,7 @@ def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> N
                 resolved_abs_path = filepath
 
             if _is_governance_subject_path(resolved_abs_path, content) and not parse_layer_tag(content):
-                layer = get_layer(resolved_abs_path, content)
+                layer = get_path_layer(resolved_abs_path)
                 new_content = generate_layer_comment(resolved_abs_path, layer, content)
                 file_ops.write_file(filepath, new_content)
                 _invalidate_dedup_for_path(filepath, task_id)
@@ -865,14 +865,14 @@ def write_file_tool(path: str, content: str, task_id: str = "default") -> str:
         )
     # Autonomous header tag injection:
     try:
-        from agent.joy_zoning import get_layer, generate_layer_comment, parse_layer_tag
+        from agent.joy_zoning import generate_layer_comment, get_path_layer, parse_layer_tag
         try:
             resolved_abs_path = str(_resolve_path_for_task(path, task_id))
         except Exception:
             resolved_abs_path = path
 
         if _is_governance_subject_path(resolved_abs_path, content) and not parse_layer_tag(content):
-            layer = get_layer(resolved_abs_path, content)
+            layer = get_path_layer(resolved_abs_path)
             content = generate_layer_comment(resolved_abs_path, layer, content)
     except Exception as e:
         logger.debug("Failed to auto-generate layer comment: %s", e)

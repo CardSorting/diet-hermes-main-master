@@ -179,6 +179,13 @@ def ensure_default_home_env() -> None:
     """
     primary = os.environ.get(HOME_ENV_PRIMARY, "").strip()
     compat = os.environ.get(HOME_ENV_COMPAT, "").strip()
+    if primary and compat and primary != compat:
+        # Safety: keep the home env vars coherent. Many test fixtures and
+        # downstream integrations still set only the legacy env var
+        # (``HERMES_HOME``). If both are set but diverge, prefer the compat
+        # value to avoid cross-root reads/writes.
+        os.environ[HOME_ENV_PRIMARY] = compat
+        primary = compat
     if primary and not compat:
         os.environ[HOME_ENV_COMPAT] = primary
     elif compat and not primary:
@@ -239,6 +246,11 @@ def get_hermes_home() -> Path:
     override = get_hermes_home_override()
     if override:
         return Path(override)
+
+    # Keep the home env vars coherent even when callers only update the
+    # legacy var (HERMES_HOME) at runtime (common in tests and some adapters).
+    # This is cheap and avoids cross-root reads/writes within a process.
+    ensure_default_home_env()
 
     val = resolve_home_env_raw()
     if val:
