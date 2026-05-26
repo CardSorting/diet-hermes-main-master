@@ -681,6 +681,16 @@ DEFAULT_CONFIG = {
         "search_timeout_seconds": 45,
     },
 
+    # DietCode control-plane dashboard (web /dietcode route).
+    "dietcode": {
+        "dashboard": {
+            # When true, /dietcode polls BroccoliDB for live hive/graph data.
+            "broccolidb_enabled": True,
+            # Poll interval for live dashboard refresh (seconds).
+            "poll_interval_seconds": 15,
+        },
+    },
+
     "browser": {
         # DietCode: tighter caps — fail faster on stuck tabs / slow CDP.
         "inactivity_timeout": 90,

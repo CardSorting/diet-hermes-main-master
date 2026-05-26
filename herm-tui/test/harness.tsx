@@ -177,6 +177,10 @@ async function render(node: ReactNode, gw: MockGateway, opts: Opts): Promise<Har
     kittyKeyboard: true,
   })
 
+  // Kanban mounts many scrollboxes; each registers a selection listener on
+  // the shared CliRenderer (legitimate, not a leak). Raise the default cap.
+  setup.renderer.setMaxListeners(0)
+
   const settle = async () => {
     await act(async () => { await Promise.resolve() })
     await act(async () => { await setup.renderOnce() })

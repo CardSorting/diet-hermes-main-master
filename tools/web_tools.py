@@ -132,6 +132,15 @@ def _load_web_config() -> dict:
     except (ImportError, Exception):
         return {}
 
+
+def get_web_search_timeout_seconds() -> int:
+    """HTTP timeout for web_search plugin backends (config: web.search_timeout_seconds)."""
+    raw = _load_web_config().get("search_timeout_seconds", 45)
+    try:
+        return max(5, min(300, int(raw)))
+    except (TypeError, ValueError):
+        return 45
+
 def _get_backend() -> str:
     """Determine which web backend to use (shared fallback).
 

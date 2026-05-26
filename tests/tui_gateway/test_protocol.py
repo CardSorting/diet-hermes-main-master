@@ -232,6 +232,43 @@ def test_emit_without_payload(capture):
     assert "payload" not in json.loads(buf.getvalue())["params"]
 
 
+def test_emit_batches_stream_deltas_for_registered_session(capture, monkeypatch):
+    """message/reasoning deltas and status.update batch; not urgent."""
+    server, buf = capture
+    sid = "batch-sid"
+    server._sessions[sid] = {"session_key": sid}
+    monkeypatch.setattr(server._events, "_ms", 1.0)
+
+    server._emit("message.delta", sid, {"text": "a"})
+    server._emit("reasoning.delta", sid, {"text": "think"})
+    server._emit("status.update", sid, {"kind": "process", "text": "busy"})
+
+    assert buf.getvalue() == ""
+
+    server._events.flush(sid)
+    msg = json.loads(buf.getvalue().strip())
+    assert msg["method"] == "event"
+    batch = msg["params"]["events"]
+    assert [e["type"] for e in batch] == [
+        "message.delta", "reasoning.delta", "status.update",
+    ]
+
+
+def test_emit_urgent_flushes_pending_batch(capture, monkeypatch):
+    server, buf = capture
+    sid = "urgent-sid"
+    server._sessions[sid] = {"session_key": sid}
+    monkeypatch.setattr(server._events, "_ms", 1.0)
+
+    server._emit("message.delta", sid, {"text": "a"})
+    server._emit("approval.request", sid, {"id": "r1"})
+
+    lines = [json.loads(l) for l in buf.getvalue().strip().split("\n") if l]
+    assert len(lines) == 2
+    assert lines[0]["params"]["events"][0]["type"] == "message.delta"
+    assert lines[1]["params"]["type"] == "approval.request"
+
+
 # ── Blocking prompt round-trip ───────────────────────────────────────
 
 

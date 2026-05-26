@@ -6,11 +6,14 @@
 export const DIETCODE_PITCH =
   "DietCode is like a diet cola for your codebase: lighter risk, same refreshing results. The AI suggests edits in a safe sandbox—you review, approve, and we run tests before anything sticks.";
 
-/** This dashboard page is an interactive walkthrough — not wired to a live operator backend. */
-export const DIETCODE_DASHBOARD_DEMO_MODE = true;
+/** Static fallback before API health resolves — prefer useDietCodeBroccoli().isDemo */
+export const DIETCODE_DASHBOARD_DEMO_MODE = false;
 
 export const DIETCODE_DEMO_BANNER =
-  "Preview walkthrough — simulated session flow only. For a live agent, run dietcode --tui (or open Dashboard → Chat for the embedded terminal).";
+  "Preview walkthrough — BroccoliDB not connected. For a live agent, run dietcode --tui (or open Dashboard → Chat).";
+
+export const DIETCODE_LIVE_BANNER =
+  "Live BroccoliDB data — graph, hive sessions, and healing proposals from your workspace.";
 
 /** Primary CTA when dashboard demo mode is on (no fake progress timers). */
 export const DIETCODE_LIVE_AGENT_CTA = {

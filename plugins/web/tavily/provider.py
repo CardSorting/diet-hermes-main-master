@@ -41,7 +41,7 @@ from agent.web_search_provider import WebSearchProvider
 logger = logging.getLogger(__name__)
 
 
-def _tavily_request(endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def _tavily_request(endpoint: str, payload: Dict[str, Any], *, timeout: float | None = None) -> Dict[str, Any]:
     """POST to the Tavily API and return the parsed JSON response.
 
     Mirrors :func:`tools.web_tools._tavily_request`. Raises ``ValueError``
@@ -67,7 +67,15 @@ def _tavily_request(endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     # /search and /extract are body-only.
     headers = {"Authorization": f"Bearer {api_key}"} if endpoint.strip("/") == "crawl" else {}
 
-    response = httpx.post(url, json=payload, headers=headers, timeout=60)
+    if timeout is None:
+        if endpoint.strip("/") == "search":
+            from tools.web_tools import get_web_search_timeout_seconds
+
+            timeout = get_web_search_timeout_seconds()
+        else:
+            timeout = 60
+
+    response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
     response.raise_for_status()
     return response.json()
 

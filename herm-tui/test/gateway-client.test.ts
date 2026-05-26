@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs"
 import { join, resolve } from "path"
 import { tmpdir } from "os"
-import { python } from "../src/context/gateway-client"
+import { GatewayClient, python } from "../src/context/gateway-client"
 
 const withEnv = <T>(key: string, value: string | undefined, fn: () => T): T => {
   const prev = process.env[key]
@@ -16,6 +16,28 @@ const withEnv = <T>(key: string, value: string | undefined, fn: () => T): T => {
 }
 
 const tmp = () => mkdtempSync(join(tmpdir(), "herm-gateway-"))
+
+describe("batched events", () => {
+  test("dispatch unwraps params.events into individual event emissions", () => {
+    const c = new GatewayClient()
+    const seen: string[] = []
+    c.on("event", ev => seen.push(ev.type))
+    c.drain()
+
+    const dispatch = (c as unknown as { dispatch(m: Record<string, unknown>): void }).dispatch
+    dispatch.call(c, {
+      method: "event",
+      params: {
+        events: [
+          { type: "message.delta", session_id: "s1", payload: { text: "a" } },
+          { type: "status.update", session_id: "s1", payload: { text: "busy" } },
+        ],
+      },
+    })
+
+    expect(seen).toEqual(["message.delta", "status.update"])
+  })
+})
 
 describe("python", () => {
   test("uses HERMES_PYTHON when set", () => {

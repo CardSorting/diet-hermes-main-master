@@ -69,10 +69,20 @@ class DDGSWebSearchProvider(WebSearchProvider):
         # DDGS().text yields at most `max_results` items; we cap defensively
         # in case the package ignores the hint.
         safe_limit = max(1, int(limit))
+        try:
+            from tools.web_tools import get_web_search_timeout_seconds
+
+            timeout = int(get_web_search_timeout_seconds())
+        except Exception:
+            timeout = 45
 
         try:
             web_results = []
-            with DDGS() as client:
+            try:
+                client = DDGS(timeout=timeout)
+            except TypeError:
+                client = DDGS()
+            with client:
                 for i, hit in enumerate(client.text(query, max_results=safe_limit)):
                     if i >= safe_limit:
                         break

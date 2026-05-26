@@ -3,6 +3,7 @@ import { HelpCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   DIETCODE_DEMO_BANNER,
+  DIETCODE_LIVE_BANNER,
   DIETCODE_PITCH,
   DIETCODE_TAGLINES,
   HOW_IT_WORKS,
@@ -10,7 +11,12 @@ import {
 import { DietCodeLogo } from "./DietCodeLogo";
 import { SodaCanVisual } from "./SodaCanVisual";
 
-export function DietCodeHeader() {
+interface DietCodeHeaderProps {
+  liveMode?: boolean;
+  connectionMessage?: string | null;
+}
+
+export function DietCodeHeader({ liveMode = false, connectionMessage }: DietCodeHeaderProps) {
   const [showHelp, setShowHelp] = useState(false);
   const [taglineIdx, setTaglineIdx] = useState(
     () => new Date().getDate() % DIETCODE_TAGLINES.length
@@ -54,9 +60,13 @@ export function DietCodeHeader() {
 
       <p
         role="status"
-        className="m-0 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-midground/95 normal-case tracking-normal leading-relaxed"
+        className={`m-0 rounded-md border px-3 py-2 text-xs normal-case tracking-normal leading-relaxed ${
+          liveMode
+            ? "border-success/40 bg-success/10 text-midground/95"
+            : "border-amber-500/40 bg-amber-500/10 text-midground/95"
+        }`}
       >
-        {DIETCODE_DEMO_BANNER}
+        {connectionMessage || (liveMode ? DIETCODE_LIVE_BANNER : DIETCODE_DEMO_BANNER)}
       </p>
 
       <p

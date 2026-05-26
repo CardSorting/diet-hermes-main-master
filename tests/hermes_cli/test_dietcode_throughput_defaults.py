@@ -53,3 +53,8 @@ def test_tool_timeout_defaults_tuned_for_throughput():
 def test_memory_cli_skips_background_prefetch_by_default():
     assert DEFAULT_CONFIG["memory"]["cli_skip_background_prefetch"] is True
     assert DEFAULT_CONFIG["checkpoints"]["enabled"] is False
+
+
+def test_dietcode_dashboard_broccolidb_enabled_by_default():
+    assert DEFAULT_CONFIG["dietcode"]["dashboard"]["broccolidb_enabled"] is True
+    assert DEFAULT_CONFIG["dietcode"]["dashboard"]["poll_interval_seconds"] == 15

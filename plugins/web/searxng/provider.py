@@ -67,10 +67,13 @@ class SearXNGWebSearchProvider(WebSearchProvider):
         }
 
         try:
+            from tools.web_tools import get_web_search_timeout_seconds
+
+            timeout = get_web_search_timeout_seconds()
             resp = httpx.get(
                 f"{base_url}/search",
                 params=params,
-                timeout=15,
+                timeout=timeout,
                 headers={"Accept": "application/json"},
             )
             resp.raise_for_status()

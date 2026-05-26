@@ -73,6 +73,9 @@ class BraveFreeWebSearchProvider(WebSearchProvider):
         count = max(1, min(int(limit), 20))
 
         try:
+            from tools.web_tools import get_web_search_timeout_seconds
+
+            timeout = get_web_search_timeout_seconds()
             resp = httpx.get(
                 _BRAVE_ENDPOINT,
                 params={"q": query, "count": count},
@@ -80,7 +83,7 @@ class BraveFreeWebSearchProvider(WebSearchProvider):
                     "X-Subscription-Token": api_key,
                     "Accept": "application/json",
                 },
-                timeout=15,
+                timeout=timeout,
             )
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:

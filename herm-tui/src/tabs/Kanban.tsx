@@ -1101,7 +1101,7 @@ export const Kanban = memo((props: { focused?: boolean }) => {
     { key: "N", title: "New child",     when: t => !!t,              run: t => void create(t) },
     { key: "a", title: "Assign",        when: t => !!t,              run: t => void assign(t!) },
     { key: "c", title: "Comment",       when: t => !!t,              run: t => void comment(t!) },
-    { key: "s", title: "Specify",       when: t => t?.status === "triage", run: t => void specify(t!) },
+    { key: "s", title: "Specify",       when: t => !!t,              run: t => void specify(t!) },
     { key: "S", title: "Specify all",   when: () => true,            run: () => void specifyAll() },
     { key: "u", title: "Unblock",       when: t => t?.status === "blocked" || t?.status === "scheduled", run: t => void unblock(t!) },
     { key: "d", title: "Archive",       when: t => !!t,              run: t => void archive(t!) },

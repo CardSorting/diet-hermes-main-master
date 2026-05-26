@@ -125,8 +125,18 @@ export class GatewayClient extends EventEmitter {
     }
 
     if (msg.method === "event") {
-      const ev = asEvent(msg.params)
-      if (ev) this.push(ev)
+      const p = msg.params as unknown
+      const ev = asEvent(p)
+      if (ev) return void this.push(ev)
+      if (p && typeof p === "object" && !Array.isArray(p)) {
+        const xs = (p as { events?: unknown }).events
+        if (Array.isArray(xs)) {
+          for (const item of xs) {
+            const e = asEvent(item)
+            if (e) this.push(e)
+          }
+        }
+      }
     }
   }
 

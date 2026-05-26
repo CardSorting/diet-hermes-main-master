@@ -341,6 +341,19 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     }),
+
+  // DietCode / BroccoliDB control plane
+  getDietCodeHealth: () => fetchJSON<DietCodeBroccoliHealth>("/api/dietcode/health"),
+  getDietCodeSnapshot: () => fetchJSON<DietCodeBroccoliSnapshot>("/api/dietcode/snapshot"),
+  dietCodeProposalAction: (proposalId: string, action: "approve" | "deny") =>
+    fetchJSON<{ ok?: boolean; success?: boolean; id: string; status: string }>(
+      `/api/dietcode/proposals/${encodeURIComponent(proposalId)}/action`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      },
+    ),
 };
 
 export interface ActionResponse {
@@ -817,4 +830,65 @@ export interface AgentPluginUpdateResponse {
 export interface PluginProvidersPutRequest {
   memory_provider?: string;
   context_engine?: string;
+}
+
+// ── DietCode / BroccoliDB types ───────────────────────────────────────────
+
+export interface DietCodeBroccoliHealth {
+  enabled: boolean;
+  available: boolean;
+  root: string | null;
+  db_path: string | null;
+  db_exists: boolean;
+  node_ok: boolean;
+  live: boolean;
+  message: string;
+}
+
+export interface DietCodeHiveSession {
+  id: string;
+  agent_id: string;
+  status: string;
+  start_time: number;
+  end_time: number | null;
+}
+
+export interface DietCodeHealingProposal {
+  id: string;
+  violation_id: string;
+  violation: string;
+  rationale: string;
+  proposed_code: string;
+  status: string;
+  confidence: number | null;
+  created_at: string | number;
+  applied_at: string | null;
+}
+
+export interface DietCodeAuditEntry {
+  id: string;
+  session_id: string | null;
+  type: string;
+  message: string;
+  data: string | null;
+  timestamp: number;
+}
+
+export interface DietCodeBroccoliSnapshot {
+  success: boolean;
+  live?: boolean;
+  error?: string;
+  health?: DietCodeBroccoliHealth;
+  shard_id?: string;
+  graph?: {
+    nodes: number;
+    edges: number;
+    hub_count: number;
+    db_size_mb: number;
+  };
+  sessions?: DietCodeHiveSession[];
+  proposals?: DietCodeHealingProposal[];
+  pending_proposal_id?: string | null;
+  audit?: DietCodeAuditEntry[];
+  queue?: { total: number; by_status: Record<string, number> };
 }

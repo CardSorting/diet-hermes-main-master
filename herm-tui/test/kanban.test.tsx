@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll } from "bun:test"
+import { describe, test, expect, beforeAll, beforeEach } from "bun:test"
 import { act } from "react"
 import { Database } from "bun:sqlite"
 import { mkdirSync, writeFileSync, rmSync } from "node:fs"
@@ -38,15 +38,15 @@ const schema = (db: Database) => {
     summary TEXT, error TEXT, worker_pid INTEGER)`)
 }
 
-beforeAll(() => {
+function seedKanbanFixtures() {
   delete process.env.HERMES_KANBAN_BOARD
   mkdirSync(hermesPath("."), { recursive: true })
   mkdirSync(hermesPath("profiles/researcher"), { recursive: true })
   mkdirSync(hermesPath("profiles/writer"), { recursive: true })
   mkdirSync(hermesPath("kanban/logs"), { recursive: true })
-  // Scrub boards from prior failed runs before seeding.
   rmSync(hermesPath("kanban/boards"), { recursive: true, force: true })
   rmSync(hermesPath("kanban/current"), { force: true })
+  rmSync(hermesPath("kanban.db"), { force: true })
   writeFileSync(hermesPath("kanban/logs/t2.log"), "boot\nstep 1\nstep 2\n")
   const db = new Database(hermesPath("kanban.db"), { create: true })
   schema(db)
@@ -72,7 +72,6 @@ beforeAll(() => {
     ["t1", "kaio", "check AWS reserved pricing too", now - 1000])
   db.close()
 
-  // Second board with its own DB + log dir, and board.json metadata.
   mkdirSync(hermesPath("kanban/boards/atm10/logs"), { recursive: true })
   writeFileSync(hermesPath("kanban/boards/atm10/board.json"),
     JSON.stringify({ display_name: "ATM10 Server" }))
@@ -84,9 +83,57 @@ beforeAll(() => {
      VALUES ('m1', 'upgrade forge', 'ready', 1, ?)`, [now - 100],
   )
   db2.close()
-  // Third board — empty, exercises collapsed-by-default + empty-last sort.
   mkdirSync(hermesPath("kanban/boards/zeta"), { recursive: true })
   resetKanban()
+}
+
+function seedMxrBoard() {
+  seedKanbanFixtures()
+  rmSync(hermesPath("kanban/boards/mxr"), { recursive: true, force: true })
+  mkdirSync(hermesPath("kanban/boards/mxr"), { recursive: true })
+  const db = new Database(hermesPath("kanban/boards/mxr/kanban.db"), { create: true })
+  schema(db)
+  db.run("ALTER TABLE tasks ADD COLUMN max_retries INTEGER")
+  const ins = db.prepare(
+    `INSERT INTO tasks (id, title, status, priority, created_at, max_retries)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  )
+  ins.run("mxr1", "retries explicit", "ready", 3, now, 5)
+  ins.run("mxr2", "retries default", "ready", 2, now - 1, null)
+  db.close()
+  resetKanban()
+}
+
+function seedSchedBoard() {
+  seedKanbanFixtures()
+  rmSync(hermesPath("kanban/boards/sched"), { recursive: true, force: true })
+  mkdirSync(hermesPath("kanban/boards/sched"), { recursive: true })
+  const db = new Database(hermesPath("kanban/boards/sched/kanban.db"), { create: true })
+  schema(db)
+  db.run("ALTER TABLE tasks ADD COLUMN branch_name TEXT")
+  db.run("ALTER TABLE tasks ADD COLUMN model_override TEXT")
+  db.run("ALTER TABLE tasks ADD COLUMN session_id TEXT")
+  db.run("ALTER TABLE tasks ADD COLUMN last_heartbeat_at INTEGER")
+  const ins = db.prepare(
+    `INSERT INTO tasks (id, title, status, priority, created_at,
+       started_at, workspace_kind, workspace_path, branch_name,
+       model_override, session_id, last_heartbeat_at, worker_pid)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+  ins.run("sch1", "delayed follow-up", "scheduled", 4, now - 300,
+    null, "worktree", "/tmp/wt/sch1", "feat/delayed",
+    "anthropic/claude-sonnet-4", "sess-abc123", null, null)
+  ins.run("sch2", "model-pinned worker", "running", 3, now - 60,
+    now - 60, null, null, null,
+    "openrouter/qwen3-coder", null, now - 45, 9999)
+  ins.run("sch3", "vanilla", "ready", 1, now - 30,
+    null, null, null, null, null, null, null, null)
+  db.close()
+  resetKanban()
+}
+
+beforeAll(() => {
+  seedKanbanFixtures()
 })
 
 describe("hermes-kanban readers", () => {
@@ -161,6 +208,10 @@ describe("hermes-kanban readers", () => {
 })
 
 describe("Kanban tab", () => {
+  beforeEach(() => {
+    seedKanbanFixtures()
+  })
+
   test("stacks boards, empty last, chips + one-line rows", async () => {
     const t = await mountNode(<Kanban focused />, { width: 180, height: 44 })
     await until(t, () => t.frame().includes("Kanban · 3 boards · 7 tasks"))
@@ -351,8 +402,7 @@ describe("Kanban tab", () => {
     // → to 'todo' (col 1) — t3 is not triage.
     act(() => t.keys.pressArrow("right")); await t.settle()
     await act(async () => { await t.keys.typeText("s") })
-    await t.settle()
-    // when-guard keeps the action from firing; no shell command emitted.
+    await until(t, () => /t3 is todo, not triage/.test(t.frame()))
     expect(cmds.length).toBe(0)
     t.destroy()
   })
@@ -1002,22 +1052,8 @@ describe("Kanban preferences round-trip", () => {
 // covered implicitly by every other test in this file: their beforeAll
 // schema has no such column, and they all still pass.
 describe("max_retries parity", () => {
-  beforeAll(() => {
-    mkdirSync(hermesPath("kanban/boards/mxr"), { recursive: true })
-    const db = new Database(hermesPath("kanban/boards/mxr/kanban.db"), { create: true })
-    schema(db)
-    db.run("ALTER TABLE tasks ADD COLUMN max_retries INTEGER")
-    const ins = db.prepare(
-      `INSERT INTO tasks (id, title, status, priority, created_at, max_retries)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-    ins.run("mxr1", "retries explicit", "ready", 3, now, 5)
-    ins.run("mxr2", "retries default", "ready", 2, now - 1, null)
-    db.close()
-    resetKanban()
-  })
-
   test("boardOf() surfaces max_retries on tasks that set it; null otherwise", () => {
+    seedMxrBoard()
     const rows = boardOf("mxr").get("ready") ?? []
     const byId = new Map(rows.map(r => [r.id, r]))
     expect(byId.get("mxr1")?.max_retries).toBe(5)
@@ -1025,6 +1061,7 @@ describe("max_retries parity", () => {
   })
 
   test("detail pane renders 'Max retries 5' when non-null, omits row otherwise", async () => {
+    seedMxrBoard()
     const t = await mountNode(<Kanban focused />, { width: 180, height: 48 })
     try {
       await until(t, () => /mxr/.test(t.frame()))
@@ -1218,41 +1255,13 @@ describe("Kanban diagnostics UI", () => {
 // (stale → last_heartbeat_at). All additive nullable columns; herm's
 // selectCol() tolerates absence so prior-version DBs still load.
 describe("scheduled status + new fields parity", () => {
-  beforeAll(() => {
-    mkdirSync(hermesPath("kanban/boards/sched"), { recursive: true })
-    const db = new Database(hermesPath("kanban/boards/sched/kanban.db"), { create: true })
-    schema(db)
-    db.run("ALTER TABLE tasks ADD COLUMN branch_name TEXT")
-    db.run("ALTER TABLE tasks ADD COLUMN model_override TEXT")
-    db.run("ALTER TABLE tasks ADD COLUMN session_id TEXT")
-    db.run("ALTER TABLE tasks ADD COLUMN last_heartbeat_at INTEGER")
-    const ins = db.prepare(
-      `INSERT INTO tasks (id, title, status, priority, created_at,
-         started_at, workspace_kind, workspace_path, branch_name,
-         model_override, session_id, last_heartbeat_at, worker_pid)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    // sch1: parked in scheduled, full set of new fields.
-    ins.run("sch1", "delayed follow-up", "scheduled", 4, now - 300,
-      null, "worktree", "/tmp/wt/sch1", "feat/delayed",
-      "anthropic/claude-sonnet-4", "sess-abc123", null, null)
-    // sch2: running with model + heartbeat.
-    ins.run("sch2", "model-pinned worker", "running", 3, now - 60,
-      now - 60, null, null, null,
-      "openrouter/qwen3-coder", null, now - 45, 9999)
-    // sch3: plain ready task, exercises null-column fallback.
-    ins.run("sch3", "vanilla", "ready", 1, now - 30,
-      null, null, null, null, null, null, null, null)
-    db.close()
-    resetKanban()
-  })
-
   test("STATUSES includes 'scheduled' between todo and ready", async () => {
     const { STATUSES } = await import("../src/service/hermes-kanban")
     expect(STATUSES).toEqual(["triage", "todo", "scheduled", "ready", "running", "blocked", "done"])
   })
 
   test("boardOf() loads scheduled tasks into their column with new fields populated", () => {
+    seedSchedBoard()
     const b = boardOf("sched")
     const row = b.get("scheduled")?.[0]
     expect(row?.id).toBe("sch1")
@@ -1277,13 +1286,12 @@ describe("scheduled status + new fields parity", () => {
   })
 
   test("detail pane renders Branch / Model / Session for scheduled task", async () => {
+    seedSchedBoard()
     const t = await mountNode(<Kanban focused />, { width: 200, height: 60 })
     try {
       await until(t, () => /▾\s+sched/.test(t.frame()))
-      // Tab through heads (default → atm10 → mxr → sched). Then ↓↓
-      // head → filter → grid. Tab/goBoard resets col=0, so →→ to
-      // scheduled (col 2: triage, todo, scheduled).
-      act(() => t.keys.pressTab()); await t.settle()
+      // Tab through heads (default → atm10 → sched). Then ↓↓ head →
+      // filter → grid; →→ reaches scheduled (col 2).
       act(() => t.keys.pressTab()); await t.settle()
       act(() => t.keys.pressTab()); await t.settle()
       await until(t, () => /▾\s+sched/.test(t.frame()))
@@ -1303,6 +1311,7 @@ describe("scheduled status + new fields parity", () => {
   })
 
   test("detail pane shows Heartbeat row only for running tasks with a heartbeat", async () => {
+    seedSchedBoard()
     const { detailOf } = await import("../src/service/hermes-kanban")
     expect(detailOf("sched", "sch2")?.last_heartbeat_at).toBe(now - 45)
     expect(detailOf("sched", "sch1")?.last_heartbeat_at).toBeNull()

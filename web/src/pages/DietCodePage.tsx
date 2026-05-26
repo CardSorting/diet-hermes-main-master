@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   Shield,
@@ -10,6 +10,8 @@ import {
   Activity,
   Gauge,
   ExternalLink,
+  Check,
+  X,
 } from "lucide-react";
 import { Badge } from "@nous-research/ui/ui/components/badge";
 import { Button } from "@nous-research/ui/ui/components/button";
@@ -31,6 +33,7 @@ import {
   type DietCodeTabId,
   type SessionStatus,
 } from "@/components/dietcode";
+import { useDietCodeBroccoli } from "@/hooks/useDietCodeBroccoli";
 
 const CARD_SODA = "dc-card-soda border border-current/20";
 
@@ -165,7 +168,8 @@ const MOCK_DIFFS: Record<string, { path: string; diff: string }> = {
 const DEMO_EXAMPLE_STATUS: SessionStatus = "proposed";
 
 export default function DietCodePage() {
-  const isDemo = DIETCODE_DASHBOARD_DEMO_MODE;
+  const broccoli = useDietCodeBroccoli();
+  const isDemo = broccoli.isLoading ? DIETCODE_DASHBOARD_DEMO_MODE : broccoli.isDemo;
 
   // Navigation header setup
   const [activeRepo, setActiveRepo] = useState(DETECTED_REPOS[0]);
@@ -180,7 +184,17 @@ export default function DietCodePage() {
 
   // Live workflow state (disabled in demo mode — use DEMO_EXAMPLE_STATUS for preview UI)
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>("idle");
-  const displayStatus = isDemo ? DEMO_EXAMPLE_STATUS : sessionStatus;
+  const displayStatus = isDemo ? DEMO_EXAMPLE_STATUS : broccoli.sessionStatus || sessionStatus;
+  const pendingProposal = useMemo(() => {
+    if (isDemo || !broccoli.snapshot?.proposals?.length) return null;
+    const pendingId = broccoli.snapshot.pending_proposal_id;
+    if (pendingId) {
+      return broccoli.snapshot.proposals.find((p) => p.id === pendingId) ?? null;
+    }
+    return (
+      broccoli.snapshot.proposals.find((p) => (p.status || "").toLowerCase() === "pending") ?? null
+    );
+  }, [broccoli.snapshot, isDemo]);
   const [activeTab, setActiveTab] = useState<DietCodeTabId>("home");
   const [logs, setLogs] = useState<string[]>([]);
   const demoBudgetUsage = {
@@ -232,12 +246,28 @@ export default function DietCodePage() {
     }
   }, [logs]);
 
-  // Initial greeting
+  // Initial greeting + live audit tail
   useEffect(() => {
     setLogs([]);
     appendSodaLines(SODA_BOOT_LINES);
-    appendLog(`Ready: ${DIETCODE_PITCH.slice(0, 72)}…`, "info");
-  }, []);
+    if (broccoli.isDemo) {
+      appendLog(`Ready: ${DIETCODE_PITCH.slice(0, 72)}…`, "info");
+    } else if (broccoli.health?.message) {
+      appendLog(broccoli.health.message, "success");
+    }
+  }, [broccoli.isDemo, broccoli.health?.message]);
+
+  useEffect(() => {
+    if (isDemo || !broccoli.snapshot?.audit?.length) return;
+    const lines = broccoli.snapshot.audit.slice(0, 12).map((row) => {
+      const ts = new Date(row.timestamp).toISOString().substring(11, 19);
+      return `${ts} [${row.type}] ${row.message}`;
+    });
+    setLogs((prev) => {
+      const merged = [...lines.reverse(), ...prev.filter((l) => !l.includes("[hive_"))];
+      return merged.slice(0, 80);
+    });
+  }, [broccoli.snapshot?.audit, isDemo]);
 
   const openLiveAgent = () => {
     window.location.assign(DIETCODE_LIVE_AGENT_CTA.chatPath);
@@ -245,7 +275,10 @@ export default function DietCodePage() {
 
   return (
     <DietCodeShell className="font-mondwest text-midground normal-case">
-      <DietCodeHeader />
+      <DietCodeHeader
+        liveMode={!isDemo}
+        connectionMessage={broccoli.error || broccoli.health?.message || null}
+      />
 
       <DietCodePageNav active={activeTab} onChange={setActiveTab} />
 
@@ -488,9 +521,11 @@ export default function DietCodePage() {
                   Checkpoints saved:{" "}
                   <strong className="text-midground">{isDemo ? 0 : wakeupsCount}</strong>
                 </span>
-                {isDemo && (
+                {isDemo ? (
                   <span className="text-warning/90">Example UI only — not connected to BroccoliDB</span>
-                )}
+                ) : broccoli.snapshot?.shard_id ? (
+                  <span className="text-success/90">Shard: {broccoli.snapshot.shard_id}</span>
+                ) : null}
               </div>
             )}
 
@@ -509,30 +544,44 @@ export default function DietCodePage() {
                   <div className="grid grid-cols-2 gap-2 text-[10px] font-mono bg-black/40 p-3 border border-current/10 rounded-sm">
                     <div>
                       <span className="text-muted-foreground block">Proposed mutation path:</span>
-                      <span className="text-primary font-bold select-all">{MOCK_DIFFS[activeProfile.name]?.path}</span>
+                      <span className="text-primary font-bold select-all">
+                        {pendingProposal
+                          ? pendingProposal.violation_id || pendingProposal.id
+                          : MOCK_DIFFS[activeProfile.name]?.path}
+                      </span>
                     </div>
                     <div>
-                      <span className="text-muted-foreground block">Target Commit SHA:</span>
-                      <span className="text-muted-foreground block select-all">cf2390a1b2c3d4e5f6...</span>
+                      <span className="text-muted-foreground block">Proposal status:</span>
+                      <span className="text-muted-foreground block select-all">
+                        {pendingProposal?.status ?? (isDemo ? "cf2390a1b2c3d4e5f6..." : "—")}
+                      </span>
                     </div>
                     <div className="border-t border-current/5 pt-2 mt-2">
-                      <span className="text-muted-foreground block">Mandatory argsHash:</span>
-                      <span className="text-primary font-bold text-[9px] truncate block select-all">{argsHash}</span>
+                      <span className="text-muted-foreground block">Violation:</span>
+                      <span className="text-primary font-bold text-[9px] truncate block select-all">
+                        {pendingProposal?.violation ?? argsHash}
+                      </span>
                     </div>
                     <div className="border-t border-current/5 pt-2 mt-2">
-                      <span className="text-muted-foreground block">Mandatory policyHash:</span>
-                      <span className="text-primary font-bold text-[9px] truncate block select-all">{policyHash}</span>
+                      <span className="text-muted-foreground block">Rationale:</span>
+                      <span className="text-primary font-bold text-[9px] truncate block select-all">
+                        {pendingProposal?.rationale ?? policyHash}
+                      </span>
                     </div>
                   </div>
 
                   {/* Diff Canvas */}
                   <div className="border border-current/25 rounded-sm overflow-hidden bg-black font-mono text-[11px] leading-relaxed">
                     <div className="bg-background-base/80 px-3 py-2 border-b border-current/15 text-[10px] text-muted-foreground flex justify-between">
-                      <span>Unified Diff Preview</span>
-                      <span className="text-primary font-bold">{MOCK_DIFFS[activeProfile.name]?.path}</span>
+                      <span>{pendingProposal ? "Healing proposal" : "Unified Diff Preview"}</span>
+                      <span className="text-primary font-bold">
+                        {pendingProposal?.id ?? MOCK_DIFFS[activeProfile.name]?.path}
+                      </span>
                     </div>
                     <pre className="p-3 overflow-x-auto whitespace-pre leading-relaxed text-muted-foreground max-h-60">
-                      {MOCK_DIFFS[activeProfile.name]?.diff.split("\n").map((line, idx) => {
+                      {(pendingProposal?.proposed_code ?? MOCK_DIFFS[activeProfile.name]?.diff)
+                        .split("\n")
+                        .map((line, idx) => {
                         let lineStyle = "text-muted-foreground";
                         if (line.startsWith("+")) lineStyle = "text-success bg-success/5 font-bold";
                         if (line.startsWith("-")) lineStyle = "text-destructive bg-destructive/5 font-bold";
@@ -571,13 +620,32 @@ export default function DietCodePage() {
                   {isDemo && displayStatus === "proposed" && (
                     <div className="flex flex-col gap-3 border-t border-current/15 pt-4">
                       <p className="text-[11px] text-midground/75 m-0 leading-relaxed normal-case">
-                        {DIETCODE_LIVE_AGENT_CTA.hint} Approve/reject and operator budgets are not wired to this page yet.
+                        {DIETCODE_LIVE_AGENT_CTA.hint} Approve/reject flows through Dashboard → Chat until BroccoliDB is initialized.
                       </p>
                       <Button asChild className="h-9 px-4 text-xs font-bold dc-btn-primary normal-case tracking-normal">
                         <Link to={DIETCODE_LIVE_AGENT_CTA.chatPath}>
                           <ExternalLink className="mr-1.5 h-3.5 w-3.5" aria-hidden />
                           {DIETCODE_LIVE_AGENT_CTA.label}
                         </Link>
+                      </Button>
+                    </div>
+                  )}
+
+                  {!isDemo && pendingProposal && displayStatus === "proposed" && (
+                    <div className="flex flex-wrap gap-2 border-t border-current/15 pt-4">
+                      <Button
+                        className="h-9 px-4 text-xs font-bold dc-btn-primary normal-case tracking-normal"
+                        onClick={() => void broccoli.approveProposal(pendingProposal.id)}
+                      >
+                        <Check className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                        Approve proposal
+                      </Button>
+                      <Button
+                        className="h-9 px-4 text-xs font-semibold bg-black/50 border border-current/20 normal-case tracking-normal"
+                        onClick={() => void broccoli.denyProposal(pendingProposal.id)}
+                      >
+                        <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                        Deny
                       </Button>
                     </div>
                   )}
@@ -637,7 +705,9 @@ export default function DietCodePage() {
               <p className="text-xs text-muted-foreground mt-0.5 normal-case tracking-normal">
                 {isDemo
                   ? "Sample metrics for layout preview. Run real checks from the live agent terminal."
-                  : "See how often proposed changes pass tests and stay within safety limits—like a taste test for your codebase."}
+                  : broccoli.snapshot?.graph
+                    ? `Live graph: ${broccoli.snapshot.graph.nodes} nodes · ${broccoli.snapshot.graph.edges} edges · ${broccoli.snapshot.graph.db_size_mb} MB`
+                    : "BroccoliDB graph metrics when database is initialized."}
               </p>
             </div>
 
@@ -653,20 +723,28 @@ export default function DietCodePage() {
           <CardContent className="p-4 flex flex-col gap-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="border border-current/10 p-3 bg-black/40 text-center rounded-sm">
-                <span className="text-[10px] text-muted-foreground block uppercase">Total Operators Run</span>
-                <span className="text-xl font-bold font-mono text-primary">4</span>
+                <span className="text-[10px] text-muted-foreground block uppercase">Graph nodes</span>
+                <span className="text-xl font-bold font-mono text-primary">
+                  {isDemo ? 4 : (broccoli.snapshot?.graph?.nodes ?? 0)}
+                </span>
               </div>
               <div className="border border-current/10 p-3 bg-black/40 text-center rounded-sm">
-                <span className="text-[10px] text-muted-foreground block uppercase">Success Rate</span>
-                <span className="text-xl font-bold font-mono text-success">100%</span>
+                <span className="text-[10px] text-muted-foreground block uppercase">Queue jobs</span>
+                <span className="text-xl font-bold font-mono text-success">
+                  {isDemo ? "100%" : (broccoli.snapshot?.queue?.total ?? 0)}
+                </span>
               </div>
               <div className="border border-current/10 p-3 bg-black/40 text-center rounded-sm">
-                <span className="text-[10px] text-muted-foreground block uppercase">Rollback Rate</span>
-                <span className="text-xl font-bold font-mono text-warning">0%</span>
+                <span className="text-[10px] text-muted-foreground block uppercase">Hive sessions</span>
+                <span className="text-xl font-bold font-mono text-warning">
+                  {isDemo ? "0%" : (broccoli.snapshot?.sessions?.length ?? 0)}
+                </span>
               </div>
               <div className="border border-current/10 p-3 bg-black/40 text-center rounded-sm">
-                <span className="text-[10px] text-muted-foreground block uppercase">Avg Exec Time</span>
-                <span className="text-xl font-bold font-mono text-primary">4.2s</span>
+                <span className="text-[10px] text-muted-foreground block uppercase">Proposals</span>
+                <span className="text-xl font-bold font-mono text-primary">
+                  {isDemo ? "4.2s" : (broccoli.snapshot?.proposals?.length ?? 0)}
+                </span>
               </div>
             </div>
 
@@ -724,37 +802,55 @@ export default function DietCodePage() {
             <p className="text-xs text-muted-foreground mt-0.5 normal-case tracking-normal">
               {isDemo
                 ? "Sample telemetry for layout preview only — not live OpenTelemetry."
-                : "Technical traces for operators and engineers—latency, costs, and background job health."}
+                : broccoli.snapshot?.audit?.length
+                  ? "Live hive_audit tail from BroccoliDB."
+                  : "Initialize BroccoliDB to stream hive audit events here."}
             </p>
           </CardHeader>
           <CardContent className="p-4 flex flex-col gap-4 font-mono text-xs">
             <div className="grid grid-cols-2 gap-4">
               <div className="border border-current/10 p-3 bg-black/40 rounded-sm">
-                <span className="text-[10px] text-muted-foreground block uppercase">Cloud Run Execution Cost</span>
-                <span className="text-sm font-bold text-primary">$0.0034 / turn</span>
+                <span className="text-[10px] text-muted-foreground block uppercase">BroccoliDB shard</span>
+                <span className="text-sm font-bold text-primary">
+                  {isDemo ? "demo" : (broccoli.snapshot?.shard_id ?? "—")}
+                </span>
               </div>
               <div className="border border-current/10 p-3 bg-black/40 rounded-sm">
-                <span className="text-[10px] text-muted-foreground block uppercase">Task Queue Latency</span>
-                <span className="text-sm font-bold text-primary">120 ms</span>
+                <span className="text-[10px] text-muted-foreground block uppercase">Queue pending</span>
+                <span className="text-sm font-bold text-primary">
+                  {isDemo
+                    ? "120 ms"
+                    : (broccoli.snapshot?.queue?.by_status?.pending ?? 0)}
+                </span>
               </div>
             </div>
             <div className="bg-black p-3 border border-current/25 rounded-sm font-mono text-[10px] text-muted-foreground h-64 overflow-y-auto leading-relaxed">
-              <div className="text-primary font-bold">&gt; tail -f open-telemetry-spans.json</div>
-              <div className="text-success mt-1">{"{\"span_id\":\"s-a42d\",\"name\":\"SecretManager.FetchKey\",\"duration_ms\":84,\"status\":\"ok\"}"}</div>
-              <div className="text-success">{"{\"span_id\":\"s-ef90\",\"name\":\"CloudTasks.EnqueueJob\",\"duration_ms\":145,\"status\":\"ok\",\"payload\":{\"queue\":\"operator-job-queue\"}}"}</div>
-              <div className="text-success">{"{\"span_id\":\"s-b2c1\",\"name\":\"WorkerRuntime.RepoSafetyCheck\",\"duration_ms\":230,\"status\":\"ok\",\"payload\":{\"repo\":\"diet-hermes\"}}"}</div>
-              <div className="text-success">{"{\"span_id\":\"s-f1a2\",\"name\":\"GCS.UploadSnapshot\",\"duration_ms\":512,\"status\":\"ok\",\"payload\":{\"path\":\"recovery/pre-mutation.tar.gz\"}}"}</div>
-              <div className="text-warning">{"{\"span_id\":\"s-a12b\",\"name\":\"WorkerRuntime.Exited\",\"payload\":{\"status\":\"checkpoint_saved\",\"reason\":\"waiting_for_approval\"}}"}</div>
-              <div className="text-success">{"{\"span_id\":\"s-d3e4\",\"name\":\"ControlPlane.ApprovalGateMatched\",\"duration_ms\":12,\"status\":\"ok\"}"}</div>
-              <div className="text-success">{"{\"span_id\":\"s-9c8d\",\"name\":\"WorkerRuntime.ApplyChanges\",\"duration_ms\":98,\"status\":\"ok\"}"}</div>
-              <div className="text-success">{"{\"span_id\":\"s-e3f4\",\"name\":\"WorkerRuntime.ExecuteTests\",\"duration_ms\":840,\"status\":\"ok\",\"payload\":{\"exit_code\":0}}"}</div>
-              <div className="text-success">{"{\"span_id\":\"s-7a8b\",\"name\":\"GCS.UploadSnapshot\",\"duration_ms\":480,\"status\":\"ok\",\"payload\":{\"path\":\"recovery/post-test.tar.gz\"}}"}</div>
-              <div className="text-success">{"{\"span_id\":\"s-2c3d\",\"name\":\"WorkerRuntime.CleanWorkspace\",\"duration_ms\":45,\"status\":\"ok\"}"}</div>
-              <div className="text-primary font-bold mt-2">&gt; tail -f stdout.log</div>
-              <div className="mt-1">12:04:12 [INFO] Control Plane API enqueued job.</div>
-              <div>12:04:13 [INFO] Spawned Worker Runtime container instance.</div>
-              <div>12:04:15 [SUCCESS] Workspace Check safety policy passed.</div>
-              <div>12:04:16 [WARN] Worker Exited. Recovery state synchronized in GCS.</div>
+              {isDemo ? (
+                <>
+                  <div className="text-primary font-bold">&gt; tail -f open-telemetry-spans.json</div>
+                  <div className="text-success mt-1">{"{\"span_id\":\"s-a42d\",\"name\":\"SecretManager.FetchKey\",\"duration_ms\":84,\"status\":\"ok\"}"}</div>
+                  <div className="text-success">{"{\"span_id\":\"s-ef90\",\"name\":\"CloudTasks.EnqueueJob\",\"duration_ms\":145,\"status\":\"ok\",\"payload\":{\"queue\":\"operator-job-queue\"}}"}</div>
+                  <div className="text-success">{"{\"span_id\":\"s-b2c1\",\"name\":\"WorkerRuntime.RepoSafetyCheck\",\"duration_ms\":230,\"status\":\"ok\",\"payload\":{\"repo\":\"diet-hermes\"}}"}</div>
+                  <div className="text-success">{"{\"span_id\":\"s-f1a2\",\"name\":\"GCS.UploadSnapshot\",\"duration_ms\":512,\"status\":\"ok\",\"payload\":{\"path\":\"recovery/pre-mutation.tar.gz\"}}"}</div>
+                  <div className="text-warning">{"{\"span_id\":\"s-a12b\",\"name\":\"WorkerRuntime.Exited\",\"payload\":{\"status\":\"checkpoint_saved\",\"reason\":\"waiting_for_approval\"}}"}</div>
+                  <div className="text-success">{"{\"span_id\":\"s-d3e4\",\"name\":\"ControlPlane.ApprovalGateMatched\",\"duration_ms\":12,\"status\":\"ok\"}"}</div>
+                  <div className="text-success">{"{\"span_id\":\"s-9c8d\",\"name\":\"WorkerRuntime.ApplyChanges\",\"duration_ms\":98,\"status\":\"ok\"}"}</div>
+                  <div className="text-success">{"{\"span_id\":\"s-e3f4\",\"name\":\"WorkerRuntime.ExecuteTests\",\"duration_ms\":840,\"status\":\"ok\",\"payload\":{\"exit_code\":0}}"}</div>
+                  <div className="text-success">{"{\"span_id\":\"s-7a8b\",\"name\":\"GCS.UploadSnapshot\",\"duration_ms\":480,\"status\":\"ok\",\"payload\":{\"path\":\"recovery/post-test.tar.gz\"}}"}</div>
+                  <div className="text-success">{"{\"span_id\":\"s-2c3d\",\"name\":\"WorkerRuntime.CleanWorkspace\",\"duration_ms\":45,\"status\":\"ok\"}"}</div>
+                  <div className="text-primary font-bold mt-2">&gt; tail -f stdout.log</div>
+                  <div className="mt-1">12:04:12 [INFO] Control Plane API enqueued job.</div>
+                  <div>12:04:13 [INFO] Spawned Worker Runtime container instance.</div>
+                  <div>12:04:15 [SUCCESS] Workspace Check safety policy passed.</div>
+                  <div>12:04:16 [WARN] Worker Exited. Recovery state synchronized in GCS.</div>
+                </>
+              ) : (
+                (broccoli.snapshot?.audit ?? []).map((row) => (
+                  <div key={row.id} className="text-success">
+                    {new Date(row.timestamp).toISOString().substring(11, 19)} [{row.type}] {row.message}
+                  </div>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>

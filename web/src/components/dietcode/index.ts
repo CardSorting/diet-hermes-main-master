@@ -10,6 +10,7 @@ export type { DietCodeTabId, SessionStatus } from "./copy";
 export {
   DIETCODE_DASHBOARD_DEMO_MODE,
   DIETCODE_DEMO_BANNER,
+  DIETCODE_LIVE_BANNER,
   DIETCODE_LIVE_AGENT_CTA,
   DIETCODE_PITCH,
   DIETCODE_TABS,

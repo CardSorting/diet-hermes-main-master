@@ -384,11 +384,117 @@ def write_json(obj: dict) -> bool:
     return (current_transport() or _stdio_transport).write(obj)
 
 
+class _EventBatcher:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._buf: dict[str, list[dict]] = {}
+        self._timers: dict[str, threading.Timer] = {}
+        self._max = int(os.environ.get("HERMES_TUI_RPC_BATCH_MAX", "") or 64)
+        self._ms = float(os.environ.get("HERMES_TUI_RPC_BATCH_MS", "") or 25.0) / 1000.0
+
+    def emit(self, event: str, sid: str, payload: dict | None = None) -> None:
+        ev = {"type": event, "session_id": sid}
+        if payload is not None:
+            ev["payload"] = payload
+
+        # If there's no registered session transport yet, preserve the
+        # historical single-frame behavior (also keeps unit tests simple).
+        if not sid or sid not in _sessions or self._ms <= 0:
+            write_json({"jsonrpc": "2.0", "method": "event", "params": ev})
+            return
+
+        # High-frequency stream events (message/reasoning deltas, status.update)
+        # batch; approvals, prompts, and lifecycle events bypass the buffer.
+        urgent = event in {
+            "gateway.ready",
+            "session.info",
+            "message.start",
+            "message.complete",
+            "tool.start",
+            "tool.complete",
+            "clarify.request",
+            "approval.request",
+            "sudo.request",
+            "secret.request",
+            "error",
+        }
+
+        if urgent:
+            self.flush(sid)
+            write_json({"jsonrpc": "2.0", "method": "event", "params": ev})
+            return
+
+        with self._lock:
+            self._buf.setdefault(sid, []).append(ev)
+            n = len(self._buf[sid])
+            if n >= self._max:
+                batch = self._buf.pop(sid, [])
+                t = self._timers.pop(sid, None)
+                if t is not None:
+                    try:
+                        t.cancel()
+                    except Exception:
+                        pass
+            else:
+                batch = None
+                t = self._timers.get(sid)
+                if t is None:
+                    timer = threading.Timer(self._ms, lambda: self.flush(sid))
+                    timer.daemon = True
+                    self._timers[sid] = timer
+                    try:
+                        timer.start()
+                    except Exception:
+                        self._timers.pop(sid, None)
+
+        if batch:
+            write_json({"jsonrpc": "2.0", "method": "event", "params": {"events": batch}})
+
+    def flush(self, sid: str | None = None) -> None:
+        with self._lock:
+            sids = [sid] if sid else list(self._buf.keys())
+            items: list[tuple[str, list[dict]]] = []
+            for k in sids:
+                batch = self._buf.pop(k, [])
+                t = self._timers.pop(k, None)
+                if t is not None:
+                    try:
+                        t.cancel()
+                    except Exception:
+                        pass
+                if batch:
+                    items.append((k, batch))
+
+        for _k, batch in items:
+            write_json({"jsonrpc": "2.0", "method": "event", "params": {"events": batch}})
+
+
+_events = _EventBatcher()
+
+
 def _emit(event: str, sid: str, payload: dict | None = None):
-    params = {"type": event, "session_id": sid}
-    if payload is not None:
-        params["payload"] = payload
-    write_json({"jsonrpc": "2.0", "method": "event", "params": params})
+    _events.emit(event, sid, payload)
+
+
+def _flush_events(sid: str | None = None) -> None:
+    """Flush any buffered gateway events.
+
+    The TUI client accepts either single-event frames (legacy) or a batched
+    frame shape: ``{"method":"event","params":{"events":[GatewayEvent...]}}``.
+    """
+    _events.flush(sid)
+
+
+def _session_tool_progress_mode(sid: str) -> str:
+    return str(_sessions.get(sid, {}).get("tool_progress_mode", "all") or "all")
+
+
+def _tool_progress_enabled(sid: str) -> bool:
+    return _session_tool_progress_mode(sid) != "off"
+
+
+def _tool_progress_detail_enabled(sid: str) -> bool:
+    return _session_tool_progress_mode(sid) in {"all", "verbose"}
 
 
 def _status_update(sid: str, kind: str, text: str | None = None):
@@ -749,7 +855,14 @@ def _block(event: str, sid: str, payload: dict, timeout: int = 300) -> str:
     ev = threading.Event()
     _pending[rid] = (sid, ev)
     payload["request_id"] = rid
-    _emit(event, sid, payload)
+    _flush_events(sid)
+    write_json(
+        {
+            "jsonrpc": "2.0",
+            "method": "event",
+            "params": {"type": event, "session_id": sid, "payload": payload},
+        }
+    )
     ev.wait(timeout=timeout)
     _pending.pop(rid, None)
     return _answers.pop(rid, "")
@@ -1044,14 +1157,6 @@ def _load_enabled_toolsets() -> list[str] | None:
                 flush=True,
             )
         return None
-
-
-def _session_tool_progress_mode(sid: str) -> str:
-    return str(_sessions.get(sid, {}).get("tool_progress_mode", "all") or "all")
-
-
-def _tool_progress_enabled(sid: str) -> bool:
-    return _session_tool_progress_mode(sid) != "off"
 
 
 def _restart_slash_worker(session: dict):
@@ -1598,11 +1703,6 @@ def _on_tool_progress(
     _args: dict | None = None,
     **_kwargs,
 ):
-    if not _tool_progress_enabled(sid):
-        return
-    if event_type == "tool.started" and name:
-        _emit("tool.progress", sid, {"name": name, "preview": preview or ""})
-        return
     if event_type == "reasoning.available" and preview:
         _emit("reasoning.available", sid, {"text": str(preview)})
         return
@@ -1664,6 +1764,13 @@ def _on_tool_progress(
             payload["tool_preview"] = str(preview)
             payload["text"] = str(preview)
         _emit(event_type, sid, payload)
+        return
+
+    if not _tool_progress_detail_enabled(sid):
+        return
+    if event_type == "tool.started" and name:
+        _emit("tool.progress", sid, {"name": name, "preview": preview or ""})
+        return
 
 
 def _agent_cbs(sid: str) -> dict:
@@ -1677,7 +1784,7 @@ def _agent_cbs(sid: str) -> dict:
         "tool_progress_callback": lambda event_type, name=None, preview=None, args=None, **kwargs: _on_tool_progress(
             sid, event_type, name, preview, args, **kwargs
         ),
-        "tool_gen_callback": lambda name: _tool_progress_enabled(sid)
+        "tool_gen_callback": lambda name: _tool_progress_detail_enabled(sid)
         and _emit("tool.generating", sid, {"name": name}),
         "thinking_callback": lambda text: _emit("thinking.delta", sid, {"text": text}),
         "reasoning_callback": lambda text: _emit("reasoning.delta", sid, {"text": text}),

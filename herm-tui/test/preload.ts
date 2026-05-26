@@ -2,11 +2,17 @@
 // Runs before any src/ module import, so module-level const paths
 // (preferences.ts, hermes-home.ts) resolve to the sandbox.
 
+import { EventEmitter } from "events"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { afterEach } from "bun:test"
 import { getTreeSitterClient } from "@opentui/core"
+
+// Kanban mounts many scrollboxes; each registers a selection listener on the
+// renderer during the first paint inside testRender (before harness can bump
+// per-renderer limits). Raise the process default for the suite.
+EventEmitter.defaultMaxListeners = 0
 
 const root = mkdtempSync(join(tmpdir(), "herm-test-"))
 const cfg = join(root, "config")

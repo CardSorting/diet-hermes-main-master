@@ -2740,6 +2740,63 @@ async def delete_cron_job(job_id: str, profile: Optional[str] = None):
 
 
 # ---------------------------------------------------------------------------
+# DietCode / BroccoliDB dashboard endpoints
+# ---------------------------------------------------------------------------
+
+
+class DietCodeProposalAction(BaseModel):
+    action: str  # "approve" | "deny"
+
+
+@app.get("/api/dietcode/health")
+async def dietcode_health():
+    """BroccoliDB connectivity probe for the DietCode control plane."""
+    from hermes_cli.dietcode_broccolidb import get_health
+
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, get_health)
+    except Exception:
+        _log.exception("GET /api/dietcode/health failed")
+        raise HTTPException(status_code=500, detail="Health check failed")
+
+
+@app.get("/api/dietcode/snapshot")
+async def dietcode_snapshot():
+    """Live BroccoliDB hive/graph snapshot for the dashboard."""
+    from hermes_cli.dietcode_broccolidb import get_snapshot
+
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, get_snapshot)
+    except Exception:
+        _log.exception("GET /api/dietcode/snapshot failed")
+        raise HTTPException(status_code=500, detail="Snapshot failed")
+
+
+@app.post("/api/dietcode/proposals/{proposal_id}/action")
+async def dietcode_proposal_action(proposal_id: str, body: DietCodeProposalAction):
+    """Approve or deny a hive_healing_proposals row."""
+    from hermes_cli.dietcode_broccolidb import set_proposal_action
+
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(
+            None, set_proposal_action, proposal_id, body.action
+        )
+    except Exception:
+        _log.exception("POST /api/dietcode/proposals/action failed")
+        raise HTTPException(status_code=500, detail="Proposal action failed")
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("error") or "Proposal action failed",
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Profile management endpoints (minimal — list/create/rename/delete + SOUL.md)
 # ---------------------------------------------------------------------------
 
