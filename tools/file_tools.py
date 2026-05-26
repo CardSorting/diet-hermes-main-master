@@ -33,6 +33,12 @@ def _is_governance_subject_path(path: str, content: str) -> bool:
     return is_governance_subject_content(path, content)
 
 
+def _should_auto_inject_layer_tags() -> bool:
+    from agent.governance_exemptions import is_governance_layer_tags_required
+
+    return is_governance_layer_tags_required()
+
+
 _EXPECTED_WRITE_ERRNOS = {errno.EACCES, errno.EPERM, errno.EROFS}
 
 # ---------------------------------------------------------------------------
@@ -816,7 +822,11 @@ def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> N
             except Exception:
                 resolved_abs_path = filepath
 
-            if _is_governance_subject_path(resolved_abs_path, content) and not parse_layer_tag(content):
+            if (
+                _should_auto_inject_layer_tags()
+                and _is_governance_subject_path(resolved_abs_path, content)
+                and not parse_layer_tag(content)
+            ):
                 layer = get_path_layer(resolved_abs_path)
                 new_content = generate_layer_comment(resolved_abs_path, layer, content)
                 file_ops.write_file(filepath, new_content)
@@ -826,6 +836,10 @@ def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> N
 
 
 def _run_joy_zoning_audit(filepath: str, result_dict: dict) -> None:
+    # Layer tags are optional by default; post-write hints are only emitted when
+    # joyzoning.governance.layer_tags_required is true.
+    if not _should_auto_inject_layer_tags():
+        return
     try:
         from agent.joy_zoning import validate_joy_zoning
         resolved = str(_resolve_path(filepath))
@@ -834,18 +848,14 @@ def _run_joy_zoning_audit(filepath: str, result_dict: dict) -> None:
                 content = f.read()
             if not _is_governance_subject_path(resolved, content):
                 return
-            audit = validate_joy_zoning(resolved, content)
+            audit = validate_joy_zoning(resolved, content, require_layer_tags=True)
             if not audit["success"]:
                 violations = audit["errors"]
-                # Advisory only: joyzoning_governance transform is authoritative for
-                # tool-result blocking. Avoid duplicate scare copy that triggers
-                # refusal-like empty-response spirals after successful writes.
                 short = " | ".join(str(v)[:120] for v in violations[:3])
                 result_dict["_hint"] = (
                     "JoyZoning layering note (post-write): "
                     f"{short}. "
-                    "If a mutation was blocked, follow recovery_plan in the tool result; "
-                    "otherwise fix the layer tag or import direction before retrying once."
+                    "Fix the layer tag or import direction before retrying once."
                 )
     except Exception as e:
         logger.debug("Failed to run Joy-Zoning validation: %s", e)
@@ -869,7 +879,11 @@ def write_file_tool(path: str, content: str, task_id: str = "default") -> str:
         except Exception:
             resolved_abs_path = path
 
-        if _is_governance_subject_path(resolved_abs_path, content) and not parse_layer_tag(content):
+        if (
+            _should_auto_inject_layer_tags()
+            and _is_governance_subject_path(resolved_abs_path, content)
+            and not parse_layer_tag(content)
+        ):
             layer = get_path_layer(resolved_abs_path)
             content = generate_layer_comment(resolved_abs_path, layer, content)
     except Exception as e:

@@ -29,7 +29,7 @@ import re
 from typing import Any, Callable, Dict, Iterator, List, Literal, NamedTuple, Optional, Set, Tuple
 
 # Bump when exemption policy changes (tests assert monotonic awareness).
-GOVERNANCE_POLICY_VERSION = 16
+GOVERNANCE_POLICY_VERSION = 17
 
 GovernancePathKind = Literal["exempt", "subject", "ineligible"]
 
@@ -54,6 +54,7 @@ __all__ = (
     "is_governance_fault_error",
     "is_governance_subject",
     "is_governance_subject_content",
+    "is_governance_layer_tags_required",
     "is_governance_transform_result",
     "iter_governance_subject_files",
     "normalize_governance_path",
@@ -457,6 +458,7 @@ _FILE_MUTATION_TOOLS = frozenset({
 _GOVERNANCE_TRANSFORM_TOOLS = _FILE_MUTATION_TOOLS
 
 _USER_EXEMPT_MARKERS_CACHE: Optional[frozenset[str]] = None
+_LAYER_TAGS_REQUIRED_CACHE: Optional[bool] = None
 _VALIDATE_JOY_ZONING: Optional[Callable[..., Dict[str, Any]]] = None
 _GET_LAYER: Optional[Callable[[str, Optional[str]], str]] = None
 _LAYER_TAG_SUPPORTED: Optional[Callable[..., bool]] = None
@@ -734,9 +736,30 @@ def _governance_path_context(file_path: str) -> _GovPathContext:
 
 def invalidate_governance_path_cache() -> None:
     """Clear path-classifier LRUs (e.g. after ``extra_exempt_paths`` config changes)."""
-    global _USER_EXEMPT_MARKERS_CACHE
+    global _USER_EXEMPT_MARKERS_CACHE, _LAYER_TAGS_REQUIRED_CACHE
     _USER_EXEMPT_MARKERS_CACHE = None
+    _LAYER_TAGS_REQUIRED_CACHE = None
     _governance_path_context.cache_clear()
+
+
+def is_governance_layer_tags_required() -> bool:
+    """True when ``joyzoning.governance.layer_tags_required`` is enabled in config."""
+    global _LAYER_TAGS_REQUIRED_CACHE
+    if _LAYER_TAGS_REQUIRED_CACHE is not None:
+        return _LAYER_TAGS_REQUIRED_CACHE
+    required = False
+    try:
+        from hermes_cli.config import load_config
+
+        cfg = load_config() or {}
+        jz = cfg.get("joyzoning") if isinstance(cfg, dict) else {}
+        gov = jz.get("governance") if isinstance(jz, dict) else {}
+        if isinstance(gov, dict):
+            required = bool(gov.get("layer_tags_required", False))
+    except Exception:
+        pass
+    _LAYER_TAGS_REQUIRED_CACHE = required
+    return required
 
 
 def resolve_governance_path_kind(file_path: str) -> GovernancePathKind:
@@ -1040,8 +1063,14 @@ def run_governance_validation_gate(
     layer_fn = get_layer or _joy_zoning_get_layer()
     single_results: List[Dict[str, Any]] = []
 
+    require_layer_tags = is_governance_layer_tags_required()
     for file_path, content in iter_governance_subject_files(files, subjects_only=subjects_only):
-        audit = validate_fn(file_path, content, skip_subject_check=True)
+        audit = validate_fn(
+            file_path,
+            content,
+            skip_subject_check=True,
+            require_layer_tags=require_layer_tags,
+        )
         if audit.get("success") or audit.get("skipped"):
             continue
         single_results.append({

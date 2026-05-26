@@ -455,25 +455,35 @@ def validate_joy_zoning(
     content: str,
     *,
     skip_subject_check: bool = False,
+    require_layer_tags: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Full Joy-Zoning validation for a file."""
     if not skip_subject_check and not is_governance_subject(file_path, content):
         return {"success": True, "errors": [], "skipped": True}
 
+    if require_layer_tags is None:
+        try:
+            from agent.governance_exemptions import is_governance_layer_tags_required
+
+            require_layer_tags = is_governance_layer_tags_required()
+        except ImportError:
+            require_layer_tags = False
+
     all_errors = []
 
     tag = parse_layer_tag(content)
     path_layer = get_path_layer(file_path)
-    
-    if not tag:
-        if is_layer_tag_supported(file_path, content):
+
+    if require_layer_tags:
+        if not tag:
+            if is_layer_tag_supported(file_path, content):
+                all_errors.append(
+                    f"{os.path.basename(file_path)}: Missing mandatory [LAYER: TYPE] header tag."
+                )
+        elif tag != path_layer:
             all_errors.append(
-                f"{os.path.basename(file_path)}: Missing mandatory [LAYER: TYPE] header tag."
+                f"{os.path.basename(file_path)}: Geographic Misalignment — Tag [LAYER: {tag.upper()}] does not match path layer '{path_layer}'."
             )
-    elif tag != path_layer:
-        all_errors.append(
-            f"{os.path.basename(file_path)}: Geographic Misalignment — Tag [LAYER: {tag.upper()}] does not match path layer '{path_layer}'."
-        )
         
     depth_errors = validate_import_depth(file_path, content)
     all_errors.extend(depth_errors)

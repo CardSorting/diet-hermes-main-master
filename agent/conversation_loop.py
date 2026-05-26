@@ -3460,6 +3460,54 @@ def run_conversation(
                         messages.pop()
                     messages.append(final_msg)
                     break
+
+                # ── Governance suppression handling (non-empty) ───────────
+                # Some models respond to governance-layer blocks with refusal-
+                # like apologies (text-only) instead of continuing diagnostics.
+                # When we detect that pattern after a governance tool result,
+                # we terminally replace the refusal with recovery_plan guidance.
+                if messages and any(
+                    m.get("role") == "tool" for m in messages[-6:]  # recent tools
+                ):
+                    try:
+                        from agent.governance_exemptions import (
+                            find_recent_governance_fault_payload,
+                            format_governance_recovery_terminal_response,
+                            looks_like_governance_suppression_response,
+                        )
+
+                        _gov_payload = find_recent_governance_fault_payload(messages)
+                    except ImportError:
+                        _gov_payload = None
+
+                    if _gov_payload:
+                        _final_stripped = agent._strip_think_blocks(
+                            final_response or ""
+                        ).strip()
+                        if (
+                            _final_stripped
+                            and looks_like_governance_suppression_response(
+                                _final_stripped
+                            )
+                        ):
+                            _turn_exit_reason = "governance_recovery_needed"
+                            final_response = format_governance_recovery_terminal_response(
+                                _gov_payload
+                            )
+                            agent._empty_content_retries = 0
+                            agent._thinking_prefill_retries = 0
+                            logger.info(
+                                "Governance block followed by refusal-like text — terminal recovery (no suppression retry)"
+                            )
+                            agent._emit_status(
+                                "⚠️ Governance block — refusal-like text detected; use recovery_plan"
+                            )
+                            final_msg = agent._build_assistant_message(
+                                assistant_message, finish_reason
+                            )
+                            final_msg["content"] = final_response
+                            messages.append(final_msg)
+                            break
                 
                 # Check if response only has think block with no actual content after it
                 if not agent._has_content_after_think_block(final_response):

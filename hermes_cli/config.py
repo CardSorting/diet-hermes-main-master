@@ -1553,6 +1553,9 @@ DEFAULT_CONFIG = {
         "enabled": False,
         # Layer-governance transform hook (joyzoning_governance plugin).
         "governance": {
+            # When false (default), [LAYER: TYPE] headers are optional: no auto-inject,
+            # no post-write hints, and governance does not block on missing/misaligned tags.
+            "layer_tags_required": False,
             # Extra path substrings that skip [LAYER: TYPE] enforcement (docs, etc.).
             "extra_exempt_paths": [],
         },
