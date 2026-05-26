@@ -6,7 +6,11 @@ import json
 
 from agent.governance_exemptions import (
     enforce_governance_on_mutation,
+    find_recent_governance_fault_payload,
+    format_governance_recovery_terminal_response,
     is_governance_transform_result,
+    looks_like_governance_suppression_response,
+    parse_tool_result_payload,
 )
 
 
@@ -100,3 +104,67 @@ def test_governance_recovery_plan_derives_import_queries():
     # phase2 carries anchors/snippets
     assert "[LAYER:" in q2
     assert combined[: len(q1)] == q1
+
+
+def test_governance_fault_payload_uses_compact_model_error_and_detail():
+    out = enforce_governance_on_mutation(
+        "write_file",
+        {"path": "src/domain/x.ts", "content": "x"},
+        json.dumps({"bytes_written": 1}),
+        run_gate=lambda files: {
+            "success": False,
+            "singleResults": [
+                {"file": files[0], "layer": "domain", "errors": ["bad import"]},
+            ],
+        },
+    )
+    payload = json.loads(out)
+    assert len(payload["error"]) < 1200
+    assert "error_detail" in payload
+    assert "====" in payload["error_detail"]
+    assert payload.get("governance_fault") is True
+
+
+def test_is_governance_transform_result_accepts_governance_fault_flag():
+    assert is_governance_transform_result({"governance_fault": True, "error": "other"})
+
+
+def test_find_recent_governance_fault_payload():
+    wrapped = json.dumps({"governance_fault": True, "error": "GOVERNANCE FAULT: x"})
+    messages = [
+        {"role": "user", "content": "hi"},
+        {"role": "tool", "content": wrapped, "tool_call_id": "c1"},
+    ]
+    assert find_recent_governance_fault_payload(messages) is not None
+
+
+def test_parse_tool_result_payload_with_appended_guardrail_guidance():
+    base = json.dumps({"governance_fault": True, "error": "GOVERNANCE FAULT: x"})
+    combined = base + "\n\n[Tool loop warning: governance_fault_warning; count=1; msg]"
+    parsed = parse_tool_result_payload(combined)
+    assert parsed is not None
+    assert parsed.get("governance_fault") is True
+    assert find_recent_governance_fault_payload(
+        [{"role": "tool", "content": combined, "tool_call_id": "c1"}]
+    ) is not None
+
+
+def test_format_governance_recovery_terminal_response_includes_reads():
+    text = format_governance_recovery_terminal_response(
+        {
+            "recovery_plan": {
+                "read_file_targets": ["src/a.ts"],
+                "search_files_phase1_queries": ["../ui/widget"],
+            }
+        }
+    )
+    assert "layering policy" in text
+    assert "src/a.ts" in text
+    assert "../ui/widget" in text
+
+
+def test_looks_like_governance_suppression_response():
+    assert looks_like_governance_suppression_response(
+        "I apologize, but I cannot continue due to governance layer violations."
+    )
+    assert not looks_like_governance_suppression_response("Fixed the import in src/a.ts.")

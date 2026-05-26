@@ -785,8 +785,124 @@ def is_governance_transform_result(payload: Dict[str, Any]) -> bool:
     """True when a parsed tool-result dict came from the governance transform hook."""
     if not isinstance(payload, dict):
         return False
-    err = payload.get("error")
-    return isinstance(err, str) and GOVERNANCE_FAULT_MARKER in err
+    if payload.get("governance_fault") is True:
+        return True
+    for key in ("error", "error_detail"):
+        err = payload.get(key)
+        if isinstance(err, str) and GOVERNANCE_FAULT_MARKER in err:
+            return True
+    return False
+
+
+def parse_tool_result_payload(content: str) -> Optional[Dict[str, Any]]:
+    """Parse a tool-result string that may have guardrail guidance appended after JSON."""
+    if not isinstance(content, str) or not content.strip():
+        return None
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        data = None
+    if isinstance(data, dict):
+        return data
+    start = content.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for idx in range(start, len(content)):
+        ch = content[idx]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    blob = json.loads(content[start : idx + 1])
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    return None
+                return blob if isinstance(blob, dict) else None
+    return None
+
+
+def find_recent_governance_fault_payload(
+    messages: List[Any],
+    *,
+    window: int = 8,
+) -> Optional[Dict[str, Any]]:
+    """Return the most recent governance-block tool result in ``messages``, if any."""
+    if not isinstance(messages, list):
+        return None
+    tail = messages[-window:] if window > 0 else messages
+    for msg in reversed(tail):
+        if not isinstance(msg, dict) or msg.get("role") != "tool":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, str):
+            continue
+        data = parse_tool_result_payload(content)
+        if isinstance(data, dict) and is_governance_transform_result(data):
+            return data
+        if GOVERNANCE_FAULT_MARKER in content or '"governance_fault"' in content.lower():
+            return data if isinstance(data, dict) else {"governance_fault": True, "error": content[:500]}
+    return None
+
+
+def format_governance_recovery_terminal_response(
+    payload: Optional[Dict[str, Any]] = None,
+) -> str:
+    """User-facing terminal message when the model goes silent after a governance block."""
+    base = (
+        "JoyZoning governance blocked a file mutation. This is **layering policy**, "
+        "not a provider safety refusal — do not apologize or stop using tools. "
+        "Use read-only diagnostics, fix the layer tag and/or forbidden import, "
+        "then retry the mutation once."
+    )
+    if not isinstance(payload, dict):
+        return base
+    plan = payload.get("recovery_plan")
+    if not isinstance(plan, dict):
+        return base
+    reads = plan.get("read_file_targets")
+    if isinstance(reads, list):
+        paths = [p for p in reads if isinstance(p, str) and p.strip()][:5]
+        if paths:
+            base += "\n\nRead first: " + ", ".join(f"`{p}`" for p in paths)
+    phase1 = plan.get("search_files_phase1_queries")
+    if isinstance(phase1, list):
+        queries = [q for q in phase1 if isinstance(q, str) and q.strip()][:4]
+        if queries:
+            base += "\n\nsearch_files (phase 1): " + "; ".join(queries)
+    return base
+
+
+def looks_like_governance_suppression_response(text: str) -> bool:
+    """True when assistant text looks like a refusal/apology after a governance block."""
+    stripped = (text or "").strip()
+    if len(stripped) < 20:
+        return False
+    lower = stripped.lower()
+    refusal_markers = (
+        "i cannot",
+        "i can't",
+        "i'm unable",
+        "i am unable",
+        "i apologize",
+        "sorry, but",
+        "not able to",
+        "unable to comply",
+        "must refuse",
+    )
+    if not any(marker in lower for marker in refusal_markers):
+        return False
+    context_hints = (
+        "governance",
+        "layer",
+        "joyzoning",
+        "joy-zoning",
+        "architectural",
+        "policy block",
+        "geographic misalignment",
+    )
+    return any(hint in lower for hint in context_hints)
 
 
 def is_governance_subject(file_path: str, content: Optional[str] = None) -> bool:
@@ -1186,6 +1302,22 @@ def _governance_fault_payload(
         ],
     }
 
+    summary_lines: List[str] = []
+    for item in structured[:8]:
+        fpath = item.get("file") or "?"
+        errs = item.get("errors") or []
+        short = "; ".join(str(e)[:160] for e in errs[:3] if e)
+        summary_lines.append(f"{fpath}: {short}" if short else str(fpath))
+    summary_blob = " | ".join(summary_lines) if summary_lines else "see violations"
+
+    model_error = (
+        f"{GOVERNANCE_FAULT_MARKER}: JoyZoning policy blocked file mutation(s). "
+        "This is layering policy, not a safety refusal — keep using read-only tools "
+        "(read_file, search_files). Do not apologize or go text-only. "
+        "Fix the layer tag and/or forbidden import, then retry the mutation once. "
+        f"Details: {summary_blob}"
+    )
+
     report = (
         "==============================================================\n"
         f"{GOVERNANCE_FAULT_MARKER}: JoyZoning Layering Violations Detected!\n"
@@ -1206,7 +1338,8 @@ def _governance_fault_payload(
     )
     return {
         "success": False,
-        "error": report,
+        "error": model_error,
+        "error_detail": report,
         "retryable": False,
         "governance_fault": True,
         "violations": structured,

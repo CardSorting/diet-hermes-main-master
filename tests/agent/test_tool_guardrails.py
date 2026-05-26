@@ -153,11 +153,36 @@ def test_governance_blocks_halt_by_default_after_two_identical_failures():
     wrapped = json.dumps({
         "success": False,
         "error": "GOVERNANCE FAULT: JoyZoning Layering Violations Detected!",
+        "governance_fault": True,
         "original_result": json.dumps({"bytes_written": 1}),
     })
     first = controller.after_call("write_file", args, wrapped, failed=None)
     assert first.action in {"allow", "warn"}
     second = controller.after_call("write_file", args, wrapped, failed=None)
+    assert second.action == "halt"
+    assert second.code == "governance_fault_halt"
+
+
+def test_governance_blocks_halt_after_two_different_paths_same_turn():
+    controller = ToolCallGuardrailController(ToolCallGuardrailConfig())
+    wrapped = json.dumps({
+        "success": False,
+        "governance_fault": True,
+        "error": "GOVERNANCE FAULT: blocked",
+    })
+    first = controller.after_call(
+        "write_file",
+        {"path": "src/domain/a.ts", "content": "a"},
+        wrapped,
+        failed=None,
+    )
+    assert first.action in {"allow", "warn"}
+    second = controller.after_call(
+        "write_file",
+        {"path": "src/domain/b.ts", "content": "b"},
+        wrapped,
+        failed=None,
+    )
     assert second.action == "halt"
     assert second.code == "governance_fault_halt"
 

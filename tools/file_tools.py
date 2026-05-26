@@ -837,17 +837,15 @@ def _run_joy_zoning_audit(filepath: str, result_dict: dict) -> None:
             audit = validate_joy_zoning(resolved, content)
             if not audit["success"]:
                 violations = audit["errors"]
-                violations_msg = "JOY-ZONING VIOLATION: " + " | ".join(violations)
-                existing_warning = result_dict.get("_warning")
-                if existing_warning:
-                    result_dict["_warning"] = f"{existing_warning} | {violations_msg}"
-                else:
-                    result_dict["_warning"] = violations_msg
+                # Advisory only: joyzoning_governance transform is authoritative for
+                # tool-result blocking. Avoid duplicate scare copy that triggers
+                # refusal-like empty-response spirals after successful writes.
+                short = " | ".join(str(v)[:120] for v in violations[:3])
                 result_dict["_hint"] = (
-                    "Your change introduced architectural or layering violations. "
-                    "Please verify that imports flow in the correct direction (Domain -> nothing, "
-                    "Core -> Domain/Infra/Plumbing, Infra -> Domain/Plumbing, UI -> Domain/Plumbing/Core/Infra, "
-                    "Plumbing -> nothing) and that each file has a [LAYER: TYPE] tag matching its path layer."
+                    "JoyZoning layering note (post-write): "
+                    f"{short}. "
+                    "If a mutation was blocked, follow recovery_plan in the tool result; "
+                    "otherwise fix the layer tag or import direction before retrying once."
                 )
     except Exception as e:
         logger.debug("Failed to run Joy-Zoning validation: %s", e)

@@ -3429,6 +3429,37 @@ def run_conversation(
                 # prior housekeeping tool turn and should not silence the
                 # final response path.
                 agent._mute_post_response = False
+
+                # ── Content filter / refusal handling ───────────────────
+                # Providers may return finish_reason="content_filter" for refusals
+                # or safety blocks. Treat this as a terminal outcome for the turn:
+                # retrying tends to spiral (empty-response retries + nudges).
+                if finish_reason == "content_filter":
+                    agent._empty_content_retries = 0
+                    agent._thinking_prefill_retries = 0
+                    _turn_exit_reason = "content_filter"
+                    final_response = (
+                        "The model response was blocked by a provider safety/content filter "
+                        "(finish_reason=content_filter). This is not a tool failure. "
+                        "To proceed, rephrase the request or narrow it to a benign, "
+                        "technical subtask (e.g. ask for debugging steps, a design, or "
+                        "a minimal code change), then retry."
+                    )
+                    final_msg = agent._build_assistant_message(assistant_message, finish_reason)
+                    final_msg["content"] = final_response
+                    # Drop any empty-recovery scaffolding that might have been appended.
+                    while (
+                        messages
+                        and isinstance(messages[-1], dict)
+                        and (
+                            messages[-1].get("_thinking_prefill")
+                            or messages[-1].get("_empty_recovery_synthetic")
+                            or messages[-1].get("_empty_terminal_sentinel")
+                        )
+                    ):
+                        messages.pop()
+                    messages.append(final_msg)
+                    break
                 
                 # Check if response only has think block with no actual content after it
                 if not agent._has_content_after_think_block(final_response):
@@ -3499,6 +3530,44 @@ def run_conversation(
                         m.get("role") == "tool"
                         for m in messages[-5:]  # check recent messages
                     )
+                    _gov_payload = None
+                    if _prior_was_tool:
+                        try:
+                            from agent.governance_exemptions import (
+                                find_recent_governance_fault_payload,
+                                format_governance_recovery_terminal_response,
+                                looks_like_governance_suppression_response,
+                            )
+
+                            _gov_payload = find_recent_governance_fault_payload(messages)
+                        except ImportError:
+                            _gov_payload = None
+                    if _gov_payload:
+                        _gov_stripped = agent._strip_think_blocks(
+                            final_response or ""
+                        ).strip()
+                        if not _gov_stripped or looks_like_governance_suppression_response(
+                            _gov_stripped
+                        ):
+                            _turn_exit_reason = "governance_recovery_needed"
+                            final_response = format_governance_recovery_terminal_response(
+                                _gov_payload
+                            )
+                            agent._empty_content_retries = 0
+                            agent._thinking_prefill_retries = 0
+                            logger.info(
+                                "Governance block followed by empty/suppression response "
+                                "— terminal recovery (no empty-response spiral)"
+                            )
+                            agent._emit_status(
+                                "⚠️ Governance block — use read-only recovery, not retries"
+                            )
+                            final_msg = agent._build_assistant_message(
+                                assistant_message, finish_reason
+                            )
+                            final_msg["content"] = final_response
+                            messages.append(final_msg)
+                            break
                     # Detect Qwen3/Ollama-style in-content thinking blocks.
                     # Ollama puts <think> in the content field (not in
                     # reasoning_content), so _has_structured below would
@@ -3600,6 +3669,33 @@ def run_conversation(
                         and agent._thinking_prefill_retries >= 2
                     )
                     if _truly_empty and (not _has_structured or _prefill_exhausted) and agent._empty_content_retries < 3:
+                        try:
+                            from agent.governance_exemptions import (
+                                find_recent_governance_fault_payload,
+                                format_governance_recovery_terminal_response,
+                            )
+
+                            _gov_retry_payload = find_recent_governance_fault_payload(messages)
+                        except ImportError:
+                            _gov_retry_payload = None
+                        if _gov_retry_payload:
+                            _turn_exit_reason = "governance_recovery_needed"
+                            final_response = format_governance_recovery_terminal_response(
+                                _gov_retry_payload
+                            )
+                            agent._empty_content_retries = 0
+                            logger.info(
+                                "Skipping empty-response retries after governance block"
+                            )
+                            agent._emit_status(
+                                "⚠️ Empty after governance — recovery guidance (no retry spiral)"
+                            )
+                            final_msg = agent._build_assistant_message(
+                                assistant_message, finish_reason
+                            )
+                            final_msg["content"] = final_response
+                            messages.append(final_msg)
+                            break
                         agent._empty_content_retries += 1
                         logger.warning(
                             "Empty response (no content or reasoning) — "

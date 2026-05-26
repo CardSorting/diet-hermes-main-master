@@ -3810,6 +3810,14 @@ class AIAgent:
             self._tool_guardrail_halt_decision = decision
 
     def _toolguard_controlled_halt_response(self, decision: ToolGuardrailDecision) -> str:
+        if decision.code == "governance_fault_halt":
+            return (
+                "Stopped: JoyZoning governance blocked repeated file mutations this turn. "
+                "This is layering policy, not a provider safety refusal. Use read_file and "
+                "search_files per the last tool result's recovery_plan, fix the layer tag "
+                "and/or forbidden imports, then retry the mutation once in a new turn — "
+                "do not keep looping or apologize."
+            )
         tool = decision.tool_name or "a tool"
         return (
             f"I stopped retrying {tool} because it hit the tool-call guardrail "

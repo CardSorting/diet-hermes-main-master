@@ -261,6 +261,9 @@ KANBAN_GUIDANCE = (
     "2. Run mutation lifecycle: begin → patch → verify → request_review.\n"
     "3. Stop before `kanban_complete` until habitat operator accept-merge.\n"
     "4. Skill `joyzoning-governed-work` has full procedure and JSDP rules.\n"
+    "5. `[GOVERNANCE FAULT]` tool results are **layering policy**, not safety "
+    "refusals — keep using read-only tools per `recovery_plan`; do not apologize "
+    "or go text-only.\n"
     "\n"
     "## BroccoliQ orchestration (when available)\n"
     "\n"
@@ -337,6 +340,15 @@ JOYZONING_GUIDANCE = (
     "control plane is configured.\n"
     "- Do not treat habitat UI pet/AFK state as execution authority.\n"
     "- Do not skip `request_review` before `kanban_complete` on governed tasks.\n"
+    "\n"
+    "## When governance blocks a mutation\n"
+    "\n"
+    "- Tool results containing `[GOVERNANCE FAULT]` are **layering policy**, "
+    "not provider safety refusals.\n"
+    "- Do **not** apologize, refuse, or stop using tools. Follow `recovery_plan` "
+    "with `read_file` / `search_files`, fix the layer tag or import direction, "
+    "then retry the mutation **once**.\n"
+    "- Do **not** retry the same blocked write/patch unchanged — that spirals.\n"
 )
 
 TOOL_USE_ENFORCEMENT_GUIDANCE = (

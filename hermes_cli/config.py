@@ -805,6 +805,7 @@ DEFAULT_CONFIG = {
         "hard_stop_after": {
             "exact_failure": 5,
             "same_tool_failure": 8,
+            "governance_fault": 2,
             "idempotent_no_progress": 5,
         },
     },

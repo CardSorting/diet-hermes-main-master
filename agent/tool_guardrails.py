@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from utils import safe_json_loads
+from agent.governance_exemptions import parse_tool_result_payload
 from agent.tool_result_classification import (
     FILE_MUTATING_TOOL_NAMES,
     file_mutation_result_landed,
@@ -78,6 +79,7 @@ class ToolCallGuardrailConfig:
     exact_failure_block_after: int = 5
     same_tool_failure_warn_after: int = 3
     same_tool_failure_halt_after: int = 8
+    governance_fault_halt_after: int = 2
     no_progress_warn_after: int = 2
     no_progress_block_after: int = 5
     idempotent_tools: frozenset[str] = field(default_factory=lambda: IDEMPOTENT_TOOL_NAMES)
@@ -119,6 +121,13 @@ class ToolCallGuardrailConfig:
             same_tool_failure_halt_after=_positive_int(
                 hard_stop_after.get("same_tool_failure", data.get("same_tool_failure_halt_after")),
                 defaults.same_tool_failure_halt_after,
+            ),
+            governance_fault_halt_after=_positive_int(
+                hard_stop_after.get(
+                    "governance_fault",
+                    data.get("governance_fault_halt_after"),
+                ),
+                defaults.governance_fault_halt_after,
             ),
             no_progress_block_after=_positive_int(
                 hard_stop_after.get("idempotent_no_progress", data.get("no_progress_block_after")),
@@ -245,6 +254,7 @@ class ToolCallGuardrailController:
         self._exact_failure_counts: dict[ToolCallSignature, int] = {}
         self._same_tool_failure_counts: dict[str, int] = {}
         self._no_progress: dict[ToolCallSignature, tuple[str, int]] = {}
+        self._governance_fault_turn_count: int = 0
         self._halt_decision: ToolGuardrailDecision | None = None
 
     @property
@@ -316,31 +326,57 @@ class ToolCallGuardrailController:
             same_count = self._same_tool_failure_counts.get(tool_name, 0) + 1
             self._same_tool_failure_counts[tool_name] = same_count
 
-            # Special-case: JoyZoning governance blocks are frequently a stable
-            # "retry won't help" failure mode (tagging/architecture policy).
-            # Even when hard-stop guardrails are disabled, halt after two
-            # identical governance blocks to prevent long no-progress loops.
+            # JoyZoning governance blocks are policy failures, not landed writes.
+            # Halt after repeated blocks (identical args OR any second block this turn)
+            # so the agent cannot burn max_iterations across varying paths.
             if tool_name in FILE_MUTATING_TOOL_NAMES and result:
-                parsed = safe_json_loads(result)
+                parsed = parse_tool_result_payload(result)
                 if isinstance(parsed, dict):
                     try:
                         from agent.governance_exemptions import is_governance_transform_result
 
-                        if is_governance_transform_result(parsed) and exact_count >= 2:
-                            decision = ToolGuardrailDecision(
-                                action="halt",
-                                code="governance_fault_halt",
-                                message=(
-                                    "Stopped: JoyZoning governance blocked this mutation repeatedly. "
-                                    "Do not keep retrying the same write/patch; fix the layer tag and/or "
-                                    "the import-direction violation, then retry once."
-                                ),
-                                tool_name=tool_name,
-                                count=exact_count,
-                                signature=signature,
+                        if is_governance_transform_result(parsed):
+                            self._governance_fault_turn_count += 1
+                            gov_count = self._governance_fault_turn_count
+                            halt_threshold = self.config.governance_fault_halt_after
+                            should_halt = (
+                                exact_count >= halt_threshold
+                                or gov_count >= halt_threshold
                             )
-                            self._halt_decision = decision
-                            return decision
+                            if should_halt:
+                                decision = ToolGuardrailDecision(
+                                    action="halt",
+                                    code="governance_fault_halt",
+                                    message=(
+                                        "Stopped: JoyZoning governance blocked file mutation(s) "
+                                        f"{gov_count} time(s) this turn. This is layering policy, "
+                                        "not a safety refusal. Use read_file/search_files per "
+                                        "recovery_plan, fix the layer tag and/or import violation, "
+                                        "then retry once — do not loop or apologize."
+                                    ),
+                                    tool_name=tool_name,
+                                    count=max(exact_count, gov_count),
+                                    signature=signature,
+                                )
+                                self._halt_decision = decision
+                                return decision
+                            if (
+                                self.config.warnings_enabled
+                                and gov_count == 1
+                                and exact_count == 1
+                            ):
+                                return ToolGuardrailDecision(
+                                    action="warn",
+                                    code="governance_fault_warning",
+                                    message=(
+                                        "JoyZoning governance blocked this mutation (policy, not "
+                                        "safety refusal). Use recovery_plan read-only steps; do not "
+                                        "retry unchanged or switch to text-only apologies."
+                                    ),
+                                    tool_name=tool_name,
+                                    count=gov_count,
+                                    signature=signature,
+                                )
                     except ImportError:
                         pass
 
@@ -447,7 +483,7 @@ def append_toolguard_guidance(result: str, decision: ToolGuardrailDecision) -> s
     # governance, models often self-freeze/refuse. Append explicit read-only
     # next steps so the agent can keep executing diagnostics instead of looping.
     try:
-        parsed = safe_json_loads(result or "")
+        parsed = parse_tool_result_payload(result or "")
         if isinstance(parsed, dict):
             from agent.governance_exemptions import is_governance_transform_result
 
