@@ -22,7 +22,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 # Bump when exemption policy changes (tests assert monotonic awareness).
-GOVERNANCE_POLICY_VERSION = 9
+GOVERNANCE_POLICY_VERSION = 10
 
 # Re-use style/blocklist from joy_zoning without circular import at module level.
 _STRICT_BLOCKLIST = frozenset({
@@ -124,7 +124,11 @@ GOVERNANCE_EXEMPT_BASENAMES = frozenset({
     ".releaserc", ".releaserc.json", ".commitlintrc.js",
     "funding.yml", ".funding.json",
     # Registry / agent descriptors
-    "agent.json", "plugin.json", "mcp.json",
+    "agent.json", "plugin.json",
+    # Extensionless CLI / env markers (repo root)
+    ".venv", "hermes",
+    # Nix / flakes (additional)
+    "flake.lock",
 })
 
 GOVERNANCE_EXEMPT_EXTENSIONS = _STRICT_BLOCKLIST | frozenset({
@@ -189,6 +193,14 @@ GOVERNANCE_EXEMPT_EXTENSIONS = _STRICT_BLOCKLIST | frozenset({
     ".eml", ".mbox", ".srt", ".vtt", ".ass",
     # Build descriptors
     ".cmake", ".bazel", ".bzl", ".nix",
+    # LaTeX / academic templates (skills, papers)
+    ".tex", ".ltx", ".bib", ".bst", ".sty", ".cls", ".ins", ".dtx", ".bbx", ".cbx",
+    # Desktop / TUI assets
+    ".eikon",
+    # systemd / unit files
+    ".service", ".socket", ".timer", ".mount", ".target",
+    # Extensionless-adjacent bundles
+    ".desktop", ".ics", ".vcf",
 })
 
 GOVERNANCE_EXEMPT_PATH_MARKERS = (
@@ -250,6 +262,9 @@ GOVERNANCE_EXEMPT_PATH_MARKERS = (
     # Hermes optional-skills tree (markdown skills — not TS source)
     "/optional-skills/", "/.plans/", "/.devcontainer/", "/acp_registry/",
     "/issue_templates/",
+    "/paste_store/", "/.broccolidb/",
+    "/templates/aaai", "/templates/acl/", "/templates/colm", "/templates/neurips",
+    "/research-paper-writing/",
 )
 
 GOVERNANCE_EXEMPT_BASENAME_SUFFIXES = (
@@ -272,6 +287,8 @@ GOVERNANCE_EXEMPT_BASENAME_SUFFIXES = (
     ".node.ts", ".node.cts",
     ".opts.ts", ".opts.js",
     ".overrides.ts", ".overrides.js",
+    ".bench.ts", ".bench.tsx", ".bench.js",
+    ".test.mjs", ".test.cjs", ".spec.mjs", ".spec.cjs",
 )
 
 GOVERNANCE_COMPOUND_SUFFIXES = (
@@ -301,6 +318,8 @@ GOVERNANCE_EXEMPT_SEGMENT_PREFIXES = (
     "android/", "ios/", "legal/", "licenses/",
     ".plans/", ".devcontainer/", "acp_registry/",
     "issue_templates/", "actions/",
+    ".broccolidb/", "paste_store/",
+    "herm-tui/bin/",
 )
 
 GOVERNANCE_SOURCE_EXTENSIONS = frozenset({".ts", ".tsx", ".js", ".jsx"})
@@ -424,6 +443,42 @@ def _is_release_or_plan_doc(basename: str) -> bool:
     return False
 
 
+def _is_repo_root_skills_tree(normalized: str) -> bool:
+    """Hermes-style ``skills/<category>/...`` at repo root (not ``src/skills``)."""
+    if normalized.startswith("skills/"):
+        return True
+    return False
+
+
+def _is_paste_or_local_store(normalized: str) -> bool:
+    return "/paste_store/" in normalized or "/.broccolidb/" in normalized
+
+
+def _is_test_harness_source(normalized: str, basename: str) -> bool:
+    """Non-``.test.*`` harness files under test directories (benchmarks, stress)."""
+    if not any(m in normalized for m in ("/tests/", "/test/", "/__tests__/", "/benchmarks/")):
+        return False
+    lower = basename.lower()
+    if re.match(r"^(benchmark|stress|perf|load|setup|teardown)(\.|$)", lower):
+        return True
+    return False
+
+
+def _is_extensionless_artifact_basename(basename: str, normalized: str) -> bool:
+    """Tracked paths with no extension that are never layerable source."""
+    if not basename or "." in basename:
+        return False
+    lower = basename.lower()
+    if lower in {".venv", "venv", "hermes", "makefile", "dockerfile", "license", "readme"}:
+        return True
+    if normalized.startswith("scripts/") and lower not in {"makefile", "dockerfile"}:
+        return True
+    # content-addressed store blobs (hash filenames)
+    if re.fullmatch(r"[a-f0-9]{32,128}", lower):
+        return True
+    return False
+
+
 def _is_config_tool_basename(basename: str) -> bool:
     """Known toolchain config filenames not covered by suffix rules."""
     lower = basename.lower()
@@ -470,6 +525,10 @@ def is_governance_artifact_path(file_path: str) -> bool:
         return True
     if _is_config_tool_basename(basename):
         return True
+    if _is_repo_root_skills_tree(normalized) or _is_paste_or_local_store(normalized):
+        return True
+    if _is_extensionless_artifact_basename(basename, normalized) or _is_test_harness_source(normalized, basename):
+        return True
     if _is_compound_exempt_path(normalized):
         return True
     for suffix in GOVERNANCE_EXEMPT_BASENAME_SUFFIXES:
@@ -480,11 +539,13 @@ def is_governance_artifact_path(file_path: str) -> bool:
             return True
     if any(marker in normalized for marker in GOVERNANCE_EXEMPT_PATH_MARKERS):
         return True
-    if any(
-        normalized.startswith(seg) or f"/{seg}" in normalized
-        for seg in GOVERNANCE_EXEMPT_SEGMENT_PREFIXES
-    ):
-        return True
+    for seg in GOVERNANCE_EXEMPT_SEGMENT_PREFIXES:
+        if seg == "skills/":
+            if _is_repo_root_skills_tree(normalized):
+                return True
+            continue
+        if normalized.startswith(seg) or f"/{seg}" in normalized:
+            return True
     if basename in {"dockerfile", "containerfile"} or basename.startswith("dockerfile."):
         return True
     for extra in _user_extra_exempt_markers():

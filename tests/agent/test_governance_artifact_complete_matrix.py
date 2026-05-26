@@ -58,7 +58,7 @@ def test_hermes_repo_sample_artifacts_are_exempt(rel_path: str):
 
 
 def test_policy_version_at_least_8():
-    assert GOVERNANCE_POLICY_VERSION >= 9
+    assert GOVERNANCE_POLICY_VERSION >= 10
 
 
 def test_governance_policy_summary_complete():

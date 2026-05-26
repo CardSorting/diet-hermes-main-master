@@ -69,7 +69,7 @@ def test_validate_joy_zoning_skips_exempt_without_errors():
 
 
 def test_governance_policy_version_is_positive():
-    assert GOVERNANCE_POLICY_VERSION >= 9
+    assert GOVERNANCE_POLICY_VERSION >= 10
 
 
 def test_db_schema_paths_exempt_app_schema_folder_not():

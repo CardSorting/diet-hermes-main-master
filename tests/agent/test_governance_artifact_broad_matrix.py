@@ -162,4 +162,4 @@ def test_editor_rc_heuristic(basename: str, expected: bool):
 
 
 def test_policy_version_at_least_8():
-    assert GOVERNANCE_POLICY_VERSION >= 9
+    assert GOVERNANCE_POLICY_VERSION >= 10

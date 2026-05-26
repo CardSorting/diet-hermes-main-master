@@ -24,6 +24,10 @@ TRACKED_EXEMPT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("env_template", re.compile(r"^\.env(\.|$)|\.envrc$", re.I)),
     ("assets", re.compile(r"\.(png|svg|ico|woff2?|gif|jpe?g|webp|avif)$", re.I)),
     ("skills", re.compile(r"(^|/)(optional-skills|skills)/.+/SKILL\.md$", re.I)),
+    ("latex", re.compile(r"\.(tex|sty|bib|bst|cls)$", re.I)),
+    ("eikon", re.compile(r"\.eikon$", re.I)),
+    ("systemd", re.compile(r"\.service$", re.I)),
+    ("paste_store", re.compile(r"paste_store/|\.broccolidb/", re.I)),
 ]
 
 # Tracked TS/JS under agent/ (app source) must remain governable when layer-tagged policy applies.

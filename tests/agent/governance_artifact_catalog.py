@@ -402,6 +402,20 @@ COMPLETE_EXEMPT_CATALOG: list[tuple[str, str]] = [
     ("data", "captions/en.vtt"),
     ("data", "inbox/message.eml"),
     ("data", "export/report.parquet"),
+    # ── v10: Hermes repo gaps (git ls-files audit) ──
+    ("hermes_v10", ".venv"),
+    ("hermes_v10", "hermes"),
+    ("hermes_v10", "scripts/hermes-gateway"),
+    ("hermes_v10", "broccolidb/.broccolidb/paste_store/cc/abc123"),
+    ("hermes_v10", "herm-tui/assets/eikons/default.eikon"),
+    ("hermes_v10", "herm-tui/bin/herm.cjs"),
+    ("hermes_v10", "plugins/kanban/systemd/hermes-kanban-dispatcher.service"),
+    ("hermes_v10", "skills/research/research-paper-writing/templates/acl/acl_latex.tex"),
+    ("hermes_v10", "skills/research/research-paper-writing/templates/acl/acl.sty"),
+    ("hermes_v10", "skills/research/research-paper-writing/templates/acl/custom.bib"),
+    ("hermes_v10", "scripts/whatsapp-bridge/allowlist.test.mjs"),
+    ("hermes_v10", "broccolidb/tests/benchmark.ts"),
+    ("hermes_v10", "broccolidb/tests/stress.ts"),
 ]
 
 # Paths that must stay governable (anti-regression for over-broad rules).

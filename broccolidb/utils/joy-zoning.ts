@@ -160,7 +160,7 @@ export function getLayer(filePath: string, content?: string): Layer {
 	return layer
 }
 
-/** Keep in sync with agent/governance_exemptions.py (policy v9+) */
+/** Keep in sync with agent/governance_exemptions.py (policy v10+) */
 const GOVERNANCE_EXEMPT_BASENAMES = new Set([
 	"package.json",
 	"package-lock.json",
@@ -267,6 +267,13 @@ const GOVERNANCE_EXEMPT_EXTENSIONS = new Set([
 	".tfvars",
 	".hcl",
 	".po",
+	".tex",
+	".bib",
+	".sty",
+	".bst",
+	".cls",
+	".eikon",
+	".service",
 	".astro",
 	".feature",
 	".rego",
@@ -368,6 +375,9 @@ const GOVERNANCE_EXEMPT_BASENAME_SUFFIXES = [
 	".contract.ts",
 	".config.mts",
 	".config.mjs",
+	".bench.ts",
+	".test.mjs",
+	".test.cjs",
 ]
 
 const GOVERNANCE_COMPOUND_SUFFIXES = [
@@ -417,6 +427,8 @@ const GOVERNANCE_EXEMPT_SEGMENT_PREFIXES = [
 	".storybook/",
 	"terraform/",
 	"optional-skills/",
+	".broccolidb/",
+	"paste_store/",
 ]
 
 function isCompoundExemptPath(normalized: string): boolean {
@@ -440,6 +452,10 @@ function isMakefileVariant(basename: string): boolean {
 function isReleaseDocBasename(basename: string): boolean {
 	const lower = basename.toLowerCase()
 	return (lower.startsWith("release_") || lower.startsWith("release-")) && lower.endsWith(".md")
+}
+
+function isRepoRootSkillsTree(normalized: string): boolean {
+	return normalized.startsWith("skills/")
 }
 
 const GOVERNANCE_SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"])
@@ -478,9 +494,12 @@ export function isGovernanceArtifactPath(filePath: string): boolean {
 	if (GOVERNANCE_EXEMPT_EXTENSIONS.has(ext)) return true
 	if (basename === "dockerfile" || basename.startsWith("dockerfile.")) return true
 	if (GOVERNANCE_EXEMPT_PATH_MARKERS.some((marker) => normalized.includes(marker))) return true
-	return GOVERNANCE_EXEMPT_SEGMENT_PREFIXES.some(
-		(seg) => normalized.startsWith(seg) || normalized.includes(`/${seg}`),
-	)
+	if (isRepoRootSkillsTree(normalized)) return true
+	for (const seg of GOVERNANCE_EXEMPT_SEGMENT_PREFIXES) {
+		if (seg === "skills/") continue
+		if (normalized.startsWith(seg) || normalized.includes(`/${seg}`)) return true
+	}
+	return false
 }
 
 export function isGovernanceSubject(filePath: string, content?: string): boolean {
