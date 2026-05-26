@@ -106,7 +106,7 @@ sequenceDiagram
 
 ## Throughput comparison by path
 
-Qualitative comparison. **Measure on your machine** with `scripts/benchmark_dietcode_throughput.py` when `broccolidb.db` is live.
+Qualitative comparison. **Hard numbers** (medians, p95, oneshot vs warm, batch): see [broccolidb-throughput-benchmark-results.md](./broccolidb-throughput-benchmark-results.md). Re-run with `scripts/benchmark_broccolidb_native_rpc.py` when `broccolidb.db` is live.
 
 | Path | Before | After (warm RPC) | Primary win |
 |------|--------|------------------|-------------|

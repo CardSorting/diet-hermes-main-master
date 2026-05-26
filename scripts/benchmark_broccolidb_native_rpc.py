@@ -25,6 +25,15 @@ if WT not in sys.path:
     sys.path.insert(0, WT)
 
 
+def _p95_ms(times: list[float]) -> float:
+    """Nearest-rank p95 for small samples (n >= 5)."""
+    if not times:
+        return 0.0
+    sorted_times = sorted(times)
+    idx = max(0, int(len(sorted_times) * 0.95) - 1)
+    return sorted_times[idx]
+
+
 def _bench(label: str, fn: Callable[[], None], *, iterations: int = 7) -> dict[str, Any]:
     times: list[float] = []
     for _ in range(iterations):
@@ -37,6 +46,7 @@ def _bench(label: str, fn: Callable[[], None], *, iterations: int = 7) -> dict[s
         "iterations": iterations,
         "min_ms": round(times[0], 2),
         "median_ms": round(statistics.median(times), 2),
+        "p95_ms": round(_p95_ms(times), 2),
         "max_ms": round(times[-1], 2),
         "mean_ms": round(statistics.mean(times), 2),
     }
@@ -58,7 +68,7 @@ def _require_live() -> bool:
 
 
 def run_benchmarks(*, iterations: int = 7) -> dict[str, Any]:
-    from tools.broccolidb_tools.db_gateway import run_oneshot_rpc, shutdown_gateway
+    from tools.broccolidb_tools.db_gateway import run_db_rpc_batch, run_oneshot_rpc, shutdown_gateway
     from tools.broccolidb_tools.db_native import warm_db_rpc
     from tools.broccolidb_tools.runner import run_db_rpc
 
@@ -165,6 +175,25 @@ def run_benchmarks(*, iterations: int = 7) -> dict[str, Any]:
         iterations=iterations,
     ))
 
+    # Batch vs sequential (same warm worker — no shutdown between calls)
+    def _two_sequential() -> None:
+        run_db_rpc("rpc_health", timeout=10)
+        run_db_rpc("queue_status", timeout=10)
+
+    rows.append(_bench(
+        "rpc (warm): 2 calls sequential (rpc_health + queue_status)",
+        _two_sequential,
+        iterations=iterations,
+    ))
+    rows.append(_bench(
+        "rpc (warm): batch 2 (rpc_health + queue_status)",
+        lambda: run_db_rpc_batch(
+            [("rpc_health", {}), ("queue_status", {})],
+            timeout=15,
+        ),
+        iterations=iterations,
+    ))
+
     _shutdown_gateway()
     return {"meta": meta, "results": rows}
 
@@ -216,7 +245,8 @@ def main() -> int:
     for r in payload.get("results", []):
         print(
             f"{r['label']:<52} "
-            f"min={r['min_ms']:>8.2f}  med={r['median_ms']:>8.2f}  max={r['max_ms']:>8.2f} ms"
+            f"min={r['min_ms']:>8.2f}  p50={r['median_ms']:>8.2f}  "
+            f"p95={r.get('p95_ms', r['max_ms']):>8.2f}  max={r['max_ms']:>8.2f} ms"
         )
     print()
     print("Speedup (before=oneshot median / after=warm rpc median)")
