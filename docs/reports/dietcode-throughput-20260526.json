@@ -1,0 +1,99 @@
+{
+  "timestamp": "2026-05-26T19:28:38Z",
+  "quick": false,
+  "results": [
+    {
+      "label": "tui_rpc_frames (10000 message.delta)",
+      "n_events": 10000,
+      "batched_frames": 157,
+      "unbatched_frames": 10000,
+      "frame_reduction_pct": 98.4,
+      "batched_elapsed_ms": 23.86,
+      "unbatched_elapsed_ms": 34.13
+    },
+    {
+      "label": "tui_rpc_emit (10000 deltas, batched)",
+      "median_ms": 23.856,
+      "events_per_sec": 419182.0
+    },
+    {
+      "label": "sessiondb append_message x2000",
+      "iterations": 3,
+      "min_ms": 418.91908300021896,
+      "median_ms": 432.23699999362,
+      "max_ms": 467.472958000144,
+      "msgs_per_sec": 4627.0
+    },
+    {
+      "label": "sessiondb append_messages_batch x2000 (size=50)",
+      "iterations": 3,
+      "min_ms": 94.02779200172517,
+      "median_ms": 99.65466699941317,
+      "max_ms": 100.74791600345634,
+      "msgs_per_sec": 20069.0,
+      "speedup_vs_single": 4.34
+    },
+    {
+      "label": "load_config x50",
+      "iterations": 50,
+      "min_ms": 0.5645420023938641,
+      "median_ms": 0.5805000037071295,
+      "max_ms": 2.431207998597529
+    },
+    {
+      "label": "memory queue_prefetch_all (builtin-only skip)",
+      "iterations": 2000,
+      "median_us": 0.1,
+      "max_us": 1.0
+    },
+    {
+      "label": "pre_tool_call hook check",
+      "iterations": 2000,
+      "hooks_registered": true,
+      "median_us": 2.0,
+      "max_us": 3518.9
+    },
+    {
+      "label": "transform_tool_result hook check",
+      "iterations": 2000,
+      "hooks_registered": true,
+      "median_us": 0.2,
+      "max_us": 0.3
+    },
+    {
+      "label": "governance enforce (tool error skip)",
+      "iterations": 2000,
+      "median_us": 2.2,
+      "max_us": 924.0
+    },
+    {
+      "label": "governance enforce (cold, light validate)",
+      "iterations": 40,
+      "median_ms": 2.511,
+      "max_ms": 5.082
+    },
+    {
+      "label": "governance enforce (mtime cache hit)",
+      "iterations": 2000,
+      "median_us": 6.9,
+      "max_us": 92.0,
+      "speedup_vs_cold": 363.1
+    },
+    {
+      "label": "governance resolve_path_kind x30000",
+      "iterations": 3,
+      "min_ms": 3.6575839985744096,
+      "median_ms": 3.7057089939480647,
+      "max_ms": 4.396374999487307,
+      "paths_per_sec": 8095617.0
+    },
+    {
+      "label": "broccolidb get_snapshot (live, warm RPC)",
+      "live": true,
+      "rpc_health_median_ms": 1.06,
+      "median_ms": 8.58,
+      "min_ms": 8.36,
+      "max_ms": 11.47
+    }
+  ]
+}

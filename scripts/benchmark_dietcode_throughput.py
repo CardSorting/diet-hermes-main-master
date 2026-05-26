@@ -6,7 +6,9 @@ Measures hot paths touched by DietCode throughput passes:
   - SessionDB transcript writes (single vs batched)
   - Config load latency
   - Memory background-prefetch skip (builtin-only)
-  - Plugin hook fast-path (pre_tool_call absent)
+  - Plugin hook fast-paths (pre_tool_call / transform_tool_result)
+  - JoyZoning governance transform hook (skip-on-error, mtime cache, light validate)
+  - Governance path classification LRU
   - BroccoliDB dashboard snapshot (optional, when live)
 
 Not a pass/fail pytest — records numbers so you can compare before/after
@@ -59,6 +61,15 @@ def _setup_hermes_home() -> str:
     os.environ["HOME"] = home
     if WT not in sys.path:
         sys.path.insert(0, WT)
+    # Minimal user config — benchmarks assume DietCode governance defaults.
+    (Path(home) / "config.yaml").write_text(
+        "joyzoning:\n"
+        "  governance:\n"
+        "    enabled: true\n"
+        "    layer_tags_required: false\n"
+        "    validation_mode: light\n",
+        encoding="utf-8",
+    )
     return home
 
 
@@ -196,6 +207,138 @@ def bench_memory_prefetch_skip(*, iterations: int) -> dict[str, Any]:
     }
 
 
+def bench_transform_tool_result_hook(*, iterations: int) -> dict[str, Any]:
+    from hermes_cli.plugins import has_hook_callbacks
+
+    import model_tools  # noqa: F401
+
+    times_us: list[float] = []
+    for _ in range(iterations):
+        t0 = time.perf_counter()
+        has_hook_callbacks("transform_tool_result")
+        times_us.append((time.perf_counter() - t0) * 1_000_000)
+
+    return {
+        "label": "transform_tool_result hook check",
+        "iterations": iterations,
+        "hooks_registered": has_hook_callbacks("transform_tool_result"),
+        "median_us": round(statistics.median(times_us), 1),
+        "max_us": round(max(times_us), 1),
+    }
+
+
+def bench_governance_path_classification(*, iterations: int) -> dict[str, Any]:
+    from agent.governance_exemptions import (
+        invalidate_governance_path_cache,
+        resolve_governance_path_kind,
+    )
+
+    paths = [
+        "README.md",
+        "package.json",
+        "src/domain/foo.ts",
+        "src/infrastructure/db.ts",
+        "docs/guide.md",
+        "node_modules/foo/index.js",
+    ]
+    invalidate_governance_path_cache()
+
+    def classify_loop():
+        for _ in range(iterations):
+            for p in paths:
+                resolve_governance_path_kind(p)
+
+    r = bench(
+        f"governance resolve_path_kind x{iterations * len(paths)}",
+        classify_loop,
+        iterations=3,
+    )
+    r["paths_per_sec"] = round(
+        (iterations * len(paths)) / (r["median_ms"] / 1000.0), 0
+    )
+    return r
+
+
+def bench_governance_mutation_gate(*, iterations: int) -> list[dict[str, Any]]:
+    """JoyZoning transform-hook hot paths (light validation, cache, failure skip)."""
+    import json
+
+    from agent.governance_exemptions import (
+        enforce_governance_on_mutation,
+        invalidate_governance_path_cache,
+    )
+
+    results: list[dict[str, Any]] = []
+    work = Path(tempfile.mkdtemp(prefix="dietcode_gov_bench_"))
+    src = work / "src" / "domain" / "bench.ts"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text(
+        "/** [LAYER: DOMAIN] */\nexport const benchValue = 1;\n",
+        encoding="utf-8",
+    )
+    path = str(src)
+    ok_args = {"path": path, "content": src.read_text(encoding="utf-8")}
+    ok_result = json.dumps({"success": True, "bytes_written": 42})
+
+    invalidate_governance_path_cache()
+
+    # 1) Skip when tool already failed — no gate work.
+    skip_times_us: list[float] = []
+    for _ in range(iterations):
+        t0 = time.perf_counter()
+        enforce_governance_on_mutation(
+            "write_file",
+            ok_args,
+            json.dumps({"error": "permission denied"}),
+        )
+        skip_times_us.append((time.perf_counter() - t0) * 1_000_000)
+    results.append({
+        "label": "governance enforce (tool error skip)",
+        "iterations": iterations,
+        "median_us": round(statistics.median(skip_times_us), 1),
+        "max_us": round(max(skip_times_us), 1),
+    })
+
+    # 2) First validate (cold) vs cached second call on same mtime.
+    invalidate_governance_path_cache()
+    cold_times: list[float] = []
+    for _ in range(max(3, iterations // 50)):
+        invalidate_governance_path_cache()
+        t0 = time.perf_counter()
+        enforce_governance_on_mutation("write_file", ok_args, ok_result)
+        cold_times.append((time.perf_counter() - t0) * 1000)
+
+    invalidate_governance_path_cache()
+    enforce_governance_on_mutation("write_file", ok_args, ok_result)  # warm cache
+    cache_times_us: list[float] = []
+    for _ in range(iterations):
+        t0 = time.perf_counter()
+        enforce_governance_on_mutation("write_file", ok_args, ok_result)
+        cache_times_us.append((time.perf_counter() - t0) * 1_000_000)
+
+    results.append({
+        "label": "governance enforce (cold, light validate)",
+        "iterations": len(cold_times),
+        "median_ms": round(statistics.median(cold_times), 3),
+        "max_ms": round(max(cold_times), 3),
+    })
+    results.append({
+        "label": "governance enforce (mtime cache hit)",
+        "iterations": iterations,
+        "median_us": round(statistics.median(cache_times_us), 1),
+        "max_us": round(max(cache_times_us), 1),
+        "speedup_vs_cold": round(
+            (statistics.median(cold_times) * 1000)
+            / statistics.median(cache_times_us),
+            1,
+        )
+        if cache_times_us
+        else 0,
+    })
+
+    return results
+
+
 def bench_pre_tool_hook_fastpath(*, iterations: int) -> dict[str, Any]:
     from hermes_cli.plugins import get_pre_tool_call_block_message, has_hook_callbacks
 
@@ -278,6 +421,12 @@ def run_all(*, quick: bool) -> list[dict[str, Any]]:
     results.append(bench_load_config(iterations=30 if quick else 50))
     results.append(bench_memory_prefetch_skip(iterations=500 if quick else 2000))
     results.append(bench_pre_tool_hook_fastpath(iterations=500 if quick else 2000))
+    results.append(bench_transform_tool_result_hook(iterations=500 if quick else 2000))
+    gov_iters = 200 if quick else 2000
+    results.extend(bench_governance_mutation_gate(iterations=gov_iters))
+    results.append(
+        bench_governance_path_classification(iterations=500 if quick else 5000)
+    )
 
     broc = bench_broccolidb_snapshot()
     if broc:
@@ -308,9 +457,19 @@ def print_table(results: list[dict[str, Any]]) -> None:
                 f"{label:<52} {r['median_ms']:>7.2f} ms  "
                 f"{r['msgs_per_sec']:>10,.0f} msg/s{extra}"
             )
-        elif "median_us" in r:
-            hooks = " (hooks on)" if r.get("hooks_registered") else " (fast-path)"
-            print(f"{label:<52} {r['median_us']:>8.1f} us median{hooks}")
+        elif "median_us" in r and "median_ms" not in r:
+            hooks = ""
+            if "hooks_registered" in r:
+                hooks = " (hooks on)" if r.get("hooks_registered") else " (fast-path)"
+            extra = ""
+            if "speedup_vs_cold" in r:
+                extra = f"  ~{r['speedup_vs_cold']}x vs cold"
+            print(f"{label:<52} {r['median_us']:>8.1f} us median{hooks}{extra}")
+        elif "median_ms" in r and "min_ms" not in r:
+            extra = ""
+            if "speedup_vs_cold" in r:
+                extra = f"  speedup={r['speedup_vs_cold']}x"
+            print(f"{label:<52} {r['median_ms']:>7.3f} ms median{extra}")
         elif "median_ms" in r and "min_ms" in r:
             live = ""
             if "live" in r:
