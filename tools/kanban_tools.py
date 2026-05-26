@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 from tools.registry import registry, tool_error
@@ -50,6 +51,23 @@ def _profile_has_kanban_toolset() -> bool:
     # Uses load_config() which has mtime-based caching, so this adds
     # negligible overhead. The check_fn results are further TTL-cached
     # (~30s) by the tool registry.
+    # Prefer reading the raw YAML first: some test harnesses write a minimal
+    # config that may not survive full-schema merges/validation in early boot.
+    try:
+        import yaml
+
+        home = os.environ.get("HERMES_HOME", "").strip()
+        if home:
+            cfg_path = Path(home) / "config.yaml"
+            if cfg_path.is_file():
+                raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+                if isinstance(raw, dict):
+                    toolsets = raw.get("toolsets", [])
+                    if isinstance(toolsets, list) and "kanban" in toolsets:
+                        return True
+    except Exception:
+        pass
+
     try:
         from hermes_cli.config import load_config
         cfg = load_config()

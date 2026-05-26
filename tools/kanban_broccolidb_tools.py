@@ -68,7 +68,10 @@ def _check_kanban_broccolidb_mode() -> bool:
 
 
 def _check_kanban_broccolidb_orchestrator_mode() -> bool:
-    return _check_kanban_orchestrator_mode() and broccolidb_available()
+    # Orchestrator-only visibility is primarily a Kanban authorization concern.
+    # BroccoliDB availability can vary per workspace, and the handler surfaces
+    # a structured error if the package is missing.
+    return _check_kanban_orchestrator_mode()
 
 
 def _parse_sync_result(raw: str, *, context: str) -> str:

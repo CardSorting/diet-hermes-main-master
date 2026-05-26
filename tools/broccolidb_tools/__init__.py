@@ -1,6 +1,9 @@
 """
 BroccoliDB Tools Package — Separation of Concerns
 
+Throughput / native RPC architecture:
+  docs/broccolidb-native-execution-throughput.md
+
 This package organizes BroccoliDB agent tool integrations into focused modules:
   - runner.py        → Subprocess execution layer (shared infrastructure)
   - db_gateway.py    → Native BroccoliDB/BroccoliQ RPC (persistent tsx worker)

@@ -142,7 +142,7 @@ async function ensureColumn(db: Kysely<Schema>, table: string, column: string, d
 			const verify = await db.executeQuery(CompiledQuery.raw(`PRAGMA table_info(${table})`));
 			const nowExists = verify.rows.some((row: any) => row.name === column);
 			if (nowExists) {
-				console.log(`[DbPool] ✅ Column '${column}' successfully injected into '${table}'.`);
+				console.warn(`[DbPool] ✅ Column '${column}' successfully injected into '${table}'.`);
 			} else {
 				throw new Error(`Column injection verification failed for ${table}.${column}`);
 			}
@@ -165,7 +165,7 @@ async function initializeSchema(db: Kysely<Schema>) {
 			if (hasName && !hasKey) {
 				console.warn(`[DbPool] 🛡️ Self-Healing: Migrating column 'name' to 'key' in '${table}'...`);
 				await db.executeQuery(CompiledQuery.raw(`ALTER TABLE ${table} RENAME COLUMN name TO key`));
-				console.log(`[DbPool] ✅ Column 'name' successfully renamed to 'key' in '${table}'.`);
+				console.warn(`[DbPool] ✅ Column 'name' successfully renamed to 'key' in '${table}'.`);
 			}
 		}
 	} catch (e) {
@@ -779,6 +779,6 @@ async function initializeSchema(db: Kysely<Schema>) {
 		`CREATE INDEX IF NOT EXISTS idx_audit_agent ON audit_events(agentId)`,
 	);
 
-	console.log("[DbPool] 🏛️ Sovereign Hive Schema baseline established and hardened.");
+	console.warn("[DbPool] 🏛️ Sovereign Hive Schema baseline established and hardened.");
 	return db;
 }

@@ -628,7 +628,7 @@ export class BufferedDbPool {
         const p95p = this.calculatePercentile(this.processingLatencies, 95);
         const p99p = this.calculatePercentile(this.processingLatencies, 99);
         const p95e = this.calculatePercentile(this.enqueueLatencies, 95);
-        console.log(
+        console.warn(
           `[DbPool] Flush: ${totalFlushed} ops in ${duration}ms (${throughput} ops/sec) | Latency: p95_proc=${p95p.toFixed(1)}ms, p99_proc=${p99p.toFixed(1)}ms, p95_enq=${p95e.toFixed(2)}ms`
         );
       }

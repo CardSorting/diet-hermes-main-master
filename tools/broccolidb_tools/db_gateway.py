@@ -11,6 +11,8 @@ import atexit
 import json
 import logging
 import os
+import select
+import shutil
 import subprocess
 import threading
 import time
@@ -33,7 +35,8 @@ from tools.broccolidb_tools.runner import (
 
 logger = logging.getLogger(__name__)
 
-_READY_TIMEOUT = 45
+_READY_TIMEOUT = 15  # ready line is immediate; DB warm happens on first RPC
+_FIRST_RPC_EXTRA_TIMEOUT = 180  # first call may run schema self-heal
 
 _gateway_lock = threading.Lock()
 _gateway_instance: Optional["BroccoliDbGateway"] = None
@@ -60,6 +63,49 @@ def _tsx_bin(root: str) -> list[str]:
     if local_tsx.is_file():
         return [str(local_tsx)]
     return ["npx", "-y", "tsx"]
+
+
+def _pin_node_on_path(env: dict[str, str]) -> None:
+    """Ensure subprocess uses the same Node as ``which node`` (native ABI match)."""
+    node = shutil.which("node")
+    if not node:
+        return
+    node_dir = str(Path(node).resolve().parent)
+    existing = env.get("PATH", "")
+    if node_dir not in existing.split(os.pathsep):
+        env["PATH"] = f"{node_dir}{os.pathsep}{existing}" if existing else node_dir
+
+
+def _is_fatal_worker_error(message: str) -> bool:
+    """Errors where retrying the worker cannot help (native module / ABI)."""
+    lower = message.lower()
+    return (
+        "node_module_version" in lower
+        or "better_sqlite3" in lower
+        or "was compiled against a different node" in lower
+        or "invalid elf header" in lower
+    )
+
+
+def _attach_stderr_drainer(proc: subprocess.Popen[str]) -> None:
+    """Prevent stderr pipe fill from deadlocking the worker during long schema work."""
+
+    def _drain() -> None:
+        if not proc.stderr:
+            return
+        try:
+            for line in proc.stderr:
+                text = line.rstrip()
+                if text:
+                    logger.debug("[BroccoliDB worker] %s", text)
+        except Exception:
+            pass
+
+    threading.Thread(
+        target=_drain,
+        daemon=True,
+        name="broccolidb-rpc-stderr",
+    ).start()
 
 
 def run_oneshot_rpc(
@@ -145,6 +191,7 @@ class BroccoliDbGateway:
         self._process: Optional[subprocess.Popen[str]] = None
         self._next_id = 0
         self._ready = False
+        self._warmed = False
         self._last_used = 0.0
 
     def invoke(
@@ -165,17 +212,33 @@ class BroccoliDbGateway:
 
         self._maybe_recycle_idle()
         start = time.monotonic()
+        effective_timeout = (
+            max(timeout, _FIRST_RPC_EXTRA_TIMEOUT) if not self._warmed else timeout
+        )
         try:
-            raw_line = self._rpc_call(method, params or {}, timeout=timeout)
+            raw_line = self._rpc_call(method, params or {}, timeout=effective_timeout)
         except Exception as exc:
+            err_text = str(exc)
+            if _is_fatal_worker_error(err_text):
+                logger.warning(
+                    "[BroccoliDB] RPC worker native module error — use oneshot fallback. "
+                    "Fix: cd broccolidb && npm rebuild better-sqlite3"
+                )
+                return run_oneshot_rpc(method, params, timeout=timeout)
             logger.warning("[BroccoliDB] RPC failed (%s), retrying once", exc)
             try:
-                raw_line = self._rpc_call(method, params or {}, timeout=timeout, force_restart=True)
+                raw_line = self._rpc_call(
+                    method,
+                    params or {},
+                    timeout=effective_timeout,
+                    force_restart=True,
+                )
             except Exception as retry_exc:
                 logger.warning("[BroccoliDB] RPC retry failed: %s", retry_exc)
                 return run_oneshot_rpc(method, params, timeout=timeout)
 
         self._last_used = time.monotonic()
+        self._warmed = True
         return self._format_rpc_response(raw_line, duration_ms=int((time.monotonic() - start) * 1000))
 
     def invoke_batch(
@@ -243,6 +306,7 @@ class BroccoliDbGateway:
             raise RuntimeError(f"missing RPC script: {_HERMES_RPC_SCRIPT}")
 
         env = _get_env()
+        _pin_node_on_path(env)
         if os.environ.get("HERMES_BROCCOLIDB_PRELOAD_AGENT", "").strip() in ("1", "true", "yes"):
             env["HERMES_BROCCOLIDB_PRELOAD_AGENT"] = "1"
         self._process = subprocess.Popen(
@@ -255,12 +319,13 @@ class BroccoliDbGateway:
             env=env,
             cwd=root,
         )
+        _attach_stderr_drainer(self._process)
         self._next_id = 0
         self._ready = False
         ready_line = self._read_response_line(self._process, timeout=_READY_TIMEOUT, expect_id=None)
         ready = _extract_json(ready_line) or {}
         if not ready.get("ready"):
-            err = (self._process.stderr.read() if self._process.stderr else "") or ready_line
+            err = ready_line
             self._terminate_process()
             raise RuntimeError(f"RPC worker failed ready handshake: {err}")
         self._ready = True
@@ -269,6 +334,7 @@ class BroccoliDbGateway:
         proc = self._process
         self._process = None
         self._ready = False
+        self._warmed = False
         if proc is None:
             return
         try:
@@ -299,17 +365,34 @@ class BroccoliDbGateway:
             if proc.poll() is not None:
                 err = (proc.stderr.read() if proc.stderr else "") or f"exit {proc.returncode}"
                 raise RuntimeError(f"RPC worker exited: {err}")
-            line = proc.stdout.readline()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            line: str = ""
+            try:
+                # Prefer select-based polling so the timeout is real (readline() can block).
+                rlist, _, _ = select.select([proc.stdout], [], [], min(0.1, remaining))
+                if not rlist:
+                    continue
+                line = proc.stdout.readline()
+            except (TypeError, ValueError, OSError):
+                # Test doubles / mocked streams may not support fileno/select; fall back.
+                line = proc.stdout.readline()
             if not line:
-                time.sleep(0.005)
                 continue
             stripped = line.strip()
             if not stripped:
                 continue
             parsed = _extract_json(stripped)
-            if parsed and parsed.get("ready") and expect_id is None:
-                return stripped
-            if expect_id is not None and parsed and parsed.get("id") != expect_id:
+            if expect_id is None:
+                if parsed and parsed.get("ready"):
+                    return stripped
+                continue
+            if not parsed:
+                continue
+            if parsed.get("ready"):
+                continue
+            if parsed.get("id") != expect_id:
                 continue
             return stripped
         raise TimeoutError(f"RPC timed out after {timeout}s")

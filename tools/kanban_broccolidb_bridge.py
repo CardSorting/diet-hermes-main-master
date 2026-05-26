@@ -11,9 +11,11 @@ from __future__ import annotations
 import atexit
 import json
 import logging
+import os
 import re
 import threading
 import time
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -89,6 +91,7 @@ _CONFIG_TTL_SECONDS = 30.0
 
 _requirements_ok: Optional[bool] = None
 _requirements_at: float = 0.0
+_requirements_key: Optional[tuple[Optional[str], str, str]] = None
 _REQUIREMENTS_TTL_SECONDS = 60.0
 
 _debounce_lock = threading.Lock()
@@ -100,11 +103,12 @@ _sync_executor_workers: int = 0
 
 def invalidate_config_cache() -> None:
     """Clear cached ``kanban.broccolidb`` config (tests / hot reload)."""
-    global _config_cache, _config_cache_at, _requirements_ok, _requirements_at
+    global _config_cache, _config_cache_at, _requirements_ok, _requirements_at, _requirements_key
     _config_cache = None
     _config_cache_at = 0.0
     _requirements_ok = None
     _requirements_at = 0.0
+    _requirements_key = None
 
 
 def get_config() -> BroccolidbKanbanConfig:
@@ -143,13 +147,21 @@ def broccolidb_available() -> bool:
     """Config enabled and ``broccolidb/`` present in the active workspace."""
     if not broccolidb_enabled():
         return False
-    global _requirements_ok, _requirements_at
+    global _requirements_ok, _requirements_at, _requirements_key
+    from tools.broccolidb_tools.runner import check_requirements, resolve_broccolidb_root
+
+    # Cache key must be sensitive to common test/workspace switches within one
+    # Python process (xdist workers). Tool registry caching doesn't cover this.
+    key = (resolve_broccolidb_root(), os.environ.get("HERMES_HOME", ""), str(Path.cwd()))
     now = time.monotonic()
+    if _requirements_key != key:
+        _requirements_ok = None
+        _requirements_at = 0.0
+        _requirements_key = key
     if _requirements_ok is None or (now - _requirements_at) > _REQUIREMENTS_TTL_SECONDS:
-        from tools.broccolidb_tools.runner import check_requirements
         _requirements_ok = check_requirements()
         _requirements_at = now
-    return _requirements_ok
+    return bool(_requirements_ok)
 
 
 def auto_sync_enabled() -> bool:
@@ -180,9 +192,7 @@ def _joyzoning_forensic_fields() -> dict[str, Any]:
     if not (habitat or scope or _scope_env("HERMES_KANBAN_TASK")):
         return fields
     try:
-        from agent.joyzoning.config import get_joyzoning_config, resolve_scope_id
-        if not get_joyzoning_config().enabled:
-            return fields
+        from agent.joyzoning.config import resolve_scope_id
         from agent.joyzoning.convergence import get_convergence_state
         sid = resolve_scope_id(_scope_env("HERMES_KANBAN_TASK") or scope or habitat)
         if sid and sid != "default":

@@ -170,8 +170,16 @@ def _get_env() -> dict:
     Forwards required keys (PATH, HOME, NODE_PATH) while preventing
     accidental leakage of sensitive env vars.
     """
+    import shutil
+
     env = os.environ.copy()
     root = resolve_broccolidb_root()
+    node = shutil.which("node")
+    if node:
+        node_dir = str(Path(node).resolve().parent)
+        existing = env.get("PATH", "")
+        if node_dir not in existing.split(os.pathsep):
+            env["PATH"] = f"{node_dir}{os.pathsep}{existing}" if existing else node_dir
     if root:
         env.setdefault("HERMES_BROCCOLIDB_ROOT", root)
     db_path = resolve_broccolidb_db_path(root)
