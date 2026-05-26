@@ -4,14 +4,29 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from agent.governance_exemptions import (
+    invalidate_governance_path_cache,
     enforce_governance_on_mutation,
     find_recent_governance_fault_payload,
     format_governance_recovery_terminal_response,
     is_governance_transform_result,
     looks_like_governance_suppression_response,
     parse_tool_result_payload,
+    resolve_governance_validation_mode,
 )
+
+
+@pytest.fixture(autouse=True)
+def _enable_governance_enforcement(monkeypatch):
+    monkeypatch.setattr(
+        "agent.governance_exemptions.is_governance_enforcement_enabled",
+        lambda: True,
+    )
+    invalidate_governance_path_cache()
+    yield
+    invalidate_governance_path_cache()
 
 
 def test_evaluate_returns_none_for_exempt_only_write():
@@ -168,3 +183,46 @@ def test_looks_like_governance_suppression_response():
         "I apologize, but I cannot continue due to governance layer violations."
     )
     assert not looks_like_governance_suppression_response("Fixed the import in src/a.ts.")
+
+
+def test_enforce_skips_when_tool_already_failed():
+    gate_calls: list[list[str]] = []
+
+    def fake_gate(files):
+        gate_calls.append(list(files))
+        return {"success": False, "singleResults": []}
+
+    out = enforce_governance_on_mutation(
+        "write_file",
+        {"path": "src/domain/x.ts", "content": "export const x = 1;"},
+        json.dumps({"error": "permission denied"}),
+        run_gate=fake_gate,
+    )
+    assert out is None
+    assert gate_calls == []
+
+
+def test_gate_pass_cache_skips_repeat_validation(tmp_path):
+    src = tmp_path / "src" / "domain" / "x.ts"
+    src.parent.mkdir(parents=True)
+    src.write_text("/** [LAYER: DOMAIN] */\nexport const x = 1;\n")
+    path = str(src)
+    gate_calls: list[list[str]] = []
+
+    def fake_gate(files):
+        gate_calls.append(list(files))
+        return {"success": True}
+
+    args = {"path": path, "content": src.read_text()}
+    ok = json.dumps({"success": True})
+    enforce_governance_on_mutation("write_file", args, ok, run_gate=fake_gate)
+    enforce_governance_on_mutation("write_file", args, ok, run_gate=fake_gate)
+    assert len(gate_calls) == 1
+
+
+def test_resolve_validation_mode_auto_is_light_when_tags_optional(monkeypatch):
+    monkeypatch.setattr(
+        "agent.governance_exemptions.is_governance_layer_tags_required",
+        lambda: False,
+    )
+    assert resolve_governance_validation_mode() == "light"

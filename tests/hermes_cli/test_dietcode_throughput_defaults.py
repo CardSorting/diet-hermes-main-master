@@ -4,7 +4,9 @@ from hermes_cli.config import DEFAULT_CONFIG
 
 
 def test_compression_threshold_defers_aux_summarization():
-    assert DEFAULT_CONFIG["compression"]["threshold"] == 0.65
+    assert DEFAULT_CONFIG["compression"]["threshold"] == 0.75
+    assert DEFAULT_CONFIG["compression"]["check_after_tools"] is False
+    assert DEFAULT_CONFIG["compression"]["preflight_enabled"] is False
 
 
 def test_background_review_nudges_disabled_by_default():
@@ -52,9 +54,21 @@ def test_tool_timeout_defaults_tuned_for_throughput():
 
 def test_memory_cli_skips_background_prefetch_by_default():
     assert DEFAULT_CONFIG["memory"]["cli_skip_background_prefetch"] is True
+    assert DEFAULT_CONFIG["memory"]["cli_skip_turn_prefetch"] is True
     assert DEFAULT_CONFIG["checkpoints"]["enabled"] is False
 
 
 def test_dietcode_dashboard_broccolidb_enabled_by_default():
     assert DEFAULT_CONFIG["dietcode"]["dashboard"]["broccolidb_enabled"] is True
     assert DEFAULT_CONFIG["dietcode"]["dashboard"]["poll_interval_seconds"] == 15
+
+
+def test_governance_plugin_on_with_light_validation_by_default():
+    gov = DEFAULT_CONFIG["joyzoning"]["governance"]
+    assert gov.get("enabled") is True
+    assert gov.get("layer_tags_required") is False
+    assert gov.get("validation_mode") == "auto"
+
+
+def test_session_persist_deferred_until_turn_end_by_default():
+    assert DEFAULT_CONFIG["agent"]["session_persist_incremental"] is False

@@ -535,6 +535,10 @@ DEFAULT_CONFIG = {
         # provider hiccups on a single provider.
         # DietCode: 2 — one Hermes-level retry then failover (SDK retries stay off).
         "api_max_retries": 2,
+        # DietCode: defer SQLite + JSON session log writes until turn end (~7× fewer
+        # DB transactions during tool-heavy turns). Crash mid-turn may lose unsaved
+        # transcript rows until the turn completes; set true for maximum durability.
+        "session_persist_incremental": False,
         "service_tier": "",
         # Tool-use enforcement: injects system prompt guidance that tells the
         # model to actually call tools instead of describing intended actions.
@@ -812,8 +816,14 @@ DEFAULT_CONFIG = {
 
     "compression": {
         "enabled": True,
-        # DietCode: 0.65 delays aux summarization vs 0.50 — fewer mid-turn compress calls.
-        "threshold": 0.65,            # compress when context usage exceeds this ratio
+        # DietCode: skip O(n) token estimate at turn start; API usage / hygiene limit
+        # still trigger compression. Set true for proactive compress before first call.
+        "preflight_enabled": False,
+        # DietCode: skip O(n) token re-estimate + tool-schema walk after every tool batch.
+        # Compression still runs when the API reports prompt_tokens above threshold.
+        "check_after_tools": False,
+        # DietCode: 0.75 delays aux summarization vs 0.50 — fewer mid-turn compress calls.
+        "threshold": 0.75,            # compress when context usage exceeds this ratio
         "target_ratio": 0.20,         # fraction of threshold to preserve as recent tail
         # DietCode: 25 — when compression runs, fewer middle turns to aux-summarize.
         "protect_last_n": 25,         # minimum recent messages to keep uncompressed
@@ -1228,8 +1238,11 @@ DEFAULT_CONFIG = {
         # Only ONE external provider is allowed at a time.
         "provider": "",
         # When true, CLI/TUI skip queue_prefetch_all after each turn (no
-        # background prefetch thread).  Turn-start prefetch_all() still runs.
+        # background prefetch thread).
         "cli_skip_background_prefetch": True,
+        # When true, CLI/TUI skip synchronous prefetch_all() at turn start
+        # (external memory plugins only; builtin memory is already a no-op).
+        "cli_skip_turn_prefetch": True,
     },
 
     # Subagent delegation — override the provider:model used by delegate_task
@@ -1551,11 +1564,17 @@ DEFAULT_CONFIG = {
     "joyzoning": {
         # Off by default — per-tool plugin hooks; enable for kanban/convergence.
         "enabled": False,
-        # Layer-governance transform hook (joyzoning_governance plugin).
+        # Layer-governance transform hook (joyzoning_governance plugin — bundled backend,
+        # auto-loads without plugins.enabled). Keep enabled for DietCode; tune validation_mode.
         "governance": {
+            # DietCode: on — joyzoning_governance transform hook enforces layering on writes.
+            "enabled": True,
             # When false (default), [LAYER: TYPE] headers are optional: no auto-inject,
             # no post-write hints, and governance does not block on missing/misaligned tags.
             "layer_tags_required": False,
+            # auto | full | light — auto uses light when layer_tags_required is false
+            # (skips smell heuristics; keeps import-depth + layering import rules).
+            "validation_mode": "auto",
             # Extra path substrings that skip [LAYER: TYPE] enforcement (docs, etc.).
             "extra_exempt_paths": [],
         },

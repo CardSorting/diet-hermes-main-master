@@ -961,6 +961,10 @@ def init_agent(
         )
     except Exception as _tlg_err:
         _ra().logger.warning("Tool loop guardrail config ignored: %s", _tlg_err)
+    _agent_section = _agent_cfg.get("agent", {}) if isinstance(_agent_cfg.get("agent"), dict) else {}
+    agent._session_persist_incremental = bool(
+        _agent_section.get("session_persist_incremental", False)
+    )
     # Cache only the derived auxiliary compression context override that is
     # needed later by the startup feasibility check.  Avoid exposing a
     # broad pseudo-public config object on the agent instance.
@@ -1347,6 +1351,12 @@ def init_agent(
             abort_on_summary_failure=compression_abort_on_summary_failure,
         )
     agent.compression_enabled = compression_enabled
+    agent._compression_check_after_tools = bool(
+        _compression_cfg.get("check_after_tools", True)
+    )
+    agent._compression_preflight_enabled = str(
+        _compression_cfg.get("preflight_enabled", False)
+    ).lower() in {"true", "1", "yes"}
 
     # Reject models whose context window is below the minimum required
     # for reliable tool-calling workflows (64K tokens).

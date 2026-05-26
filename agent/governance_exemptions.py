@@ -29,7 +29,7 @@ import re
 from typing import Any, Callable, Dict, Iterator, List, Literal, NamedTuple, Optional, Set, Tuple
 
 # Bump when exemption policy changes (tests assert monotonic awareness).
-GOVERNANCE_POLICY_VERSION = 17
+GOVERNANCE_POLICY_VERSION = 18
 
 GovernancePathKind = Literal["exempt", "subject", "ineligible"]
 
@@ -54,7 +54,9 @@ __all__ = (
     "is_governance_fault_error",
     "is_governance_subject",
     "is_governance_subject_content",
+    "is_governance_enforcement_enabled",
     "is_governance_layer_tags_required",
+    "resolve_governance_validation_mode",
     "is_governance_transform_result",
     "iter_governance_subject_files",
     "normalize_governance_path",
@@ -457,8 +459,13 @@ _FILE_MUTATION_TOOLS = frozenset({
 
 _GOVERNANCE_TRANSFORM_TOOLS = _FILE_MUTATION_TOOLS
 
+# Per-process: path (normalized) -> mtime when gate last passed (skip re-validation).
+_GOVERNANCE_GATE_PASS_MTIMES: Dict[str, float] = {}
+_GOVERNANCE_GATE_PASS_CACHE_MAX = 512
+
 _USER_EXEMPT_MARKERS_CACHE: Optional[frozenset[str]] = None
 _LAYER_TAGS_REQUIRED_CACHE: Optional[bool] = None
+_GOVERNANCE_ENABLED_CACHE: Optional[bool] = None
 _VALIDATE_JOY_ZONING: Optional[Callable[..., Dict[str, Any]]] = None
 _GET_LAYER: Optional[Callable[[str, Optional[str]], str]] = None
 _LAYER_TAG_SUPPORTED: Optional[Callable[..., bool]] = None
@@ -736,10 +743,111 @@ def _governance_path_context(file_path: str) -> _GovPathContext:
 
 def invalidate_governance_path_cache() -> None:
     """Clear path-classifier LRUs (e.g. after ``extra_exempt_paths`` config changes)."""
-    global _USER_EXEMPT_MARKERS_CACHE, _LAYER_TAGS_REQUIRED_CACHE
+    global _USER_EXEMPT_MARKERS_CACHE, _LAYER_TAGS_REQUIRED_CACHE, _GOVERNANCE_ENABLED_CACHE
     _USER_EXEMPT_MARKERS_CACHE = None
     _LAYER_TAGS_REQUIRED_CACHE = None
+    _GOVERNANCE_ENABLED_CACHE = None
     _governance_path_context.cache_clear()
+    _GOVERNANCE_GATE_PASS_MTIMES.clear()
+
+
+def resolve_governance_validation_mode() -> str:
+    """Return ``full`` or ``light`` validation for the governance gate.
+
+    ``light`` skips smell heuristics (class-count / ``any`` scans) but keeps
+    import-depth and cross-layer import rules. ``auto`` (default) picks light
+    when ``layer_tags_required`` is false.
+    """
+    gov = _governance_config_section()
+    mode = str(gov.get("validation_mode", "auto") or "auto").strip().lower()
+    if mode == "auto":
+        return "full" if is_governance_layer_tags_required() else "light"
+    if mode in ("full", "light"):
+        return mode
+    return "light"
+
+
+def _tool_result_indicates_mutation_failure(result: Any) -> bool:
+    """True when the underlying file tool already reported failure."""
+    if not isinstance(result, str):
+        return False
+    data = parse_tool_result_payload(result)
+    if not isinstance(data, dict):
+        return False
+    if data.get("error"):
+        return True
+    if data.get("success") is False:
+        return True
+    return False
+
+
+def _governance_content_from_args(
+    tool_name: str, args: Dict[str, Any], file_path: str
+) -> Optional[str]:
+    """Use in-memory write content when available to avoid a post-mutation disk read."""
+    if tool_name != "write_file":
+        return None
+    raw_path = args.get("path") or args.get("file_path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    if normalize_governance_path(raw_path) != normalize_governance_path(file_path):
+        return None
+    content = args.get("content")
+    return content if isinstance(content, str) else None
+
+
+def _filter_uncached_gate_targets(file_paths: List[str]) -> List[str]:
+    """Drop paths that already passed the gate at the current on-disk mtime."""
+    pending: List[str] = []
+    for file_path in file_paths:
+        try:
+            mtime = os.path.getmtime(file_path)
+        except OSError:
+            pending.append(file_path)
+            continue
+        key = normalize_governance_path(file_path)
+        if _GOVERNANCE_GATE_PASS_MTIMES.get(key) == mtime:
+            continue
+        pending.append(file_path)
+    return pending
+
+
+def _record_gate_passes(file_paths: List[str]) -> None:
+    """Remember successful gate results so identical files are not re-scanned."""
+    for file_path in file_paths:
+        try:
+            key = normalize_governance_path(file_path)
+            _GOVERNANCE_GATE_PASS_MTIMES[key] = os.path.getmtime(file_path)
+        except OSError:
+            continue
+    if len(_GOVERNANCE_GATE_PASS_MTIMES) > _GOVERNANCE_GATE_PASS_CACHE_MAX:
+        # Drop oldest half (insertion order, Py3.7+).
+        for key in list(_GOVERNANCE_GATE_PASS_MTIMES.keys())[
+            : len(_GOVERNANCE_GATE_PASS_MTIMES) // 2
+        ]:
+            _GOVERNANCE_GATE_PASS_MTIMES.pop(key, None)
+
+
+def _governance_config_section() -> Dict[str, Any]:
+    try:
+        from hermes_cli.config import load_config
+
+        cfg = load_config() or {}
+        jz = cfg.get("joyzoning") if isinstance(cfg, dict) else {}
+        gov = jz.get("governance") if isinstance(jz, dict) else {}
+        return gov if isinstance(gov, dict) else {}
+    except Exception:
+        return {}
+
+
+def is_governance_enforcement_enabled() -> bool:
+    """True when ``joyzoning.governance.enabled`` is set in config (master switch)."""
+    global _GOVERNANCE_ENABLED_CACHE
+    if _GOVERNANCE_ENABLED_CACHE is not None:
+        return _GOVERNANCE_ENABLED_CACHE
+    enabled = bool(_governance_config_section().get("enabled", False))
+    _GOVERNANCE_ENABLED_CACHE = enabled
+    return enabled
 
 
 def is_governance_layer_tags_required() -> bool:
@@ -747,17 +855,10 @@ def is_governance_layer_tags_required() -> bool:
     global _LAYER_TAGS_REQUIRED_CACHE
     if _LAYER_TAGS_REQUIRED_CACHE is not None:
         return _LAYER_TAGS_REQUIRED_CACHE
-    required = False
-    try:
-        from hermes_cli.config import load_config
-
-        cfg = load_config() or {}
-        jz = cfg.get("joyzoning") if isinstance(cfg, dict) else {}
-        gov = jz.get("governance") if isinstance(jz, dict) else {}
-        if isinstance(gov, dict):
-            required = bool(gov.get("layer_tags_required", False))
-    except Exception:
-        pass
+    if not is_governance_enforcement_enabled():
+        _LAYER_TAGS_REQUIRED_CACHE = False
+        return False
+    required = bool(_governance_config_section().get("layer_tags_required", False))
     _LAYER_TAGS_REQUIRED_CACHE = required
     return required
 
@@ -1029,6 +1130,7 @@ def iter_governance_subject_files(
     file_paths: List[str],
     *,
     subjects_only: bool = False,
+    content_by_path: Optional[Dict[str, str]] = None,
 ) -> Iterator[Tuple[str, str]]:
     """Yield ``(path, content)`` for governable subjects that pass content eligibility."""
     if subjects_only:
@@ -1037,12 +1139,16 @@ def iter_governance_subject_files(
         _, candidates = partition_governance_paths(file_paths)
     tag_fn = _layer_tag_supported_fn()
     for file_path in candidates:
-        if not os.path.isfile(file_path):
-            continue
-        content = read_governance_file_text(file_path)
-        if content is None:
-            continue
         norm = normalize_governance_path(file_path)
+        content: Optional[str] = None
+        if content_by_path:
+            content = content_by_path.get(norm) or content_by_path.get(file_path)
+        if content is None:
+            if not os.path.isfile(file_path):
+                continue
+            content = read_governance_file_text(file_path)
+            if content is None:
+                continue
         if not tag_fn(norm, content, skip_artifact_check=True):
             continue
         yield file_path, content
@@ -1054,6 +1160,8 @@ def run_governance_validation_gate(
     validate: Optional[Callable[..., Dict[str, Any]]] = None,
     get_layer: Optional[Callable[[str, Optional[str]], str]] = None,
     subjects_only: bool = False,
+    content_by_path: Optional[Dict[str, str]] = None,
+    validation_mode: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run layering validation on governable subjects only (central gate pipeline).
 
@@ -1064,12 +1172,18 @@ def run_governance_validation_gate(
     single_results: List[Dict[str, Any]] = []
 
     require_layer_tags = is_governance_layer_tags_required()
-    for file_path, content in iter_governance_subject_files(files, subjects_only=subjects_only):
+    mode = validation_mode or resolve_governance_validation_mode()
+    for file_path, content in iter_governance_subject_files(
+        files,
+        subjects_only=subjects_only,
+        content_by_path=content_by_path,
+    ):
         audit = validate_fn(
             file_path,
             content,
             skip_subject_check=True,
             require_layer_tags=require_layer_tags,
+            validation_mode=mode,
         )
         if audit.get("success") or audit.get("skipped"):
             continue
@@ -1170,19 +1284,38 @@ def enforce_governance_on_mutation(
     When ``run_gate`` is omitted, uses the built-in validation pipeline
     (``subjects_only`` — no second partition). Inject ``run_gate`` in tests only.
     """
+    if not is_governance_enforcement_enabled():
+        return None
     if tool_name not in _GOVERNANCE_TRANSFORM_TOOLS or not isinstance(args, dict):
+        return None
+    if _tool_result_indicates_mutation_failure(result):
         return None
 
     exempt, target_files = extract_and_partition_governance_paths(tool_name, args)
     if not target_files:
         return None
 
+    target_files = _filter_uncached_gate_targets(target_files)
+    if not target_files:
+        return None
+
+    content_by_path: Dict[str, str] = {}
+    for fp in target_files:
+        inline = _governance_content_from_args(tool_name, args, fp)
+        if inline is not None:
+            content_by_path[normalize_governance_path(fp)] = inline
+
     gate = (
         run_gate(target_files)
         if run_gate is not None
-        else run_governance_validation_gate(target_files, subjects_only=True)
+        else run_governance_validation_gate(
+            target_files,
+            subjects_only=True,
+            content_by_path=content_by_path or None,
+        )
     )
     if gate.get("success", True):
+        _record_gate_passes(target_files)
         return None
 
     return json.dumps(_governance_fault_payload(target_files, exempt, gate, result))

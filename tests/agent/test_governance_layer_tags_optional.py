@@ -44,7 +44,46 @@ def test_layer_tags_optional_by_default_in_config():
     from hermes_cli.config import DEFAULT_CONFIG
 
     gov = DEFAULT_CONFIG["joyzoning"]["governance"]
+    assert gov.get("enabled") is True
     assert gov.get("layer_tags_required") is False
+    assert gov.get("validation_mode") == "auto"
+
+
+def test_governance_enforcement_disabled_skips_mutation_gate(monkeypatch):
+    monkeypatch.setattr(
+        "agent.governance_exemptions.is_governance_enforcement_enabled",
+        lambda: False,
+    )
+    governance_exemptions.invalidate_governance_path_cache()
+    from agent.governance_exemptions import enforce_governance_on_mutation
+
+    out = enforce_governance_on_mutation(
+        "write_file",
+        {"path": "src/domain/x.ts", "content": "x"},
+        json.dumps({"bytes_written": 1}),
+        run_gate=lambda files: {
+            "success": False,
+            "singleResults": [{"file": files[0], "errors": ["bad"]}],
+        },
+    )
+    assert out is None
+
+
+def test_light_validation_skips_smell_heuristics(layer_tags_optional):
+  """validation_mode=light keeps import rules but not class-count / any-type smells."""
+  content = (
+      "export class A {}\nexport class B {}\nexport class C {}\n"
+      "export class D {}\n"
+  )
+  full = validate_joy_zoning(
+      "src/domain/x.ts", content, require_layer_tags=False, validation_mode="full"
+  )
+  light = validate_joy_zoning(
+      "src/domain/x.ts", content, require_layer_tags=False, validation_mode="light"
+  )
+  assert full["success"] is False
+  assert any("Multiple classes" in e for e in full.get("errors", []))
+  assert light["success"] is True
 
 
 def test_validate_passes_without_layer_tag_when_optional(layer_tags_optional):

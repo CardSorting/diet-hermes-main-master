@@ -9,6 +9,7 @@ import pytest
 
 from agent.governance_exemptions import (
     extract_governance_tool_paths,
+    invalidate_governance_path_cache,
     is_governance_artifact_path,
     is_governance_subject,
 )
@@ -17,6 +18,17 @@ from plugins.joyzoning_governance import (
     _on_transform_tool_result,
     run_joyzoning_gate,
 )
+
+
+@pytest.fixture(autouse=True)
+def _enable_governance_enforcement(monkeypatch):
+    monkeypatch.setattr(
+        "agent.governance_exemptions.is_governance_enforcement_enabled",
+        lambda: True,
+    )
+    invalidate_governance_path_cache()
+    yield
+    invalidate_governance_path_cache()
 
 
 @pytest.mark.parametrize(

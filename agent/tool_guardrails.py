@@ -305,6 +305,61 @@ class ToolCallGuardrailController:
 
         return ToolGuardrailDecision(tool_name=tool_name, signature=signature)
 
+    def _governance_fault_decision(
+        self,
+        tool_name: str,
+        result: str | None,
+        *,
+        signature: ToolCallSignature,
+        exact_count: int,
+    ) -> Optional[ToolGuardrailDecision]:
+        """Governance halt/warn only — used on the throughput fast path."""
+        if tool_name not in FILE_MUTATING_TOOL_NAMES or not result:
+            return None
+        parsed = parse_tool_result_payload(result)
+        if not isinstance(parsed, dict):
+            return None
+        try:
+            from agent.governance_exemptions import is_governance_transform_result
+        except ImportError:
+            return None
+        if not is_governance_transform_result(parsed):
+            return None
+        self._governance_fault_turn_count += 1
+        gov_count = self._governance_fault_turn_count
+        halt_threshold = self.config.governance_fault_halt_after
+        if exact_count >= halt_threshold or gov_count >= halt_threshold:
+            decision = ToolGuardrailDecision(
+                action="halt",
+                code="governance_fault_halt",
+                message=(
+                    "Stopped: JoyZoning governance blocked file mutation(s) "
+                    f"{gov_count} time(s) this turn. This is layering policy, "
+                    "not a safety refusal. Use read_file/search_files per "
+                    "recovery_plan, fix the layer tag and/or import violation, "
+                    "then retry once — do not loop or apologize."
+                ),
+                tool_name=tool_name,
+                count=max(exact_count, gov_count),
+                signature=signature,
+            )
+            self._halt_decision = decision
+            return decision
+        if self.config.warnings_enabled and gov_count == 1 and exact_count == 1:
+            return ToolGuardrailDecision(
+                action="warn",
+                code="governance_fault_warning",
+                message=(
+                    "JoyZoning governance blocked this mutation (policy, not "
+                    "safety refusal). Use recovery_plan read-only steps; do not "
+                    "retry unchanged or switch to text-only apologies."
+                ),
+                tool_name=tool_name,
+                count=gov_count,
+                signature=signature,
+            )
+        return None
+
     def after_call(
         self,
         tool_name: str,
@@ -315,6 +370,36 @@ class ToolCallGuardrailController:
     ) -> ToolGuardrailDecision:
         args = _coerce_args(args)
         signature = ToolCallSignature.from_call(tool_name, args)
+
+        # DietCode throughput: when soft guardrails are off, only track governance
+        # fault halts (no classify_tool_failure / fingerprinting on every tool call).
+        if not self.config.warnings_enabled and not self.config.hard_stop_enabled:
+            if failed is None and tool_name in FILE_MUTATING_TOOL_NAMES and result:
+                parsed = parse_tool_result_payload(result)
+                if isinstance(parsed, dict):
+                    try:
+                        from agent.governance_exemptions import is_governance_transform_result
+
+                        failed = is_governance_transform_result(parsed)
+                    except ImportError:
+                        failed = False
+                else:
+                    failed = False
+            else:
+                failed = bool(failed)
+            if failed:
+                exact_count = self._exact_failure_counts.get(signature, 0) + 1
+                self._exact_failure_counts[signature] = exact_count
+                gov_decision = self._governance_fault_decision(
+                    tool_name,
+                    result,
+                    signature=signature,
+                    exact_count=exact_count,
+                )
+                if gov_decision is not None:
+                    return gov_decision
+            return ToolGuardrailDecision(tool_name=tool_name, signature=signature)
+
         if failed is None:
             failed, _ = classify_tool_failure(tool_name, result)
 
@@ -326,59 +411,14 @@ class ToolCallGuardrailController:
             same_count = self._same_tool_failure_counts.get(tool_name, 0) + 1
             self._same_tool_failure_counts[tool_name] = same_count
 
-            # JoyZoning governance blocks are policy failures, not landed writes.
-            # Halt after repeated blocks (identical args OR any second block this turn)
-            # so the agent cannot burn max_iterations across varying paths.
-            if tool_name in FILE_MUTATING_TOOL_NAMES and result:
-                parsed = parse_tool_result_payload(result)
-                if isinstance(parsed, dict):
-                    try:
-                        from agent.governance_exemptions import is_governance_transform_result
-
-                        if is_governance_transform_result(parsed):
-                            self._governance_fault_turn_count += 1
-                            gov_count = self._governance_fault_turn_count
-                            halt_threshold = self.config.governance_fault_halt_after
-                            should_halt = (
-                                exact_count >= halt_threshold
-                                or gov_count >= halt_threshold
-                            )
-                            if should_halt:
-                                decision = ToolGuardrailDecision(
-                                    action="halt",
-                                    code="governance_fault_halt",
-                                    message=(
-                                        "Stopped: JoyZoning governance blocked file mutation(s) "
-                                        f"{gov_count} time(s) this turn. This is layering policy, "
-                                        "not a safety refusal. Use read_file/search_files per "
-                                        "recovery_plan, fix the layer tag and/or import violation, "
-                                        "then retry once — do not loop or apologize."
-                                    ),
-                                    tool_name=tool_name,
-                                    count=max(exact_count, gov_count),
-                                    signature=signature,
-                                )
-                                self._halt_decision = decision
-                                return decision
-                            if (
-                                self.config.warnings_enabled
-                                and gov_count == 1
-                                and exact_count == 1
-                            ):
-                                return ToolGuardrailDecision(
-                                    action="warn",
-                                    code="governance_fault_warning",
-                                    message=(
-                                        "JoyZoning governance blocked this mutation (policy, not "
-                                        "safety refusal). Use recovery_plan read-only steps; do not "
-                                        "retry unchanged or switch to text-only apologies."
-                                    ),
-                                    tool_name=tool_name,
-                                    count=gov_count,
-                                    signature=signature,
-                                )
-                    except ImportError:
-                        pass
+            gov_decision = self._governance_fault_decision(
+                tool_name,
+                result,
+                signature=signature,
+                exact_count=exact_count,
+            )
+            if gov_decision is not None:
+                return gov_decision
 
             if self.config.hard_stop_enabled and same_count >= self.config.same_tool_failure_halt_after:
                 decision = ToolGuardrailDecision(

@@ -427,11 +427,30 @@ def run_conversation(
     # while having a large existing session — compress proactively rather
     # than waiting for an API error (which might be caught as a non-retryable
     # 4xx and abort the request entirely).
-    if (
+    #
+    # DietCode: ``compression.preflight_enabled`` defaults false — the O(n)
+    # token estimate over messages + tool schemas runs once per turn and is
+    # costly on long sessions.  API-reported prompt_tokens still trigger
+    # compression after tool batches (when check_after_tools is on) or on the
+    # next call via last_prompt_tokens.  When preflight is off, we still run
+    # this block if message count crosses hygiene_hard_message_limit (gateway
+    # safety valve for runaway sessions).
+    _preflight_enabled = getattr(agent, "_compression_preflight_enabled", True)
+    _hygiene_hard_limit = 400
+    try:
+        from hermes_cli.config import cfg_get
+
+        _comp_cfg = cfg_get("compression", {}) or {}
+        _hygiene_hard_limit = int(_comp_cfg.get("hygiene_hard_message_limit", 400) or 400)
+    except Exception:
+        pass
+    _run_preflight_compression = (
         agent.compression_enabled
         and len(messages) > agent.context_compressor.protect_first_n
                             + agent.context_compressor.protect_last_n + 1
-    ):
+        and (_preflight_enabled or len(messages) >= _hygiene_hard_limit)
+    )
+    if _run_preflight_compression:
         # Include tool schema tokens — with many tools these can add
         # 20-30K+ tokens that the old sys+msg estimate missed entirely.
         _preflight_tokens = estimate_request_tokens_rough(
@@ -560,10 +579,8 @@ def run_conversation(
         agent._interrupt_message = None
         agent._interrupt_thread_signal_pending = False
 
-    # Notify memory providers of the new turn so cadence tracking works.
-    # Must happen BEFORE prefetch_all() so providers know which turn it is
-    # and can gate context/dialectic refresh via contextCadence/dialecticCadence.
-    if agent._memory_manager:
+    # Notify external memory providers of the new turn (cadence / dialectic refresh).
+    if agent._memory_manager and agent._memory_manager.has_external_provider:
         try:
             _turn_msg = original_user_message if isinstance(original_user_message, str) else ""
             agent._memory_manager.on_turn_start(agent._user_turn_count, _turn_msg)
@@ -576,12 +593,22 @@ def run_conversation(
     # Use original_user_message (clean input) — user_message may contain
     # injected skill content that bloats / breaks provider queries.
     _ext_prefetch_cache = ""
-    if agent._memory_manager:
-        try:
-            _query = original_user_message if isinstance(original_user_message, str) else ""
-            _ext_prefetch_cache = agent._memory_manager.prefetch_all(_query) or ""
-        except Exception:
-            pass
+    if agent._memory_manager and agent._memory_manager.has_external_provider:
+        _do_turn_prefetch = True
+        if agent.platform in ("cli", "tui"):
+            try:
+                from hermes_cli.config import cfg_get
+
+                _mem_cfg = cfg_get("memory", {}) or {}
+                _do_turn_prefetch = not bool(_mem_cfg.get("cli_skip_turn_prefetch", True))
+            except Exception:
+                _do_turn_prefetch = False
+        if _do_turn_prefetch:
+            try:
+                _query = original_user_message if isinstance(original_user_message, str) else ""
+                _ext_prefetch_cache = agent._memory_manager.prefetch_all(_query) or ""
+            except Exception:
+                pass
 
     # Optional opt-in runtime: if api_mode == codex_app_server, hand the
     # turn to the codex app-server subprocess (terminal/file ops/patching
@@ -3385,23 +3412,28 @@ def run_conversation(
                 # a session can grow unbounded after disconnects because
                 # should_compress(0) never fires.  (#2153)
                 _compressor = agent.context_compressor
-                if _compressor.last_prompt_tokens > 0:
-                    # Only use prompt_tokens — completion/reasoning
-                    # tokens don't consume context window space.
-                    # Thinking models (GLM-5.1, QwQ, DeepSeek R1)
-                    # inflate completion_tokens with reasoning,
-                    # causing premature compression.  (#12026)
-                    _real_tokens = _compressor.last_prompt_tokens
-                else:
-                    # Include tool schemas — with 50+ tools enabled
-                    # these add 20-30K tokens the messages-only
-                    # estimate misses, which can skip compression
-                    # past the configured threshold (#14695).
-                    _real_tokens = estimate_request_tokens_rough(
-                        messages, tools=agent.tools or None
-                    )
+                _real_tokens = 0
+                if agent.compression_enabled:
+                    if getattr(agent, "_compression_check_after_tools", True):
+                        if _compressor.last_prompt_tokens > 0:
+                            # Only use prompt_tokens — completion/reasoning
+                            # tokens don't consume context window space.
+                            _real_tokens = _compressor.last_prompt_tokens
+                        else:
+                            # Include tool schemas — with 50+ tools enabled
+                            # these add 20-30K tokens the messages-only
+                            # estimate misses (#14695).
+                            _real_tokens = estimate_request_tokens_rough(
+                                messages, tools=agent.tools or None
+                            )
+                    elif _compressor.last_prompt_tokens > 0:
+                        _real_tokens = _compressor.last_prompt_tokens
 
-                if agent.compression_enabled and _compressor.should_compress(_real_tokens):
+                if (
+                    agent.compression_enabled
+                    and _real_tokens > 0
+                    and _compressor.should_compress(_real_tokens)
+                ):
                     agent._safe_print("  ⟳ compacting context…")
                     messages, active_system_prompt = agent._compress_context(
                         messages, system_message,
@@ -4011,8 +4043,10 @@ def run_conversation(
     # scaffolding has been removed. Otherwise a later user "continue" turn
     # can replay assistant("(empty)") / recovery nudges and fall into the
     # same empty-response loop again.
-    agent._drop_trailing_empty_response_scaffolding(messages)
-    agent._persist_session(messages, conversation_history)
+    if getattr(agent, "_session_persist_incremental", False):
+        agent._persist_session(messages, conversation_history)
+    else:
+        agent._flush_deferred_session_persist(messages, conversation_history)
 
     # ── Turn-exit diagnostic log ─────────────────────────────────────
     # Always logged at INFO so agent.log captures WHY every turn ended.

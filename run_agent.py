@@ -1171,7 +1171,26 @@ class AIAgent:
     def _persist_session(self, messages: List[Dict], conversation_history: List[Dict] = None):
         """Save session state to both JSON log and SQLite on any exit path.
 
-        Ensures conversations are never lost, even on errors or early returns.
+        When ``agent.session_persist_incremental`` is false (DietCode default), only
+        updates in-memory ``_session_messages`` until the turn-end flush — avoiding
+        per-iteration SQLite/JSON I/O during tool-heavy loops.
+        """
+        self._drop_trailing_empty_response_scaffolding(messages)
+        self._apply_persist_user_message_override(messages)
+        self._session_messages = messages
+        if not getattr(self, "_session_persist_incremental", False):
+            return
+        self._save_session_log(messages)
+        self._flush_messages_to_session_db(messages, conversation_history)
+
+    def _flush_deferred_session_persist(
+        self, messages: List[Dict], conversation_history: List[Dict] = None
+    ) -> None:
+        """Turn-end SQLite + JSON persist when incremental mode is off.
+
+        Mid-turn ``_persist_session`` only updates ``_session_messages`` so
+        tool-heavy loops avoid per-iteration DB I/O.  Call this once after the
+        tool loop completes (see ``conversation_loop.run_conversation``).
         """
         self._drop_trailing_empty_response_scaffolding(messages)
         self._apply_persist_user_message_override(messages)

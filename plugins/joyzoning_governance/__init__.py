@@ -49,11 +49,14 @@ def _on_transform_tool_result(
     **_: Any,
 ) -> Optional[str]:
     """Intercept tool outputs, scan modified files, and block architectural leaks."""
-    return enforce_governance_on_mutation(
-        tool_name,
-        args if isinstance(args, dict) else {},
-        result,
-    )
+    if not isinstance(args, dict):
+        args = {}
+    # Fast bail before partition/IO when governance is toggled off in config.
+    from agent.governance_exemptions import is_governance_enforcement_enabled
+
+    if not is_governance_enforcement_enabled():
+        return None
+    return enforce_governance_on_mutation(tool_name, args, result)
 
 
 # ---------------------------------------------------------------------------

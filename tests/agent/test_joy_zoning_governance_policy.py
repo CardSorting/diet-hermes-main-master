@@ -13,6 +13,7 @@ from agent.governance_exemptions import (
     filter_governance_subjects,
     governance_skip_reason,
     invalidate_governance_path_cache,
+    is_governance_enforcement_enabled,
     is_governance_artifact_path,
     is_governance_fault_error,
     is_governance_subject,
@@ -22,6 +23,17 @@ from agent.governance_exemptions import (
     run_governance_validation_gate,
 )
 from agent.joy_zoning import validate_joy_zoning
+
+
+@pytest.fixture(autouse=True)
+def _enable_governance_enforcement(monkeypatch):
+    monkeypatch.setattr(
+        "agent.governance_exemptions.is_governance_enforcement_enabled",
+        lambda: True,
+    )
+    invalidate_governance_path_cache()
+    yield
+    invalidate_governance_path_cache()
 
 
 @pytest.mark.parametrize(

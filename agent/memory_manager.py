@@ -342,6 +342,8 @@ class MemoryManager:
         Returns merged context text labeled by provider. Empty providers
         are skipped. Failures in one provider don't block others.
         """
+        if not self._has_external:
+            return ""
         parts = []
         for provider in self._providers:
             try:

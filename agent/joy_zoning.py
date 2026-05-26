@@ -456,6 +456,7 @@ def validate_joy_zoning(
     *,
     skip_subject_check: bool = False,
     require_layer_tags: Optional[bool] = None,
+    validation_mode: str = "full",
 ) -> Dict[str, Any]:
     """Full Joy-Zoning validation for a file."""
     if not skip_subject_check and not is_governance_subject(file_path, content):
@@ -468,6 +469,10 @@ def validate_joy_zoning(
             require_layer_tags = is_governance_layer_tags_required()
         except ImportError:
             require_layer_tags = False
+
+    mode = (validation_mode or "full").strip().lower()
+    if mode not in ("full", "light"):
+        mode = "full"
 
     all_errors = []
 
@@ -487,10 +492,11 @@ def validate_joy_zoning(
         
     depth_errors = validate_import_depth(file_path, content)
     all_errors.extend(depth_errors)
-    
-    smell_errors = validate_smells(file_path, content)
+
+    if mode == "full":
+        smell_errors = validate_smells(file_path, content)
+        all_errors.extend(smell_errors)
     layering_errors = validate_layering(file_path, content)
-    all_errors.extend(smell_errors)
     all_errors.extend(layering_errors)
     
     return {
