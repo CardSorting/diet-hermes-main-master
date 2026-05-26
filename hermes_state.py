@@ -328,7 +328,8 @@ class SessionDB:
     _WRITE_RETRY_MIN_S = 0.020   # 20ms
     _WRITE_RETRY_MAX_S = 0.150   # 150ms
     # Attempt a PASSIVE WAL checkpoint every N successful writes.
-    _CHECKPOINT_EVERY_N_WRITES = 50
+    # DietCode: less frequent WAL checkpoint — fewer fsyncs on hot transcript writes.
+    _CHECKPOINT_EVERY_N_WRITES = 100
 
     def __init__(self, db_path: Path = None):
         self.db_path = db_path or DEFAULT_DB_PATH
@@ -1536,6 +1537,105 @@ class SessionDB:
                     (session_id,),
                 )
             return msg_id
+
+        return self._execute_write(_do)
+
+    def append_messages_batch(
+        self,
+        session_id: str,
+        rows: List[Dict[str, Any]],
+    ) -> List[int]:
+        """Append multiple messages in one transaction.
+
+        Each row dict accepts the same keys as :meth:`append_message`
+        (role required; others optional). Returns inserted row ids in order.
+        """
+        if not rows:
+            return []
+
+        prepared: List[tuple] = []
+        message_count_inc = 0
+        tool_call_count_inc = 0
+
+        for row in rows:
+            role = row.get("role", "unknown")
+            content = row.get("content")
+            tool_name = row.get("tool_name")
+            tool_calls = row.get("tool_calls")
+            tool_call_id = row.get("tool_call_id")
+            token_count = row.get("token_count")
+            finish_reason = row.get("finish_reason")
+            reasoning = row.get("reasoning")
+            reasoning_content = row.get("reasoning_content")
+            reasoning_details = row.get("reasoning_details")
+            codex_reasoning_items = row.get("codex_reasoning_items")
+            codex_message_items = row.get("codex_message_items")
+            platform_message_id = row.get("platform_message_id")
+
+            reasoning_details_json = (
+                json.dumps(reasoning_details) if reasoning_details else None
+            )
+            codex_items_json = (
+                json.dumps(codex_reasoning_items) if codex_reasoning_items else None
+            )
+            codex_message_items_json = (
+                json.dumps(codex_message_items) if codex_message_items else None
+            )
+            tool_calls_json = json.dumps(tool_calls) if tool_calls else None
+            stored_content = self._encode_content(content)
+
+            num_tool_calls = 0
+            if tool_calls is not None:
+                num_tool_calls = len(tool_calls) if isinstance(tool_calls, list) else 1
+
+            message_count_inc += 1
+            tool_call_count_inc += num_tool_calls
+
+            prepared.append(
+                (
+                    session_id,
+                    role,
+                    stored_content,
+                    tool_call_id,
+                    tool_calls_json,
+                    tool_name,
+                    time.time(),
+                    token_count,
+                    finish_reason,
+                    reasoning,
+                    reasoning_content,
+                    reasoning_details_json,
+                    codex_items_json,
+                    codex_message_items_json,
+                    platform_message_id,
+                )
+            )
+
+        def _do(conn):
+            msg_ids: List[int] = []
+            for params in prepared:
+                cursor = conn.execute(
+                    """INSERT INTO messages (session_id, role, content, tool_call_id,
+                       tool_calls, tool_name, timestamp, token_count, finish_reason,
+                       reasoning, reasoning_content, reasoning_details, codex_reasoning_items,
+                       codex_message_items, platform_message_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    params,
+                )
+                msg_ids.append(cursor.lastrowid)
+
+            if tool_call_count_inc > 0:
+                conn.execute(
+                    """UPDATE sessions SET message_count = message_count + ?,
+                       tool_call_count = tool_call_count + ? WHERE id = ?""",
+                    (message_count_inc, tool_call_count_inc, session_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE sessions SET message_count = message_count + ? WHERE id = ?",
+                    (message_count_inc, session_id),
+                )
+            return msg_ids
 
         return self._execute_write(_do)
 

@@ -12,14 +12,23 @@ const VERBS = ["Thinking…", "Considering…", "Working…", "Pondering…"]
 export const TypingIndicator = memo((props: { label?: string }) => {
   const theme = useTheme().theme
   const [i, setI] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
+
   useEffect(() => {
-    if (props.label) return
-    const id = setInterval(() => setI(n => (n + 1) % VERBS.length), 2200)
+    const start = Date.now()
+    const id = setInterval(() => {
+      if (!props.label) {
+        setI(n => (n + 1) % VERBS.length)
+      }
+      setElapsed(Date.now() - start)
+    }, 100)
     return () => clearInterval(id)
   }, [props.label])
+
+  const elapsedStr = ` (${(elapsed / 1000).toFixed(1)}s)`
   return (
     <box height={1} paddingLeft={1}>
-      <Spinner color={theme.info} label={props.label ?? VERBS[i]} />
+      <Spinner color={theme.info} label={(props.label ?? VERBS[i]) + elapsedStr} />
     </box>
   )
 })

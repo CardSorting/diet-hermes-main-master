@@ -182,6 +182,25 @@ class TestMaybeAutoTitle:
             time.sleep(0.1)
             mock_auto.assert_not_called()
 
+    def test_skips_when_auto_title_disabled(self, monkeypatch):
+        import hermes_cli.config as _cfg_mod
+
+        monkeypatch.setattr(
+            _cfg_mod,
+            "load_config",
+            lambda: {"display": {"auto_title": False}},
+        )
+        db = MagicMock()
+        history = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi there"},
+        ]
+        with patch("agent.title_generator.auto_title_session") as mock_auto:
+            maybe_auto_title(db, "sess-1", "hello", "hi there", history)
+            import time
+            time.sleep(0.1)
+            mock_auto.assert_not_called()
+
     def test_fires_on_first_exchange(self):
         """Should fire a background thread for the first exchange."""
         db = MagicMock()
@@ -191,20 +210,21 @@ class TestMaybeAutoTitle:
             {"role": "assistant", "content": "hi there"},
         ]
 
-        with patch("agent.title_generator.auto_title_session") as mock_auto:
-            maybe_auto_title(db, "sess-1", "hello", "hi there", history)
-            # Wait for the daemon thread to complete
-            import time
-            time.sleep(0.3)
-            mock_auto.assert_called_once_with(
-                db,
-                "sess-1",
-                "hello",
-                "hi there",
-                failure_callback=None,
-                main_runtime=None,
-                title_callback=None,
-            )
+        with patch("hermes_cli.config.load_config", return_value={"display": {"auto_title": True}}):
+            with patch("agent.title_generator.auto_title_session") as mock_auto:
+                maybe_auto_title(db, "sess-1", "hello", "hi there", history)
+                # Wait for the daemon thread to complete
+                import time
+                time.sleep(0.3)
+                mock_auto.assert_called_once_with(
+                    db,
+                    "sess-1",
+                    "hello",
+                    "hi there",
+                    failure_callback=None,
+                    main_runtime=None,
+                    title_callback=None,
+                )
 
     def test_forwards_failure_callback_to_worker(self):
         """maybe_auto_title must forward failure_callback into the thread."""
@@ -218,19 +238,20 @@ class TestMaybeAutoTitle:
         def _cb(task, exc):
             pass
 
-        with patch("agent.title_generator.auto_title_session") as mock_auto:
-            maybe_auto_title(db, "sess-1", "hello", "hi there", history, failure_callback=_cb)
-            import time
-            time.sleep(0.3)
-            mock_auto.assert_called_once_with(
-                db,
-                "sess-1",
-                "hello",
-                "hi there",
-                failure_callback=_cb,
-                main_runtime=None,
-                title_callback=None,
-            )
+        with patch("hermes_cli.config.load_config", return_value={"display": {"auto_title": True}}):
+            with patch("agent.title_generator.auto_title_session") as mock_auto:
+                maybe_auto_title(db, "sess-1", "hello", "hi there", history, failure_callback=_cb)
+                import time
+                time.sleep(0.3)
+                mock_auto.assert_called_once_with(
+                    db,
+                    "sess-1",
+                    "hello",
+                    "hi there",
+                    failure_callback=_cb,
+                    main_runtime=None,
+                    title_callback=None,
+                )
 
     def test_skips_if_no_response(self):
         db = MagicMock()

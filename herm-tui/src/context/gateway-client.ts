@@ -251,6 +251,9 @@ export class GatewayClient extends EventEmitter {
 
       try {
         writer.write(JSON.stringify({ jsonrpc: "2.0", id: rid, method, params: merged }) + "\n")
+        if (writer && typeof (writer as any).flush === "function") {
+          (writer as any).flush()
+        }
       } catch (e) {
         clearTimeout(timeout)
         this.pending.delete(rid)

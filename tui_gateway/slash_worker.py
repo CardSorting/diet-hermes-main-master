@@ -59,7 +59,10 @@ def main():
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         cli = HermesCLI(model=args.model or None, compact=True, resume=args.session_key, verbose=False)
 
-    for raw in sys.stdin:
+    while True:
+        raw = sys.stdin.readline()
+        if not raw:
+            break
         line = raw.strip()
         if not line:
             continue

@@ -249,7 +249,10 @@ def main():
         _log_exit("startup write failed (broken stdout pipe before first event)")
         sys.exit(0)
 
-    for raw in sys.stdin:
+    while True:
+        raw = sys.stdin.readline()
+        if not raw:
+            break
         line = raw.strip()
         if not line:
             continue

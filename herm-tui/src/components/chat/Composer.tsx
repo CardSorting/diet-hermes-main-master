@@ -95,6 +95,22 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
   // this drives React-side derivations (popover matching, row count, hints).
   const [input, setInput] = useState("")
   const [caret, setCaret] = useState(0)
+
+  // Elapsed time for streaming/thinking state.
+  const [elapsed, setElapsed] = useState<number | null>(null)
+  useEffect(() => {
+    if (!props.streaming) {
+      setElapsed(null)
+      return
+    }
+    const start = Date.now()
+    setElapsed(0)
+    const timer = setInterval(() => {
+      setElapsed(Date.now() - start)
+    }, 100)
+    return () => clearInterval(timer)
+  }, [props.streaming])
+
   // `!` at cursor 0 (empty or line start) flips to shell mode; submit
   // routes to onShell, Esc/backspace@0 return to normal. Slash/@ and
   // history are disabled in shell mode.
@@ -353,8 +369,9 @@ export const Composer = memo(forwardRef<ComposerHandle, Props>((props, ref) => {
     if (!r) buf.current = null
   }, [])
 
+  const timeStr = elapsed !== null ? ` (${(elapsed / 1000).toFixed(1)}s)` : ""
   const label = !props.ready ? "Connecting..."
-    : props.streaming ? (props.status || "Generating...")
+    : props.streaming ? `${props.status || "Generating..."}${timeStr}`
     : "Ready"
   const dot = props.ready ? (props.streaming ? theme.warning : theme.success) : theme.error
 

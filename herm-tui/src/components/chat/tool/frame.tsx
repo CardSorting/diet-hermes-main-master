@@ -34,6 +34,10 @@ export const InlineTool = memo((p: InlineProps) => {
   const failed = p.part.status === "error"
   const spin = useSpinnerGlyph(running)
 
+  const elapsed = running && p.part.startedAt
+    ? Date.now() - p.part.startedAt
+    : undefined
+
   const fg = failed ? theme.error
     : hover && p.onClick ? theme.text
     : running ? theme.text
@@ -55,7 +59,9 @@ export const InlineTool = memo((p: InlineProps) => {
             : <span fg={fg}>~ {s.pending}</span>}
           {p.part.duration != null
             ? <span fg={theme.textMuted}>  {ms(p.part.duration)}</span>
-            : null}
+            : (elapsed != null
+              ? <span fg={theme.textMuted}>  {ms(elapsed)}</span>
+              : null)}
         </text>
       </box>
       {failed && p.part.result ? (

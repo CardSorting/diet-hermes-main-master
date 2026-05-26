@@ -161,6 +161,28 @@ class TestMessageStorage:
         session = db.get_session("s1")
         assert session["message_count"] == 2
 
+    def test_append_messages_batch_matches_sequential_counters(self, db):
+        """Batch append must update message_count/tool_call_count like singles."""
+        db.create_session(session_id="s1", source="cli")
+        tool_calls = [
+            {"id": "call_1", "function": {"name": "web_search", "arguments": "{}"}},
+            {"id": "call_2", "function": {"name": "read_file", "arguments": "{}"}},
+        ]
+        db.append_messages_batch(
+            "s1",
+            [
+                {"role": "user", "content": "run tools"},
+                {"role": "assistant", "content": "", "tool_calls": tool_calls},
+                {"role": "tool", "content": "ok", "tool_name": "web_search"},
+            ],
+        )
+        session = db.get_session("s1")
+        assert session["message_count"] == 3
+        assert session["tool_call_count"] == 2
+        messages = db.get_messages("s1")
+        assert len(messages) == 3
+        assert messages[1]["tool_calls"] == tool_calls
+
     def test_tool_response_does_not_increment_tool_count(self, db):
         """Tool responses (role=tool) should not increment tool_call_count.
 

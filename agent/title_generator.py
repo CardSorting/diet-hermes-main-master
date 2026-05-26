@@ -149,6 +149,14 @@ def maybe_auto_title(
     if not session_db or not session_id or not user_message or not assistant_response:
         return
 
+    try:
+        from hermes_cli.config import cfg_get, load_config
+
+        if not cfg_get(load_config(), "display", "auto_title", default=False):
+            return
+    except Exception:
+        return
+
     # Count user messages in history to detect first exchange.
     # conversation_history includes the exchange that just happened,
     # so for a first exchange we expect exactly 1 user message

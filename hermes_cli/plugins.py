@@ -1293,6 +1293,10 @@ class PluginManager:
     # Hook invocation
     # -----------------------------------------------------------------------
 
+    def has_hook_callbacks(self, hook_name: str) -> bool:
+        """Return True when at least one plugin registered *hook_name*."""
+        return bool(self._hooks.get(hook_name))
+
     def invoke_hook(self, hook_name: str, **kwargs: Any) -> List[Any]:
         """Call all registered callbacks for *hook_name*.
 
@@ -1314,6 +1318,8 @@ class PluginManager:
         persisted to session DB.
         """
         callbacks = self._hooks.get(hook_name, [])
+        if not callbacks:
+            return []
         results: List[Any] = []
         for cb in callbacks:
             try:
@@ -1409,6 +1415,11 @@ def invoke_hook(hook_name: str, **kwargs: Any) -> List[Any]:
     return get_plugin_manager().invoke_hook(hook_name, **kwargs)
 
 
+def has_hook_callbacks(hook_name: str) -> bool:
+    """Return True when at least one plugin registered *hook_name*."""
+    return get_plugin_manager().has_hook_callbacks(hook_name)
+
+
 
 _thread_tool_whitelist = threading.local()
 
@@ -1447,6 +1458,9 @@ def get_pre_tool_call_block_message(
     if allowed is not None and tool_name not in allowed:
         fmt = getattr(_thread_tool_whitelist, "fmt", "Tool '{tool_name}' denied")
         return fmt.format(tool_name=tool_name)
+
+    if not has_hook_callbacks("pre_tool_call"):
+        return None
 
     hook_results = invoke_hook(
         "pre_tool_call",

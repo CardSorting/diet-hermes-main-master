@@ -499,6 +499,10 @@ class TestPreToolCallBlocking:
 
     def test_block_message_returned_for_valid_directive(self, monkeypatch):
         monkeypatch.setattr(
+            "hermes_cli.plugins.has_hook_callbacks",
+            lambda hook_name: hook_name == "pre_tool_call",
+        )
+        monkeypatch.setattr(
             "hermes_cli.plugins.invoke_hook",
             lambda hook_name, **kwargs: [{"action": "block", "message": "blocked by plugin"}],
         )
@@ -506,6 +510,10 @@ class TestPreToolCallBlocking:
 
     def test_invalid_returns_are_ignored(self, monkeypatch):
         """Various malformed hook returns should not trigger a block."""
+        monkeypatch.setattr(
+            "hermes_cli.plugins.has_hook_callbacks",
+            lambda hook_name: hook_name == "pre_tool_call",
+        )
         monkeypatch.setattr(
             "hermes_cli.plugins.invoke_hook",
             lambda hook_name, **kwargs: [
@@ -521,12 +529,20 @@ class TestPreToolCallBlocking:
 
     def test_none_when_no_hooks(self, monkeypatch):
         monkeypatch.setattr(
+            "hermes_cli.plugins.has_hook_callbacks",
+            lambda hook_name: False,
+        )
+        monkeypatch.setattr(
             "hermes_cli.plugins.invoke_hook",
             lambda hook_name, **kwargs: [],
         )
         assert get_pre_tool_call_block_message("web_search", {"q": "test"}) is None
 
     def test_first_valid_block_wins(self, monkeypatch):
+        monkeypatch.setattr(
+            "hermes_cli.plugins.has_hook_callbacks",
+            lambda hook_name: hook_name == "pre_tool_call",
+        )
         monkeypatch.setattr(
             "hermes_cli.plugins.invoke_hook",
             lambda hook_name, **kwargs: [

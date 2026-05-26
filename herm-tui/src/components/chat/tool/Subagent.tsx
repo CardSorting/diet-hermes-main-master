@@ -27,13 +27,19 @@ export const Subagent = memo(({ tool }: { tool: Part }) => {
   const trail = tool.trail ?? []
   const last = trail[trail.length - 1]
 
+  const elapsed = running && tool.startedAt
+    ? Date.now() - tool.startedAt
+    : undefined
+
+  const elapsedStr = elapsed != null ? ` · ${dur(elapsed)}` : ""
+
   const fg = failed ? theme.error : running ? theme.text : theme.textMuted
   const goal = (tool.goal ?? tool.preview ?? "").replace(/\s+/g, " ").trim()
 
   const sub = running
     ? last
-      ? `↳ ${spec(last.name).verb || last.name} ${last.preview ?? ""}`
-      : trail.length ? `↳ ${trail.length} toolcalls` : ""
+      ? `↳ ${spec(last.name).verb || last.name} ${last.preview ?? ""}${elapsedStr}`
+      : trail.length ? `↳ ${trail.length} toolcalls${elapsedStr}` : `↳ delegating…${elapsedStr}`
     : `└ ${trail.length} toolcall${trail.length === 1 ? "" : "s"}${tool.duration ? ` · ${dur(tool.duration)}` : ""}`
 
   return (

@@ -779,7 +779,8 @@ DEFAULT_CONFIG = {
     # non-progressing tool calls. Soft warnings are always-on by default;
     # hard stops are opt-in so interactive CLI/TUI sessions keep flowing.
     "tool_loop_guardrails": {
-        "warnings_enabled": True,
+        # DietCode: off — skips per-tool-call guardrail fingerprinting on hot path.
+        "warnings_enabled": False,
         "hard_stop_enabled": False,
         "warn_after": {
             "exact_failure": 2,
@@ -798,7 +799,8 @@ DEFAULT_CONFIG = {
         # DietCode: 0.65 delays aux summarization vs 0.50 — fewer mid-turn compress calls.
         "threshold": 0.65,            # compress when context usage exceeds this ratio
         "target_ratio": 0.20,         # fraction of threshold to preserve as recent tail
-        "protect_last_n": 20,         # minimum recent messages to keep uncompressed
+        # DietCode: 25 — when compression runs, fewer middle turns to aux-summarize.
+        "protect_last_n": 25,         # minimum recent messages to keep uncompressed
         "hygiene_hard_message_limit": 400,  # gateway session-hygiene force-compress threshold by message count
         "protect_first_n": 3,         # non-system head messages always preserved
                                       # verbatim, in ADDITION to the system prompt
@@ -1031,14 +1033,15 @@ DEFAULT_CONFIG = {
         "persistent_output": True,
         "persistent_output_max_lines": 200,
         "inline_diffs": True,     # Show inline diff previews for write actions (write_file, patch, skill_manage)
-        # File-mutation verifier footer.  When true (default), the agent
-        # appends a one-line advisory to its final response whenever a
-        # write_file / patch call failed during the turn and was never
-        # superseded by a successful write to the same path.  This catches
-        # the "batch of parallel patches, half fail, model claims success"
-        # class of over-claim that otherwise forces users to run
-        # `git status` to verify edits landed.  Set false to suppress.
-        "file_mutation_verifier": True,
+        # File-mutation verifier footer.  When true, the agent appends a
+        # one-line advisory to its final response whenever a write_file /
+        # patch call failed during the turn and was never superseded by a
+        # successful write to the same path.  DietCode default off — skips a
+        # post-turn scan on every assistant reply.
+        "file_mutation_verifier": False,
+        # Auto-generate session titles via auxiliary LLM after the first
+        # exchange.  DietCode default off — saves one aux call per new session.
+        "auto_title": False,
         # TUI: "new" emits tool.start/complete only (no per-chunk progress RPCs).
         "tool_progress": "new",
         "show_cost": False,       # Show $ cost in the status bar (off by default)
@@ -1640,7 +1643,8 @@ DEFAULT_CONFIG = {
     # Logging — controls file logging to ~/.hermes/logs/.
     # agent.log captures INFO+ (all agent activity); errors.log captures WARNING+.
     "logging": {
-        "level": "INFO",       # Minimum level for agent.log: DEBUG, INFO, WARNING
+        # DietCode: WARNING — less agent.log I/O on hot tool/LLM paths.
+        "level": "WARNING",       # Minimum level for agent.log: DEBUG, INFO, WARNING
         "max_size_mb": 5,      # Max size per log file before rotation
         "backup_count": 3,     # Number of rotated backup files to keep
         # Periodic process memory usage logging (gateway only). Emits a
@@ -1649,7 +1653,8 @@ DEFAULT_CONFIG = {
         # in agent.log / gateway.log as a time series. Ported from
         # cline/cline#10343.
         "memory_monitor": {
-            "enabled": True,         # Flip to false to silence the periodic line
+            # DietCode: off — no periodic RSS lines in long-lived gateway.
+            "enabled": False,         # Flip to false to silence the periodic line
             "interval_seconds": 300, # Default: every 5 minutes
         },
     },
@@ -1660,7 +1665,8 @@ DEFAULT_CONFIG = {
     # update model picker lists without shipping a hermes-agent release.
     # The default URL is served by the docs site GitHub Pages deploy.
     "model_catalog": {
-        "enabled": True,
+        # DietCode: off — skip remote manifest fetch on model picker / startup.
+        "enabled": False,
         "url": "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json",
         # Disk cache TTL in hours.  Beyond this, the CLI refetches on the
         # next /model or `hermes model` invocation; network failures

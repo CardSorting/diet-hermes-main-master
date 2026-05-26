@@ -158,13 +158,14 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
     # session is created (not on continuation).  Plugins can use this
     # to initialise session-scoped state (e.g. warm a memory cache).
     try:
-        from hermes_cli.plugins import invoke_hook as _invoke_hook
-        _invoke_hook(
-            "on_session_start",
-            session_id=agent.session_id,
-            model=agent.model,
-            platform=getattr(agent, "platform", None) or "",
-        )
+        from hermes_cli.plugins import has_hook_callbacks, invoke_hook as _invoke_hook
+        if has_hook_callbacks("on_session_start"):
+            _invoke_hook(
+                "on_session_start",
+                session_id=agent.session_id,
+                model=agent.model,
+                platform=getattr(agent, "platform", None) or "",
+            )
     except Exception as exc:
         logger.warning("on_session_start hook failed: %s", exc)
 
@@ -501,25 +502,26 @@ def run_conversation(
     # All injected context is ephemeral (not persisted to session DB).
     _plugin_user_context = ""
     try:
-        from hermes_cli.plugins import invoke_hook as _invoke_hook
-        _pre_results = _invoke_hook(
-            "pre_llm_call",
-            session_id=agent.session_id,
-            user_message=original_user_message,
-            conversation_history=list(messages),
-            is_first_turn=(not bool(conversation_history)),
-            model=agent.model,
-            platform=getattr(agent, "platform", None) or "",
-            sender_id=getattr(agent, "_user_id", None) or "",
-        )
-        _ctx_parts: list[str] = []
-        for r in _pre_results:
-            if isinstance(r, dict) and r.get("context"):
-                _ctx_parts.append(str(r["context"]))
-            elif isinstance(r, str) and r.strip():
-                _ctx_parts.append(r)
-        if _ctx_parts:
-            _plugin_user_context = "\n\n".join(_ctx_parts)
+        from hermes_cli.plugins import has_hook_callbacks, invoke_hook as _invoke_hook
+        if has_hook_callbacks("pre_llm_call"):
+            _pre_results = _invoke_hook(
+                "pre_llm_call",
+                session_id=agent.session_id,
+                user_message=original_user_message,
+                conversation_history=list(messages),
+                is_first_turn=(not bool(conversation_history)),
+                model=agent.model,
+                platform=getattr(agent, "platform", None) or "",
+                sender_id=getattr(agent, "_user_id", None) or "",
+            )
+            _ctx_parts: list[str] = []
+            for r in _pre_results:
+                if isinstance(r, dict) and r.get("context"):
+                    _ctx_parts.append(str(r["context"]))
+                elif isinstance(r, str) and r.strip():
+                    _ctx_parts.append(r)
+            if _ctx_parts:
+                _plugin_user_context = "\n\n".join(_ctx_parts)
     except Exception as exc:
         logger.warning("pre_llm_call hook failed: %s", exc)
 
@@ -992,37 +994,38 @@ def run_conversation(
                     api_kwargs = agent._get_transport().preflight_kwargs(api_kwargs, allow_stream=False)
 
                 try:
-                    from hermes_cli.plugins import invoke_hook as _invoke_hook
-                    request_messages = api_kwargs.get("messages")
-                    if not isinstance(request_messages, list):
-                        request_messages = api_kwargs.get("input")
-                    if not isinstance(request_messages, list):
-                        request_messages = api_messages
-                    # Shallow-copy the outer list so plugins that retain the
-                    # reference for async snapshotting don't observe later
-                    # mutations of api_messages.  The inner dicts are not
-                    # mutated by the agent loop, so a shallow copy is
-                    # sufficient; a deepcopy would walk every tool result
-                    # and base64 image on every API call.
-                    _invoke_hook(
-                        "pre_api_request",
-                        task_id=effective_task_id,
-                        session_id=agent.session_id or "",
-                        user_message=original_user_message,
-                        conversation_history=list(messages),
-                        platform=agent.platform or "",
-                        model=agent.model,
-                        provider=agent.provider,
-                        base_url=agent.base_url,
-                        api_mode=agent.api_mode,
-                        api_call_count=api_call_count,
-                        request_messages=list(request_messages) if isinstance(request_messages, list) else [],
-                        message_count=len(api_messages),
-                        tool_count=len(agent.tools or []),
-                        approx_input_tokens=approx_tokens,
-                        request_char_count=total_chars,
-                        max_tokens=agent.max_tokens,
-                    )
+                    from hermes_cli.plugins import has_hook_callbacks, invoke_hook as _invoke_hook
+                    if has_hook_callbacks("pre_api_request"):
+                        request_messages = api_kwargs.get("messages")
+                        if not isinstance(request_messages, list):
+                            request_messages = api_kwargs.get("input")
+                        if not isinstance(request_messages, list):
+                            request_messages = api_messages
+                        # Shallow-copy the outer list so plugins that retain the
+                        # reference for async snapshotting don't observe later
+                        # mutations of api_messages.  The inner dicts are not
+                        # mutated by the agent loop, so a shallow copy is
+                        # sufficient; a deepcopy would walk every tool result
+                        # and base64 image on every API call.
+                        _invoke_hook(
+                            "pre_api_request",
+                            task_id=effective_task_id,
+                            session_id=agent.session_id or "",
+                            user_message=original_user_message,
+                            conversation_history=list(messages),
+                            platform=agent.platform or "",
+                            model=agent.model,
+                            provider=agent.provider,
+                            base_url=agent.base_url,
+                            api_mode=agent.api_mode,
+                            api_call_count=api_call_count,
+                            request_messages=list(request_messages) if isinstance(request_messages, list) else [],
+                            message_count=len(api_messages),
+                            tool_count=len(agent.tools or []),
+                            approx_input_tokens=approx_tokens,
+                            request_char_count=total_chars,
+                            max_tokens=agent.max_tokens,
+                        )
                 except Exception:
                     pass
 
@@ -2956,29 +2959,30 @@ def run_conversation(
                     assistant_message.content = str(raw)
 
             try:
-                from hermes_cli.plugins import invoke_hook as _invoke_hook
-                _assistant_tool_calls = getattr(assistant_message, "tool_calls", None) or []
-                _assistant_text = assistant_message.content or ""
-                _invoke_hook(
-                    "post_api_request",
-                    task_id=effective_task_id,
-                    session_id=agent.session_id or "",
-                    platform=agent.platform or "",
-                    model=agent.model,
-                    provider=agent.provider,
-                    base_url=agent.base_url,
-                    api_mode=agent.api_mode,
-                    api_call_count=api_call_count,
-                    api_duration=api_duration,
-                    finish_reason=finish_reason,
-                    message_count=len(api_messages),
-                    response_model=getattr(response, "model", None),
-                    response=response,
-                    usage=agent._usage_summary_for_api_request_hook(response),
-                    assistant_message=assistant_message,
-                    assistant_content_chars=len(_assistant_text),
-                    assistant_tool_call_count=len(_assistant_tool_calls),
-                )
+                from hermes_cli.plugins import has_hook_callbacks, invoke_hook as _invoke_hook
+                if has_hook_callbacks("post_api_request"):
+                    _assistant_tool_calls = getattr(assistant_message, "tool_calls", None) or []
+                    _assistant_text = assistant_message.content or ""
+                    _invoke_hook(
+                        "post_api_request",
+                        task_id=effective_task_id,
+                        session_id=agent.session_id or "",
+                        platform=agent.platform or "",
+                        model=agent.model,
+                        provider=agent.provider,
+                        base_url=agent.base_url,
+                        api_mode=agent.api_mode,
+                        api_call_count=api_call_count,
+                        api_duration=api_duration,
+                        finish_reason=finish_reason,
+                        message_count=len(api_messages),
+                        response_model=getattr(response, "model", None),
+                        response=response,
+                        usage=agent._usage_summary_for_api_request_hook(response),
+                        assistant_message=assistant_message,
+                        assistant_content_chars=len(_assistant_text),
+                        assistant_tool_call_count=len(_assistant_tool_calls),
+                    )
             except Exception:
                 pass
 
@@ -3941,18 +3945,19 @@ def run_conversation(
     # First hook to return a string wins; None/empty return leaves text unchanged.
     if final_response and not interrupted:
         try:
-            from hermes_cli.plugins import invoke_hook as _invoke_hook
-            _transform_results = _invoke_hook(
-                "transform_llm_output",
-                response_text=final_response,
-                session_id=agent.session_id or "",
-                model=agent.model,
-                platform=getattr(agent, "platform", None) or "",
-            )
-            for _hook_result in _transform_results:
-                if isinstance(_hook_result, str) and _hook_result:
-                    final_response = _hook_result
-                    break  # First non-empty string wins
+            from hermes_cli.plugins import has_hook_callbacks, invoke_hook as _invoke_hook
+            if has_hook_callbacks("transform_llm_output"):
+                _transform_results = _invoke_hook(
+                    "transform_llm_output",
+                    response_text=final_response,
+                    session_id=agent.session_id or "",
+                    model=agent.model,
+                    platform=getattr(agent, "platform", None) or "",
+                )
+                for _hook_result in _transform_results:
+                    if isinstance(_hook_result, str) and _hook_result:
+                        final_response = _hook_result
+                        break  # First non-empty string wins
         except Exception as exc:
             logger.warning("transform_llm_output hook failed: %s", exc)
 
@@ -3962,16 +3967,17 @@ def run_conversation(
     # to an external memory system).
     if final_response and not interrupted:
         try:
-            from hermes_cli.plugins import invoke_hook as _invoke_hook
-            _invoke_hook(
-                "post_llm_call",
-                session_id=agent.session_id,
-                user_message=original_user_message,
-                assistant_response=final_response,
-                conversation_history=list(messages),
-                model=agent.model,
-                platform=getattr(agent, "platform", None) or "",
-            )
+            from hermes_cli.plugins import has_hook_callbacks, invoke_hook as _invoke_hook
+            if has_hook_callbacks("post_llm_call"):
+                _invoke_hook(
+                    "post_llm_call",
+                    session_id=agent.session_id,
+                    user_message=original_user_message,
+                    assistant_response=final_response,
+                    conversation_history=list(messages),
+                    model=agent.model,
+                    platform=getattr(agent, "platform", None) or "",
+                )
         except Exception as exc:
             logger.warning("post_llm_call hook failed: %s", exc)
 
@@ -4077,15 +4083,16 @@ def run_conversation(
     # Fired at the very end of every run_conversation call.
     # Plugins can use this for cleanup, flushing buffers, etc.
     try:
-        from hermes_cli.plugins import invoke_hook as _invoke_hook
-        _invoke_hook(
-            "on_session_end",
-            session_id=agent.session_id,
-            completed=completed,
-            interrupted=interrupted,
-            model=agent.model,
-            platform=getattr(agent, "platform", None) or "",
-        )
+        from hermes_cli.plugins import has_hook_callbacks, invoke_hook as _invoke_hook
+        if has_hook_callbacks("on_session_end"):
+            _invoke_hook(
+                "on_session_end",
+                session_id=agent.session_id,
+                completed=completed,
+                interrupted=interrupted,
+                model=agent.model,
+                platform=getattr(agent, "platform", None) or "",
+            )
     except Exception as exc:
         logger.warning("on_session_end hook failed: %s", exc)
 

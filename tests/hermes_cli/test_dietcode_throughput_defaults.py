@@ -20,3 +20,19 @@ def test_curator_and_joyzoning_off_by_default():
 
 def test_tui_tool_progress_emits_start_complete_only():
     assert DEFAULT_CONFIG["display"]["tool_progress"] == "new"
+
+
+def test_aux_title_and_mutation_verifier_off_by_default():
+    assert DEFAULT_CONFIG["display"]["auto_title"] is False
+    assert DEFAULT_CONFIG["display"]["file_mutation_verifier"] is False
+
+
+def test_tool_guardrails_and_compression_tuned_for_throughput():
+    assert DEFAULT_CONFIG["tool_loop_guardrails"]["warnings_enabled"] is False
+    assert DEFAULT_CONFIG["compression"]["protect_last_n"] == 25
+
+
+def test_logging_and_model_catalog_quiet_by_default():
+    assert DEFAULT_CONFIG["logging"]["level"] == "WARNING"
+    assert DEFAULT_CONFIG["logging"]["memory_monitor"]["enabled"] is False
+    assert DEFAULT_CONFIG["model_catalog"]["enabled"] is False
