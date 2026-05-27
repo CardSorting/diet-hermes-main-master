@@ -619,7 +619,17 @@ def recover_with_credential_pool(
         # the refresh loop can't spin in those cases either.
         is_entitlement = agent._is_entitlement_failure(error_context, status_code)
         if not is_entitlement and status_code == 403 and (agent.provider or "") == "xai-oauth":
-            is_entitlement = True
+            _disambiguator_haystack = " ".join(
+                str(error_context.get(k) or "").lower()
+                for k in ("message", "reason", "code", "error")
+                if isinstance(error_context, dict)
+            )
+            _is_xai_auth_failure = (
+                "[wke=unauthenticated:" in _disambiguator_haystack
+                or "oauth2 access token could not be validated" in _disambiguator_haystack
+            )
+            if not _is_xai_auth_failure:
+                is_entitlement = True
         if is_entitlement:
             _ra().logger.info(
                 "Credential %s — entitlement-shaped 403 from %s; "

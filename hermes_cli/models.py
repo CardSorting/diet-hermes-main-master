@@ -48,6 +48,7 @@ OPENROUTER_MODELS: list[tuple[str, str]] = [
     ("tencent/hy3-preview",                    ""),
     ("google/gemini-3-pro-image-preview",      ""),
     ("google/gemini-3-flash-preview",          ""),
+    ("google/gemini-3.5-flash",               ""),
     ("google/gemini-3.1-pro-preview",          ""),
     ("google/gemini-3.1-flash-lite-preview",   ""),
     ("qwen/qwen3.6-35b-a3b",                   ""),

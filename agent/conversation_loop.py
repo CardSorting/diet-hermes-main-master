@@ -956,6 +956,7 @@ def run_conversation(
         image_shrink_retry_attempted = False
         oauth_1m_beta_retry_attempted = False
         llama_cpp_grammar_retry_attempted = False
+        invalid_encrypted_content_retry_attempted = False
         has_retried_429 = False
         restart_with_compressed_messages = False
         restart_with_length_continuation = False
@@ -2169,6 +2170,41 @@ def run_conversation(
                         "%sThinking block signature recovery: stripped "
                         "reasoning_details from %d messages",
                         agent.log_prefix, len(messages),
+                    )
+                    continue
+
+                # ── Responses encrypted reasoning replay recovery ─────
+                # The Responses API uses end-to-end encrypted thread coherence
+                # blobs.  If the provider rejects these (e.g. invalid key /
+                # rotation / decryption failure on a turn), we get HTTP 400
+                # with code invalid_encrypted_content.  Recovery: clear
+                # reasoning caches, disable reasoning replay, and retry.
+                if (
+                    classified.reason == FailoverReason.invalid_encrypted_content
+                    and not invalid_encrypted_content_retry_attempted
+                    and agent.api_mode == "codex_responses"
+                    and bool(getattr(agent, "_codex_reasoning_replay_enabled", True))
+                    and any(
+                        isinstance(_m, dict)
+                        and _m.get("role") == "assistant"
+                        and isinstance(_m.get("codex_reasoning_items"), list)
+                        and _m.get("codex_reasoning_items")
+                        for _m in messages
+                    )
+                ):
+                    invalid_encrypted_content_retry_attempted = True
+                    replay_stats = agent._disable_codex_reasoning_replay(messages)
+                    agent._vprint(
+                        f"{agent.log_prefix}⚠️  Encrypted reasoning replay was rejected by the provider — "
+                        f"disabled replay and stripped {replay_stats['items']} item(s) from "
+                        f"{replay_stats['messages']} message(s), retrying...",
+                        force=True,
+                    )
+                    logger.warning(
+                        "%sInvalid encrypted reasoning recovery: disabled replay and stripped %d items from %d messages",
+                        agent.log_prefix,
+                        replay_stats["items"],
+                        replay_stats["messages"],
                     )
                     continue
 
