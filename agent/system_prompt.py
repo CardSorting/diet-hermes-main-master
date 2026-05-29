@@ -1,7 +1,4 @@
-"""
-[LAYER: CORE]
-
-System-prompt assembly for :class:`AIAgent`.
+"""System-prompt assembly for :class:`AIAgent`.
 
 The agent's system prompt is built once per session and reused across all
 turns — only context compression triggers a rebuild.  This keeps the
@@ -40,6 +37,7 @@ from agent.prompt_builder import (
     PLATFORM_HINTS,
     SESSION_SEARCH_GUIDANCE,
     SKILLS_GUIDANCE,
+    TASK_COMPLETION_GUIDANCE,
     TOOL_USE_ENFORCEMENT_GUIDANCE,
     TOOL_USE_ENFORCEMENT_MODELS,
 )
@@ -103,56 +101,14 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # Pointer to the hermes-agent skill + docs for user questions about Hermes itself.
     stable_parts.append(HERMES_AGENT_HELP_GUIDANCE)
 
-    # ── Joy-Zoning guidelines & Steering concepts ─────────────────
-    from agent.joy_zoning import get_system_prompt_section
-    stable_parts.append(get_system_prompt_section())
-
-    # Deep thinking monologue constraints for Hermes:
-    thinking_guidance = (
-        "You are a deep thinking AI, you may use extremely long chains of thought to deeply consider the problem "
-        "and deliberate with yourself via systematic reasoning processes to help come to a correct solution "
-        "prior to answering. You should enclose your thoughts and internal monologue inside <think> </think> tags, "
-        "and then provide your solution or response to the problem."
-    )
-    stable_parts.append(thinking_guidance)
-
-    # Action vs Planning guidelines:
-    plan_act_guidance = (
-        "# 🗺️ AUTONOMOUS PLANNING & EXECUTION CYCLE\n"
-        "⚠️ CRITICAL MANDATE: 100% AUTONOMOUS PLAN & ACT CONVERSION\n"
-        "Both the Planning and Action phases must be executed fully autonomously. There is NO manual input, approval, "
-        "or execution switch mechanism. You MUST formulate, write, verify, and execute your plans entirely within "
-        "your single runtime session without prompting the user for approval, confirmation, or stage-gates. Transition "
-        "immediately from PLANNING to ACT phases in your internal reasoning monologue and tool-calling loop.\n\n"
-        "1. **Autonomous Planning & Sovereign Drafting**:\n"
-        "- Before implementing any non-trivial changes, you MUST write a design draft to `scratchpad.md` in the workspace using the `write_file_tool`.\n"
-        "- Perform a **Sovereign Triad Audit** on your draft inside `scratchpad.md` using the following format:\n"
-        "  - **THE ARCHITECT (Boundary Probe)**: Where is the layer boundary or axiom most vulnerable to leakage or violation? Cite specific file paths.\n"
-        "  - **THE CRITIC (Assumption Probe)**: What design assumption, if wrong, would cause failure? How is it hardened?\n"
-        "  - **THE SRE (Atomic Probe)**: If system execution fails mid-task, what is the recovery path to atomic consistency (rollbacks, cleanup)?\n"
-        "- Conclude your draft with the **Mantra**: *Double down on this concept, audit and revise in its entirety.*\n"
-        "- Focus on **Architectural Mapping**. Identify which JoyZoning layers (Domain, Core, Infrastructure, UI, Plumbing) are involved. Ensure Domain logic remains pure and Infrastructure adapters are properly abstracted before implementation begins.\n"
-        "🔍 LAYER PROBING (Questions to answer in your plan):\n"
-        "- **DOMAIN**: Is this logic \"pure\"? Can it exist without knowing about databases or APIs?\n"
-        "- **CORE**: What are the high-level steps? Which Domain models does this coordinate?\n"
-        "- **INFRASTRUCTURE**: What external world interactions (disk, net, 3rd party) are needed?\n"
-        "- **UI**: What state does the user need to see? What actions will they trigger?\n"
-        "Once you have defined your architectural mapping and plan, proceed immediately and autonomously to the execution phase. Do not ask the user for confirmation or mode switching.\n\n"
-        "2. **Autonomous Execution (ACT)**:\n"
-        "- **Tool Preference**: Always prefer using the standard `write_file_tool` and `patch_tool` for file operations to trigger Joy-Zoning validations, rather than executing file mutations via shell/terminal command redirection (e.g. `cat`, `echo`, `sed`).\n"
-        "- **Follow the Ruleset**: Follow hardening rules strictly.\n"
-        "- **Maintain Purity**: If you are editing a Domain file, ensure it remains free of platform leakage and side effects.\n"
-        "- **Implement via Interfaces**: Infrastructure changes must strictly implement the contracts defined in Domain/Core.\n\n"
-        "Before each change, quick-scan:\n"
-        "1. Which layer does this file live in?\n"
-        "2. Am I importing from a layer I shouldn't?\n"
-        "3. Can I make this change smaller and more focused?\n\n"
-        "# 🗣️ CONVERSATIONAL TONE & RESPONSE STANDARDS\n"
-        "- **Strict Filler Prohibition**: You are STRICTLY FORBIDDEN from starting your messages with conversational fillers like \"Great\", \"Certainly\", \"Okay\", \"Sure\". Begin responses directly and technically.\n"
-        "- **Direct Progress**: Keep responses concise, clear, and technical. Describe actions and results directly rather than writing conversational prose.\n"
-        "- **Clean Conclusions**: NEVER end your responses or completion statements with a question or open-ended request to continue the conversation. Formulate your final response in a way that is final and conclusive."
-    )
-    stable_parts.append(plan_act_guidance)
+    # Universal task-completion / no-fabrication guidance.  Applied to ALL
+    # models regardless of tool_use_enforcement gating — the failure modes
+    # this targets (stopping after a stub; fabricating output when a real
+    # path is blocked) are not model-family specific.  Gated only by
+    # config.yaml ``agent.task_completion_guidance`` (default True) so
+    # users who want a leaner prompt can turn it off.
+    if getattr(agent, "_task_completion_guidance", True) and agent.valid_tool_names:
+        stable_parts.append(TASK_COMPLETION_GUIDANCE)
 
     # Tool-aware behavioral guidance: only inject when the tools are loaded
     tool_guidance = []
@@ -172,9 +128,6 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     elif _kanban_guidance is None and "kanban_show" in agent.valid_tool_names:
         # Fallback for code paths that bypass agent_init (rare).
         tool_guidance.append(KANBAN_GUIDANCE)
-    if "joyzoning" in agent.valid_tool_names or "convergence_status" in agent.valid_tool_names:
-        from agent.prompt_builder import JOYZONING_GUIDANCE
-        tool_guidance.append(JOYZONING_GUIDANCE)
     if tool_guidance:
         stable_parts.append(" ".join(tool_guidance))
 
@@ -262,6 +215,57 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if _env_hints:
         stable_parts.append(_env_hints)
 
+    # Local Python toolchain probe — names python/pip/uv/PEP-668 state when
+    # something is non-default so the model can pick the right install
+    # strategy without discovering by failure.  Emits a single line; emits
+    # NOTHING when the environment is clean (no token cost).  Skipped
+    # entirely for remote terminal backends (the host's Python state is
+    # irrelevant when tools run inside docker/modal/ssh).  Gated by
+    # config.yaml ``agent.environment_probe`` (default True).
+    if getattr(agent, "_environment_probe", True):
+        try:
+            from tools.env_probe import get_environment_probe_line
+            _probe_line = get_environment_probe_line()
+            if _probe_line:
+                stable_parts.append(_probe_line)
+        except Exception:
+            # Probe failure must never block prompt build.
+            pass
+
+    # Active-profile hint — names the Hermes profile the agent is running
+    # under so it doesn't conflate ~/.hermes/skills/ (default profile) with
+    # ~/.hermes/profiles/<active>/skills/ (this profile's). Deterministic
+    # for the lifetime of the agent — profile name doesn't change
+    # mid-session, so this doesn't break the prompt cache.
+    # See file_safety._resolve_active_profile_name + classify_cross_profile_target
+    # for the matching tool-side guard.
+    try:
+        from agent.file_safety import _resolve_active_profile_name
+        active_profile = _resolve_active_profile_name()
+    except Exception:
+        active_profile = "default"
+    if active_profile == "default":
+        stable_parts.append(
+            "Active Hermes profile: default. Other profiles (if any) live "
+            "under ~/.hermes/profiles/<name>/. Each profile has its own "
+            "skills/, plugins/, cron/, and memories/ that affect a different "
+            "session than this one. Do not modify another profile's "
+            "skills/plugins/cron/memories unless the user explicitly directs "
+            "you to."
+        )
+    else:
+        stable_parts.append(
+            f"Active Hermes profile: {active_profile}. This session reads "
+            f"and writes ~/.hermes/profiles/{active_profile}/. The default "
+            f"profile's data lives at ~/.hermes/skills/, ~/.hermes/plugins/, "
+            f"~/.hermes/cron/, ~/.hermes/memories/ — those belong to a "
+            f"different session run from a different shell. Do NOT modify "
+            f"another profile's skills/plugins/cron/memories unless the user "
+            f"explicitly directs you to. The cross-profile write guard will "
+            f"refuse such writes by default; pass cross_profile=True only "
+            f"after explicit direction."
+        )
+
     platform_key = (agent.platform or "").lower().strip()
     if platform_key in PLATFORM_HINTS:
         stable_parts.append(PLATFORM_HINTS[platform_key])
@@ -333,15 +337,6 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if agent.provider:
         timestamp_line += f"\nProvider: {agent.provider}"
     volatile_parts.append(timestamp_line)
-
-    # Dynamic Joy-Zoning active layer context:
-    try:
-        from agent.joy_zoning import get_active_layer_context
-        active_ctx = get_active_layer_context(agent.session_id or "default")
-        if active_ctx:
-            volatile_parts.append(active_ctx)
-    except Exception:
-        pass
 
     return {
         "stable":   "\n\n".join(p.strip() for p in stable_parts   if p and p.strip()),

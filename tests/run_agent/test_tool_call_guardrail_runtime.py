@@ -351,3 +351,36 @@ def test_governance_fault_halts_run_conversation_by_default_after_two_repeats():
     assert any("read_file" in (c or "") for c in tool_contents)
     assert any("search_files" in (c or "") for c in tool_contents)
     assert any("Phase 1" in (c or "") for c in tool_contents)
+
+
+def test_guardrail_halt_emits_final_response_through_stream_delta_callback():
+    """Regression for #30770: guardrail halt must stream the synthesized message."""
+    agent = _make_agent("web_search", max_iterations=10, config=_hard_stop_config())
+    same_args = {"query": "same"}
+    responses = [
+        _mock_response(
+            content="",
+            finish_reason="tool_calls",
+            tool_calls=[_mock_tool_call("web_search", json.dumps(same_args), f"c{i}")],
+        )
+        for i in range(1, 10)
+    ]
+    agent.client.chat.completions.create.side_effect = responses
+
+    deltas: list = []
+    agent.stream_delta_callback = lambda d: deltas.append(d)
+    agent._disable_streaming = True
+
+    with (
+        patch("run_agent.handle_function_call", return_value=json.dumps({"error": "boom"})),
+        patch.object(agent, "_persist_session"),
+        patch.object(agent, "_save_trajectory"),
+        patch.object(agent, "_cleanup_task_resources"),
+    ):
+        result = agent.run_conversation("search repeatedly")
+
+    assert result["turn_exit_reason"] == "guardrail_halt"
+    halt_text = result["final_response"]
+    assert "stopped retrying" in halt_text
+    text_deltas = [d for d in deltas if isinstance(d, str)]
+    assert halt_text in text_deltas

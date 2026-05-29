@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from agent.codex_responses_adapter import _format_responses_error
 from agent.redact import redact_sensitive_text
 from agent.transports.codex_app_server import (
     CodexAppServerClient,
@@ -118,7 +119,6 @@ def _coerce_turn_input_text(user_input: Any) -> str:
         text = "\n\n".join(p for p in parts if p).strip()
         return text or "What do you see in this image?"
     return "" if user_input is None else str(user_input)
-
 
 
 # Substrings in codex stderr / JSON-RPC error messages that signal the
@@ -582,7 +582,7 @@ class CodexAppServerSession:
                         (note.get("params") or {}).get("turn") or {}
                     ).get("error")
                     if err_obj:
-                        err_msg = err_obj.get("message") or str(err_obj)
+                        err_msg = _format_responses_error(err_obj, str(turn_status))
                         # If the turn failed for an auth/refresh reason,
                         # rewrite the error into a re-auth hint AND mark
                         # the session for retirement.

@@ -14,7 +14,10 @@ from difflib import unified_diff
 from pathlib import Path
 
 from utils import safe_json_loads
-from agent.tool_result_classification import file_mutation_result_landed
+from agent.tool_result_classification import (
+    FILE_MUTATING_TOOL_NAMES,
+    file_mutation_result_landed,
+)
 
 # ANSI escape codes for coloring tool failure indicators
 _RED = "\033[31m"
@@ -569,8 +572,6 @@ class KawaiiSpinner:
         'pulse': ['◜', '◠', '◝', '◞', '◡', '◟'],
         'brain': ['🧠', '💭', '💡', '✨', '💫', '🌟', '💡', '💭'],
         'sparkle': ['⁺', '˚', '*', '✧', '✦', '✧', '*', '˚'],
-        # DietCode — rising bubble cycle (display-width 1)
-        'fizz': ['·', '∘', '○', '◌', '◎', '◉', '●', '◉', '◎', '◌', '○', '∘'],
     }
 
     KAWAII_WAITING = [
@@ -629,40 +630,9 @@ class KawaiiSpinner:
             pass
         return cls.THINKING_VERBS
 
-    @classmethod
-    def resolve_spinner_type(cls, requested: str = "dots") -> str:
-        """Pick spinner type from active skin when set (DietCode uses ``fizz``)."""
-        try:
-            skin = _get_skin()
-            if skin:
-                return skin.get_spinner_type(requested)
-        except Exception:
-            pass
-        return requested
-
-    @classmethod
-    def _resolve_spinner_frames(cls, spinner_type: str) -> list:
-        try:
-            skin = _get_skin()
-            if skin:
-                custom = skin.get_spinner_frames()
-                if custom:
-                    return custom
-        except Exception:
-            pass
-        try:
-            from hermes_cli.soda_callbacks import resolve_fizz_spinner_frames
-
-            if spinner_type == "fizz":
-                return resolve_fizz_spinner_frames()
-        except Exception:
-            pass
-        return cls.SPINNERS.get(spinner_type, cls.SPINNERS["dots"])
-
     def __init__(self, message: str = "", spinner_type: str = 'dots', print_fn=None):
         self.message = message
-        frames = self._resolve_spinner_frames(spinner_type)
-        self.spinner_frames = frames
+        self.spinner_frames = self.SPINNERS.get(spinner_type, self.SPINNERS['dots'])
         self.running = False
         self.thread = None
         self.frame_idx = 0
@@ -820,42 +790,71 @@ class KawaiiSpinner:
 # Cute tool message (completion line that replaces the spinner)
 # =========================================================================
 
+_ERROR_SUFFIX_MAX_LEN = 48
+
+
+def _trim_error(msg: str) -> str:
+    """Shrink an error message for inline display in a tool status line.
+
+    Strips overly long absolute paths down to just the filename so the
+    suffix stays readable on narrow terminals.
+    """
+    msg = msg.strip()
+    # Common case: "File not found: /very/long/absolute/path/foo.py"
+    if "File not found:" in msg:
+        _, _, tail = msg.partition("File not found:")
+        tail = tail.strip()
+        if "/" in tail:
+            msg = f"File not found: {tail.rsplit('/', 1)[-1]}"
+    if len(msg) > _ERROR_SUFFIX_MAX_LEN:
+        msg = msg[: _ERROR_SUFFIX_MAX_LEN - 3] + "..."
+    return msg
+
+
 def _detect_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str]:
     """Inspect a tool result string for signs of failure.
 
-    Returns ``(is_failure, suffix)`` where *suffix* is an informational tag
-    like ``" [exit 1]"`` for terminal failures, or ``" [error]"`` for generic
-    failures.  On success, returns ``(False, "")``.
+    Returns ``(is_failure, suffix)`` where *suffix* is a short informational
+    tag like ``" [exit 1]"`` for terminal failures, ``" [full]"`` for memory
+    overflow, or a trimmed error message (``" [File not found: foo.py]"``).
+    On success returns ``(False, "")``.
     """
     if result is None:
         return False, ""
-    if tool_name in {"write_file", "patch"}:
-        data = safe_json_loads(result)
-        if isinstance(data, dict):
-            try:
-                from agent.governance_exemptions import is_governance_transform_result
+    data = safe_json_loads(result)
+    if tool_name in FILE_MUTATING_TOOL_NAMES and isinstance(data, dict):
+        try:
+            from agent.governance_exemptions import is_governance_transform_result
 
-                if is_governance_transform_result(data):
-                    return True, " [governance]"
-            except ImportError:
-                pass
+            if is_governance_transform_result(data):
+                return True, " [governance]"
+        except ImportError:
+            pass
     if file_mutation_result_landed(tool_name, result):
         return False, ""
 
+    # Terminal: non-zero exit code is the canonical failure signal.
     if tool_name == "terminal":
-        data = safe_json_loads(result)
         if isinstance(data, dict):
             exit_code = data.get("exit_code")
             if exit_code is not None and exit_code != 0:
+                err_msg = data.get("error")
+                if err_msg:
+                    return True, f" [{_trim_error(str(err_msg))}]"
                 return True, f" [exit {exit_code}]"
         return False, ""
 
-    # Memory-specific: distinguish "full" from real errors
+    # Memory: distinguish "store full" from real errors.
     if tool_name == "memory":
-        data = safe_json_loads(result)
         if isinstance(data, dict):
             if data.get("success") is False and "exceed the limit" in data.get("error", ""):
                 return True, " [full]"
+
+    # Structured error in JSON result (any tool that surfaces {"error": ...}).
+    if isinstance(data, dict):
+        err = data.get("error") or data.get("message")
+        if err and (data.get("success") is False or "error" in data):
+            return True, f" [{_trim_error(str(err))}]"
 
     # Generic heuristic for non-terminal tools
     # Multimodal tool results (dicts with _multimodal=True) are not strings —
@@ -883,27 +882,6 @@ def get_cute_tool_message(
     is_failure, failure_suffix = _detect_tool_failure(tool_name, result)
     skin_prefix = get_skin_tool_prefix()
 
-    _soda = None
-    try:
-        from hermes_cli.soda_callbacks import is_dietcode_skin, soda_done_suffix, soda_tool_verb
-
-        if is_dietcode_skin():
-            _soda_emoji, _soda_verb = soda_tool_verb(tool_name)
-
-            def _soda_wrap_detail(detail: str) -> str:
-                line = f"┊ {_soda_emoji} {_soda_verb:9} {detail}  {dur}"
-                if is_failure:
-                    line = f"{line}{failure_suffix or soda_done_suffix(True)}"
-                else:
-                    line = f"{line}{soda_done_suffix(False)}"
-                if skin_prefix != "┊":
-                    line = line.replace("┊", skin_prefix, 1)
-                return line
-
-            _soda = _soda_wrap_detail
-    except Exception:
-        pass
-
     def _trunc(s, n=40):
         s = str(s)
         if _tool_preview_max_len == 0:
@@ -926,127 +904,136 @@ def get_cute_tool_message(
             return line
         return f"{line}{failure_suffix}"
 
-    def _done(emoji: str, verb: str, detail: str) -> str:
-        if _soda is not None:
-            return _soda(detail)
-        return _wrap(f"┊ {emoji} {verb:9} {detail}  {dur}")
-
     if tool_name == "web_search":
-        return _done("🔍", "search", _trunc(args.get("query", ""), 42))
+        return _wrap(f"┊ 🔍 search    {_trunc(args.get('query', ''), 42)}  {dur}")
     if tool_name == "web_extract":
         urls = args.get("urls", [])
         if urls:
             url = urls[0] if isinstance(urls, list) else str(urls)
             domain = url.replace("https://", "").replace("http://", "").split("/")[0]
             extra = f" +{len(urls)-1}" if len(urls) > 1 else ""
-            return _done("📄", "fetch", f"{_trunc(domain, 35)}{extra}")
-        return _done("📄", "fetch", "pages")
-    if tool_name == "web_crawl":
-        url = args.get("url", "")
-        domain = url.replace("https://", "").replace("http://", "").split("/")[0]
-        return _done("🕸️", "crawl", _trunc(domain, 35))
+            return _wrap(f"┊ 📄 fetch     {_trunc(domain, 35)}{extra}  {dur}")
+        return _wrap(f"┊ 📄 fetch     pages  {dur}")
     if tool_name == "terminal":
-        return _done("💻", "$", _trunc(args.get("command", ""), 42))
+        return _wrap(f"┊ 💻 $         {_trunc(args.get('command', ''), 42)}  {dur}")
     if tool_name == "process":
         action = args.get("action", "?")
         sid = args.get("session_id", "")[:12]
         labels = {"list": "ls processes", "poll": f"poll {sid}", "log": f"log {sid}",
                   "wait": f"wait {sid}", "kill": f"kill {sid}", "write": f"write {sid}", "submit": f"submit {sid}"}
-        return _done("⚙️", "proc", labels.get(action, f"{action} {sid}"))
+        return _wrap(f"┊ ⚙️  proc      {labels.get(action, f'{action} {sid}')}  {dur}")
     if tool_name == "read_file":
-        return _done("📖", "read", _path(args.get("path", "")))
+        return _wrap(f"┊ 📖 read      {_path(args.get('path', ''))}  {dur}")
     if tool_name == "write_file":
-        return _done("✍️", "write", _path(args.get("path", "")))
+        return _wrap(f"┊ ✍️  write     {_path(args.get('path', ''))}  {dur}")
     if tool_name == "patch":
-        return _done("🔧", "patch", _path(args.get("path", "")))
+        return _wrap(f"┊ 🔧 patch     {_path(args.get('path', ''))}  {dur}")
     if tool_name == "search_files":
         pattern = _trunc(args.get("pattern", ""), 35)
         target = args.get("target", "content")
         verb = "find" if target == "files" else "grep"
-        return _done("🔎", verb, pattern)
+        return _wrap(f"┊ 🔎 {verb:9} {pattern}  {dur}")
     if tool_name == "browser_navigate":
         url = args.get("url", "")
         domain = url.replace("https://", "").replace("http://", "").split("/")[0]
-        return _done("🌐", "navigate", _trunc(domain, 35))
+        return _wrap(f"┊ 🌐 navigate  {_trunc(domain, 35)}  {dur}")
     if tool_name == "browser_snapshot":
         mode = "full" if args.get("full") else "compact"
-        return _done("📸", "snapshot", mode)
+        return _wrap(f"┊ 📸 snapshot  {mode}  {dur}")
     if tool_name == "browser_click":
-        return _done("👆", "click", str(args.get("ref", "?")))
+        return _wrap(f"┊ 👆 click     {args.get('ref', '?')}  {dur}")
     if tool_name == "browser_type":
-        return _done("⌨️", "type", f"\"{_trunc(args.get('text', ''), 30)}\"")
+        return _wrap(f"┊ ⌨️  type      \"{_trunc(args.get('text', ''), 30)}\"  {dur}")
     if tool_name == "browser_scroll":
         d = args.get("direction", "down")
         arrow = {"down": "↓", "up": "↑", "right": "→", "left": "←"}.get(d, "↓")
-        return _done(arrow, "scroll", d)
+        return _wrap(f"┊ {arrow}  scroll    {d}  {dur}")
     if tool_name == "browser_back":
-        return _done("◀️", "back", "")
+        return _wrap(f"┊ ◀️  back      {dur}")
     if tool_name == "browser_press":
-        return _done("⌨️", "press", str(args.get("key", "?")))
+        return _wrap(f"┊ ⌨️  press     {args.get('key', '?')}  {dur}")
     if tool_name == "browser_get_images":
-        return _done("🖼️", "images", "extracting")
+        return _wrap(f"┊ 🖼️  images    extracting  {dur}")
     if tool_name == "browser_vision":
-        return _done("👁️", "vision", "analyzing page")
+        return _wrap(f"┊ 👁️  vision    analyzing page  {dur}")
     if tool_name == "todo":
         todos_arg = args.get("todos")
         merge = args.get("merge", False)
+        # Parse result for completion progress
+        total = 0
+        done = 0
+        if result:
+            try:
+                data = safe_json_loads(result)
+                if data:
+                    s = data.get("summary", {})
+                    total = s.get("total", 0)
+                    done = s.get("completed", 0)
+            except Exception:
+                pass
         if todos_arg is None:
-            return _done("📋", "plan", "reading tasks")
+            if total > 0:
+                return _wrap(f"┊ 📋 plan      {done}/{total} task(s)  {dur}")
+            return _wrap(f"┊ 📋 plan      reading tasks  {dur}")
         elif merge:
-            return _done("📋", "plan", f"update {len(todos_arg)} task(s)")
+            if total > 0 and done > 0:
+                return _wrap(f"┊ 📋 plan      update {done}/{total} ✓  {dur}")
+            return _wrap(f"┊ 📋 plan      update {len(todos_arg)} task(s)  {dur}")
         else:
-            return _done("📋", "plan", f"{len(todos_arg)} task(s)")
+            if total > 0 and done > 0:
+                return _wrap(f"┊ 📋 plan      {done}/{total} task(s)  {dur}")
+            return _wrap(f"┊ 📋 plan      {len(todos_arg)} task(s)  {dur}")
     if tool_name == "session_search":
-        return _done("🔍", "recall", f"\"{_trunc(args.get('query', ''), 35)}\"")
+        return _wrap(f"┊ 🔍 recall    \"{_trunc(args.get('query', ''), 35)}\"  {dur}")
     if tool_name == "memory":
         action = args.get("action", "?")
         target = args.get("target", "")
         if action == "add":
-            return _done("🧠", "memory", f"+{target}: \"{_trunc(args.get('content', ''), 30)}\"")
+            return _wrap(f"┊ 🧠 memory    +{target}: \"{_trunc(args.get('content', ''), 30)}\"  {dur}")
         elif action == "replace":
             old = args.get("old_text") or ""
             old = old if old else "<missing old_text>"
-            return _done("🧠", "memory", f"~{target}: \"{_trunc(old, 20)}\"")
+            return _wrap(f"┊ 🧠 memory    ~{target}: \"{_trunc(old, 20)}\"  {dur}")
         elif action == "remove":
             old = args.get("old_text") or ""
             old = old if old else "<missing old_text>"
-            return _done("🧠", "memory", f"-{target}: \"{_trunc(old, 20)}\"")
-        return _done("🧠", "memory", action)
+            return _wrap(f"┊ 🧠 memory    -{target}: \"{_trunc(old, 20)}\"  {dur}")
+        return _wrap(f"┊ 🧠 memory    {action}  {dur}")
     if tool_name == "skills_list":
-        return _done("📚", "skills", f"list {args.get('category', 'all')}")
+        return _wrap(f"┊ 📚 skills    list {args.get('category', 'all')}  {dur}")
     if tool_name == "skill_view":
-        return _done("📚", "skill", _trunc(args.get("name", ""), 30))
+        return _wrap(f"┊ 📚 skill     {_trunc(args.get('name', ''), 30)}  {dur}")
     if tool_name == "image_generate":
-        return _done("🎨", "create", _trunc(args.get("prompt", ""), 35))
+        return _wrap(f"┊ 🎨 create    {_trunc(args.get('prompt', ''), 35)}  {dur}")
     if tool_name == "text_to_speech":
-        return _done("🔊", "speak", _trunc(args.get("text", ""), 30))
+        return _wrap(f"┊ 🔊 speak     {_trunc(args.get('text', ''), 30)}  {dur}")
     if tool_name == "vision_analyze":
-        return _done("👁️", "vision", _trunc(args.get("question", ""), 30))
+        return _wrap(f"┊ 👁️  vision    {_trunc(args.get('question', ''), 30)}  {dur}")
     if tool_name == "mixture_of_agents":
-        return _done("🧠", "reason", _trunc(args.get("user_prompt", ""), 30))
+        return _wrap(f"┊ 🧠 reason    {_trunc(args.get('user_prompt', ''), 30)}  {dur}")
     if tool_name == "send_message":
-        return _done("📨", "send", f"{args.get('target', '?')}: \"{_trunc(args.get('message', ''), 25)}\"")
+        return _wrap(f"┊ 📨 send      {args.get('target', '?')}: \"{_trunc(args.get('message', ''), 25)}\"  {dur}")
     if tool_name == "cronjob":
         action = args.get("action", "?")
         if action == "create":
             skills = args.get("skills") or ([] if not args.get("skill") else [args.get("skill")])
             label = args.get("name") or (skills[0] if skills else None) or args.get("prompt", "task")
-            return _done("⏰", "cron", f"create {_trunc(label, 24)}")
+            return _wrap(f"┊ ⏰ cron      create {_trunc(label, 24)}  {dur}")
         if action == "list":
-            return _done("⏰", "cron", "listing")
-        return _done("⏰", "cron", f"{action} {args.get('job_id', '')}")
+            return _wrap(f"┊ ⏰ cron      listing  {dur}")
+        return _wrap(f"┊ ⏰ cron      {action} {args.get('job_id', '')}  {dur}")
     if tool_name == "execute_code":
         code = args.get("code", "")
         first_line = code.strip().split("\n")[0] if code.strip() else ""
-        return _done("🐍", "exec", _trunc(first_line, 35))
+        return _wrap(f"┊ 🐍 exec      {_trunc(first_line, 35)}  {dur}")
     if tool_name == "delegate_task":
         tasks = args.get("tasks")
         if tasks and isinstance(tasks, list):
-            return _done("🔀", "delegate", f"{len(tasks)} parallel tasks")
-        return _done("🔀", "delegate", _trunc(args.get("goal", ""), 35))
+            return _wrap(f"┊ 🔀 delegate  {len(tasks)} parallel tasks  {dur}")
+        return _wrap(f"┊ 🔀 delegate  {_trunc(args.get('goal', ''), 35)}  {dur}")
 
     preview = build_tool_preview(tool_name, args) or ""
-    return _done("⚡", tool_name[:9], _trunc(preview, 35))
+    return _wrap(f"┊ ⚡ {tool_name[:9]:9} {_trunc(preview, 35)}  {dur}")
 
 
 # =========================================================================
