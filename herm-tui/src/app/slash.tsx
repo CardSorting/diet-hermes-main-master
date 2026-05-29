@@ -74,6 +74,7 @@ export type SlashCtx = {
 
   newSession: () => Promise<void>
   switchSession: (id: string) => Promise<void>
+  openOrchestrator: () => void
   rewind: (m: Message) => Promise<void>
   goTo: (tab: number, sub: number) => void
   attachClipboard: () => void
@@ -508,6 +509,9 @@ export function useSlash(c: SlashCtx): (cmd: SlashCommand, arg?: string) => void
       onSelect: () => openRollback(dialog, gw, toast) },
     { title: "History", value: "history", action: "session.timeline", category: "Session",
       onSelect: () => openHistory(dialog, gw) },
+    { title: "Session Orchestrator", value: "orchestrator", action: "session.orchestrator",
+      description: "Switch live sessions without closing siblings", category: "Session",
+      onSelect: () => ctx.current.openOrchestrator() },
     { title: "Status", value: "status", action: "status.open", category: "Info",
       onSelect: () => openStatus(dialog, ctx.current.info, ctx.current.sid) },
     { title: "Usage", value: "usage", description: "Tokens · context · cost", category: "Info",

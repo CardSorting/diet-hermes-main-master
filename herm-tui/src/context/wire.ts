@@ -210,6 +210,48 @@ export type SessionListResponse = {
   sessions?: SessionListItem[]
 }
 
+export type LiveSessionStatus = "idle" | "starting" | "waiting" | "working"
+
+export type SessionActiveItem = {
+  current?: boolean
+  id: string
+  last_active?: number
+  message_count?: number
+  model?: string
+  preview?: string
+  session_key?: string
+  started_at?: number
+  status: LiveSessionStatus
+  title?: string
+}
+
+export type SessionActiveListResponse = {
+  sessions?: SessionActiveItem[]
+}
+
+export type SessionInflightTurn = {
+  assistant?: string
+  streaming?: boolean
+  user?: string
+}
+
+export type SessionActivateResponse = {
+  inflight?: SessionInflightTurn | null
+  info?: SessionInfo
+  message_count?: number
+  messages: TranscriptMessage[]
+  running?: boolean
+  session_id: string
+  session_key?: string
+  started_at?: number
+  status?: LiveSessionStatus
+}
+
+export type SessionCloseResponse = {
+  closed?: boolean
+  ok?: boolean
+}
+
 export type SessionUsageResponse = {
   model?: string
   calls?: number

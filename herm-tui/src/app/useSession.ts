@@ -7,6 +7,7 @@ import { useGateway } from "../context/gateway"
 import { transcriptToMessages } from "./turnReducer"
 import type { Launch } from "./launch"
 import type {
+  SessionActivateResponse,
   SessionResumeResponse,
   SessionCreateResponse,
   SessionInfo,
@@ -51,11 +52,21 @@ type Booted = { id: string; messages: Message[]; note?: string }
 export const normalize = (sid: string): string =>
   sid.trim().replace(/\.json$/i, "").replace(/^session_(?=\d{8}_)/, "")
 
+export type ActivateResult = {
+  id: string
+  messages: Message[]
+  running: boolean
+  inflightAssistant?: string
+  info?: SessionInfo
+}
+
 type SessionOps = {
   /** Establish the initial session per launch intent. */
   boot: (launch: Launch) => Promise<Booted>
   create: () => Promise<string>
   resume: (sid: string) => Promise<{ id: string; messages: Message[] }>
+  /** Attach to a live gateway session without closing siblings. */
+  activate: (sid: string) => Promise<ActivateResult>
   /** Finalize a gateway session (best-effort — swallows errors). */
   close: (sid: string) => Promise<void>
   interrupt: () => Promise<void>
@@ -66,6 +77,42 @@ type SessionOps = {
 
 export function useSession(): SessionOps {
   const gw = useGateway()
+
+  const activate = useCallback(async (sid: string): Promise<ActivateResult> => {
+    const target = normalize(sid)
+    const res = await gw.request<SessionActivateResponse>("session.activate", {
+      session_id: target,
+    })
+    const id = res.session_id
+    gw.setSession(id)
+    preferences.set("lastSessionId", res.session_key ?? target)
+    const row = byId(target)
+    const model = spec(row)
+    if (model) await gw.request("config.set", { key: "model", value: model }).catch(() => {})
+    let messages = res.messages?.length ? transcriptToMessages(res.messages) : []
+    const inflightUser = String(res.inflight?.user ?? "").trim()
+    if (inflightUser) {
+      messages = [
+        ...messages,
+        {
+          id: `u-${Date.now()}`,
+          role: "user" as const,
+          parts: [{ type: "text" as const, content: inflightUser, streaming: false }],
+          timestamp: Date.now() / 1000,
+        },
+      ]
+    }
+    const running = Boolean(
+      res.running || res.status === "working" || res.status === "waiting",
+    )
+    return {
+      id,
+      messages,
+      running,
+      inflightAssistant: res.inflight?.assistant,
+      info: res.info,
+    }
+  }, [gw])
 
   const resume = useCallback(async (sid: string) => {
     // Normalize at the edge (argv / slash-arg can be `session_*.json`).
@@ -156,7 +203,7 @@ export function useSession(): SessionOps {
   }, [gw])
 
   return useMemo(
-    () => ({ boot, create, resume, close, interrupt, branch, compress, undo }),
-    [boot, create, resume, close, interrupt, branch, compress, undo],
+    () => ({ boot, create, resume, activate, close, interrupt, branch, compress, undo }),
+    [boot, create, resume, activate, close, interrupt, branch, compress, undo],
   )
 }

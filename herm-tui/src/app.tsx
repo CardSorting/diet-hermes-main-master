@@ -25,6 +25,9 @@ import { Splash } from "./ui/Splash"
 import { lastReal } from "./service/sessions-db"
 import { readChangelog } from "./service/hermes-home"
 import { openMessage } from "./dialogs/message"
+import { openModelPicker } from "./dialogs/model-picker"
+import { ActiveSessionSwitcher } from "./components/ActiveSessionSwitcher"
+import type { SessionCloseResponse } from "./context/wire"
 import { parseEikon, type ParsedEikon } from "./components/avatar/eikon"
 import { bundledEikonPath } from "./components/avatar/bundled"
 import { pending as pendingPrompt, type PromptCardHandle } from "./components/chat/PromptCard"
@@ -193,6 +196,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
   )
   const news = useMemo(() => readChangelog()?.headline, [])
   const [attachments, setAttachments] = useState<ImageAttachResponse[]>([])
+  const [orchDraft, setOrchDraft] = useState("")
+  const [orchModel, setOrchModel] = useState("")
   const [cloudH, setCloudH] = useState(CLOUD_MIN)
   const [pick, setPick] = useState<Message | undefined>(undefined)
   const [skin, setSkin] = useState<SkinState>(() => deriveSkin(undefined))
@@ -363,6 +368,138 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
       setSwitching(false)
     }
   }, [reset, session, goToTab])
+
+  const guardBusySwitch = useCallback((what: string) => {
+    if (!turn.streaming) return false
+    toast.show({
+      variant: "warning",
+      message: `Interrupt the current turn before ${what}`,
+    })
+    return true
+  }, [turn.streaming, toast])
+
+  const activateLiveSession = useCallback(async (target: string) => {
+    dialog.clear()
+    reset()
+    summoned.current = true
+    setSplash(true)
+    setSwitching(true)
+    goToTab(CHAT_TAB)
+    try {
+      const res = await session.activate(target)
+      setSid(res.id)
+      sessionStart.current = Date.now()
+      if (res.info) setInfo(res.info)
+      if (res.messages.length) dispatch({ kind: "load", messages: res.messages })
+      if (res.running) {
+        dispatch({ kind: "message.start" })
+        const partial = String(res.inflightAssistant ?? "").trim()
+        if (partial) dispatch({ kind: "message.delta", chunk: partial })
+      }
+      setSplash(false)
+      summoned.current = false
+    } catch (err) {
+      dispatch({
+        kind: "system",
+        text: `Failed to activate: ${err instanceof Error ? err.message : String(err)}`,
+      })
+      setSplash(false)
+      summoned.current = false
+    } finally {
+      setSwitching(false)
+    }
+  }, [dialog, reset, session, goToTab, dispatch])
+
+  const newLiveSession = useCallback(async () => {
+    dialog.clear()
+    reset()
+    summoned.current = true
+    setSplash(true)
+    goToTab(CHAT_TAB)
+    try {
+      const id = await session.create()
+      setSid(id)
+      sessionStart.current = Date.now()
+      setSplash(false)
+      summoned.current = false
+    } catch {
+      setSplash(false)
+      summoned.current = false
+    }
+  }, [dialog, reset, session, goToTab])
+
+  const newPromptLiveSession = useCallback(async (prompt: string, modelArg?: string) => {
+    dialog.clear()
+    reset()
+    goToTab(CHAT_TAB)
+    try {
+      const id = await session.create()
+      if (modelArg) {
+        await gw.request("config.set", {
+          key: "model",
+          value: modelArg,
+          session_id: id,
+        })
+      }
+      gw.setSession(id)
+      setSid(id)
+      sessionStart.current = Date.now()
+      setOrchDraft("")
+      setOrchModel("")
+      dispatch({ kind: "user", text: prompt })
+      await gw.request("prompt.submit", { text: prompt, session_id: id })
+    } catch (e) {
+      toast.show({
+        variant: "error",
+        message: e instanceof Error ? e.message : String(e),
+      })
+    }
+  }, [dialog, reset, goToTab, session, gw, dispatch, toast])
+
+  const buildOrchestrator = useCallback(() => (
+    <ActiveSessionSwitcher
+      currentSessionId={sid}
+      draft={orchDraft}
+      setDraft={setOrchDraft}
+      draftModel={orchModel}
+      onCancel={() => dialog.clear()}
+      onClose={async (id) =>
+        gw.request<SessionCloseResponse>("session.close", { session_id: id })}
+      onNew={() => {
+        if (!guardBusySwitch("start a new session")) void newLiveSession()
+      }}
+      onNewPrompt={(prompt, modelArg) => {
+        if (!guardBusySwitch("start a new session")) void newPromptLiveSession(prompt, modelArg)
+      }}
+      onPickModel={() => {
+        openModelPicker(dialog, gw, {
+          title: "Orchestrator model",
+          onApply: async (prov, model) => {
+            setOrchModel(`${model} --provider ${prov}`)
+            dialog.replace(buildOrchestrator(), () => {
+              setOrchDraft("")
+              setOrchModel("")
+            }, { ownCancel: true })
+          },
+        })
+      }}
+      onSelect={(id) => {
+        if (!guardBusySwitch("switch sessions")) void activateLiveSession(id)
+      }}
+    />
+  ), [
+    sid, orchDraft, orchModel, dialog, gw, guardBusySwitch, newLiveSession,
+    newPromptLiveSession, activateLiveSession,
+  ])
+
+  const openOrchestrator = useCallback(() => {
+    if (guardBusySwitch("open the session orchestrator")) return
+    dialog.replace(buildOrchestrator(), () => {
+      setOrchDraft("")
+      setOrchModel("")
+    }, { ownCancel: true })
+  }, [buildOrchestrator, dialog, guardBusySwitch])
+
   // Rebind every HERMES_HOME reader, respawn the gateway subprocess
   // under the new env, and re-run the boot path. prefs.reload (inside
   // rehome) retints theme/eikon/keys via usePref; home.reset repaints
@@ -471,7 +608,8 @@ const AppInner = ({ launch: launch0 }: { launch: Launch }) => {
     dispatch, session, turnRef, queueRef, sendRef, composer, summoned, undone,
     ready, info, sid, title, skin,
     setQueue, setFocusRegion, setSplash, setAttachments, setInfo, setUsage, setTitle,
-    newSession, switchSession, rewind, goTo, attachClipboard, voiceToggle: voice.toggle,
+    newSession, switchSession, openOrchestrator, rewind, goTo, attachClipboard,
+    voiceToggle: voice.toggle,
   })
   const send = useCallback(async (raw: string) => {
     // Bare exit/quit/:q — pass through as literals so a
