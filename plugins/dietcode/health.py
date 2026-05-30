@@ -53,9 +53,9 @@ def _broccolidb_health() -> dict[str, Any]:
     plugin_root = None
     node_modules_ok = False
     try:
-        from hermes_cli.plugins import get_bundled_plugins_dir
+        from plugins.dietcode.paths import get_plugin_root
 
-        candidate = get_bundled_plugins_dir() / "dietcode" / "broccolidb"
+        candidate = get_plugin_root() / "broccolidb"
         if is_valid_broccolidb_root(candidate):
             plugin_root = str(candidate.resolve())
             node_modules_ok = (candidate / "node_modules").is_dir()

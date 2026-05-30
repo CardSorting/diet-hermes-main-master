@@ -70,6 +70,11 @@ def resolve_broccolidb_root() -> Optional[str]:
     except Exception:
         pass
 
+    # Pip / standalone package: broccolidb/ ships beside this module.
+    package_bdb = Path(__file__).resolve().parent / _BROCCOLIDB_DIRNAME
+    if is_valid_broccolidb_root(package_bdb):
+        return str(package_bdb.resolve())
+
     seeds: list[Path] = []
     ws = os.environ.get("HERMES_KANBAN_WORKSPACE", "").strip()
     if ws:

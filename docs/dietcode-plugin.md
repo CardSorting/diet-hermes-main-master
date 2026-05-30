@@ -10,12 +10,40 @@ removed. Do not reintroduce them.
 
 ---
 
+## Install (drag-and-drop — standalone package)
+
+Copy the **`dietcode/`** folder to `~/.hermes/plugins/dietcode/` (no pip required).
+The plugin bootstraps `plugins.dietcode` imports when Hermes loads it as
+`hermes_plugins.dietcode`.
+
+**No manual YAML edits required:** `plugin.yaml` sets `auto_enable: true`, so Hermes
+enables DietCode on first discovery and persists it to `plugins.enabled`. On register,
+`install.py` also merges the `dietcode` toolset and governance defaults.
+
+```bash
+cp -R /path/to/dietcode-plugin/dietcode ~/.hermes/plugins/dietcode
+python3 ~/.hermes/plugins/dietcode/install.py   # optional — also runs from install script
+cd ~/.hermes/plugins/dietcode/broccolidb && npm ci
+```
+
+Or one step:
+
+```bash
+/path/to/dietcode-plugin/scripts/install-to-hermes.sh
+```
+
+Verify: `/dietcode doctor`
+
+---
+
 ## Layout
 
 ```
 plugins/dietcode/
-├── plugin.yaml              # standalone, opt-in via plugins.enabled
-├── __init__.py              # register tools, hooks, slash commands
+├── plugin.yaml              # standalone, auto_enable: true (drag-and-drop)
+├── install.py               # config merge + optional npm ci wizard
+├── __init__.py              # register() + drag-and-drop namespace bootstrap
+├── _bootstrap.py            # maps hermes_plugins.dietcode → plugins.dietcode
 ├── hooks.py                 # consolidated hook chains (fail-closed wrappers)
 ├── public.py                # stable exports for tests/extensions
 ├── health.py                # /dietcode status|doctor|tools

@@ -63,6 +63,8 @@ _IMPORT_AUDIT_ALLOWLIST: frozenset[str] = frozenset({
 })
 
 _REQUIRED_RUNTIME_FILES: tuple[str, ...] = (
+    "_bootstrap.py",
+    "install.py",
     "lib/runtime/governance_hooks.py",
     "lib/runtime/joyzoning_hooks.py",
     "lib/runtime/kanban_hooks.py",
@@ -114,12 +116,16 @@ def removed_habitat_modules_absent() -> tuple[bool, list[str]]:
 
 
 def broccolidb_bundle_symlink_ok() -> tuple[bool, str]:
-    """Return (ok, detail) — plugin bundle must symlink to repo-root broccolidb/."""
+    """Return (ok, detail) — plugin bundle must include a valid broccolidb/ tree."""
+    from plugins.dietcode.paths import is_valid_broccolidb_root
+
     plugin_bdb = dietcode_plugin_root() / "broccolidb"
     if not plugin_bdb.exists():
         return True, ""
     repo_root = dietcode_plugin_root().parents[1]
     canonical = (repo_root / "broccolidb").resolve()
+    if not is_valid_broccolidb_root(plugin_bdb):
+        return False, "plugins/dietcode/broccolidb missing or invalid (run npm ci after install)"
     if plugin_bdb.is_symlink():
         try:
             target = plugin_bdb.resolve()
@@ -128,9 +134,8 @@ def broccolidb_bundle_symlink_ok() -> tuple[bool, str]:
         if target == canonical:
             return True, str(target)
         return False, f"broccolidb symlink points to {target}, expected {canonical}"
-    if plugin_bdb.is_dir() and not plugin_bdb.is_symlink():
-        return False, "plugins/dietcode/broccolidb should be a symlink to ../../broccolidb"
-    return True, ""
+    # Standalone pip package ships broccolidb/ as a real directory.
+    return True, str(plugin_bdb.resolve())
 
 
 def scan_stale_joyzoning_config_keys() -> list[str]:

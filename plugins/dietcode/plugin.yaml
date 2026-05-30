@@ -1,14 +1,12 @@
 name: dietcode
 version: 1.8.0
 description: >
-  BroccoliDB, BroccoliQ sharded queue, JoyZoning governance, and JSDP rolling-horizon
-  delivery for Hermes Agent. Single plugin surface — tools under lib/tools/, runtime
-  hooks under lib/runtime/, slash commands in slash_commands.py, public API in public.py.
-  Copy to ~/.hermes/plugins/dietcode/, ensure broccolidb/ is present (symlink or copy
-  repo-root broccolidb/), run `cd broccolidb && npm ci`. Add `dietcode` to toolsets in
-  config.yaml. Verify with `/dietcode doctor`.
+  BroccoliDB, BroccoliQ, JoyZoning governance, and JSDP for Hermes Agent.
+  Drag-and-drop this folder to ~/.hermes/plugins/dietcode/ — auto_enable handles
+  the rest. Run npm ci once in broccolidb/. Verify with /dietcode doctor.
 author: DietCode
 kind: standalone
+auto_enable: true
 provides_hooks:
   - on_session_start
   - on_session_end

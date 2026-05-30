@@ -222,6 +222,55 @@ def _get_enabled_plugins() -> Optional[set]:
         return None
 
 
+def _plugin_manifest_auto_enable(manifest: "PluginManifest") -> bool:
+    """Return True when plugin.yaml requests auto-enable on install."""
+    path = manifest.path
+    if not path:
+        return False
+    manifest_file = Path(path) / "plugin.yaml"
+    if not manifest_file.is_file():
+        manifest_file = Path(path) / "plugin.yml"
+    if not manifest_file.is_file():
+        return False
+    try:
+        if yaml is None:
+            return False
+        data = yaml.safe_load(manifest_file.read_text(encoding="utf-8")) or {}
+        return bool(data.get("auto_enable"))
+    except Exception:
+        return False
+
+
+def _persist_plugin_enabled(name: str, key: str) -> None:
+    """Add a plugin to plugins.enabled in config.yaml (idempotent)."""
+    try:
+        from hermes_cli.config import load_config, save_config
+
+        config = load_config()
+        plugins_cfg = config.setdefault("plugins", {})
+        if not isinstance(plugins_cfg, dict):
+            return
+        enabled = plugins_cfg.get("enabled")
+        if enabled is None:
+            enabled = []
+        if not isinstance(enabled, list):
+            enabled = []
+        enabled_set = set(enabled)
+        if name in enabled_set or key in enabled_set:
+            return
+        enabled_set.add(name)
+        plugins_cfg["enabled"] = sorted(enabled_set)
+        disabled = plugins_cfg.get("disabled") or []
+        if isinstance(disabled, list):
+            plugins_cfg["disabled"] = [d for d in disabled if d not in {name, key}]
+        save_config(config)
+        logger.info(
+            "Auto-enabled plugin '%s' (plugin.yaml auto_enable: true)", name
+        )
+    except Exception as exc:
+        logger.debug("Could not persist auto-enabled plugin '%s': %s", name, exc)
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -1165,13 +1214,23 @@ class PluginManager:
                 continue
 
             # Everything else (standalone, user-installed backends,
-            # entry-point plugins) is opt-in via plugins.enabled.
+            # entry-point plugins) is opt-in via plugins.enabled — unless
+            # plugin.yaml sets auto_enable: true (drag-and-drop friendly).
             # Accept both the path-derived key and the legacy bare name
             # so existing configs keep working.
             is_enabled = (
                 enabled is not None
                 and (lookup_key in enabled or manifest.name in enabled)
             )
+            if (
+                not is_enabled
+                and lookup_key not in disabled
+                and manifest.name not in disabled
+                and manifest.source in {"user", "entrypoint", "project"}
+                and _plugin_manifest_auto_enable(manifest)
+            ):
+                _persist_plugin_enabled(manifest.name, lookup_key)
+                is_enabled = True
             if not is_enabled:
                 loaded = LoadedPlugin(manifest=manifest, enabled=False)
                 loaded.error = (
