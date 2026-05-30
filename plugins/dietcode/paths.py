@@ -34,10 +34,6 @@ def _plugin_broccolidb_candidates() -> list[Path]:
         out.append(get_hermes_home() / "plugins" / "dietcode" / _BROCCOLIDB_DIRNAME)
     except Exception:
         pass
-    try:
-        out.append(Path.home() / ".hermes" / "plugins" / "dietcode" / _BROCCOLIDB_DIRNAME)
-    except Exception:
-        pass
     return out
 
 

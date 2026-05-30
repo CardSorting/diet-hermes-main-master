@@ -11,7 +11,7 @@
   <a href="https://nousresearch.com"><img src="https://img.shields.io/badge/Origin-Nous%20Research-blueviolet?style=for-the-badge" alt="Origin: Nous Research"></a>
 </p>
 
-**DietCode** is a specialized fork of [**Hermes Agent**](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com) — the self-improving, tool-calling AI agent with CLI, TUI, messaging gateway, skills, memory, and scheduled jobs. This repository adds **BroccoliDB** (with a **native RPC worker** for sub-millisecond warm DB/queue calls), **JoyZoning governance**, **Kanban ↔ BroccoliQ orchestration**, and a **DietCode control-plane** UI on top of that core.
+**DietCode** is a specialized fork of [**Hermes Agent**](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com) — the self-improving, tool-calling AI agent with CLI, TUI, messaging gateway, skills, memory, and scheduled jobs. This repository adds **BroccoliDB** (with a **native RPC worker** for sub-millisecond warm DB/queue calls), **JoyZoning governance**, **Kanban ↔ BroccoliQ orchestration**, and a **DietCode dashboard** at `/dietcode` on top of that core.
 
 Use **`dietcode`** as the primary CLI (a **`hermes`** alias remains for compatibility). Data lives under **`~/.dietcode`**, separate from a vanilla **`~/.hermes`** install, so you can run both side by side.
 
@@ -75,7 +75,7 @@ Internal Python package names (`hermes_cli`, `hermes_constants`, etc.) stay alig
 
 ## What this fork adds
 
-### DietCode control plane (web)
+### DietCode dashboard (web)
 
 A reviewer-friendly dashboard for bounded, approval-gated code changes:
 
@@ -88,6 +88,7 @@ A reviewer-friendly dashboard for bounded, approval-gated code changes:
 | Layer | Paths |
 |-------|--------|
 | TypeScript engine | `broccolidb/` (includes vendored **BroccoliQ** queue/hive under `broccolidb/infrastructure/`) |
+| Plugin bundle | `plugins/dietcode/broccolidb` → symlink to repo-root `broccolidb/` (single canonical tree) |
 | Python tools | `plugins/dietcode/lib/tools/broccolidb_tools/` |
 | **Native RPC** | `broccolidb/infrastructure/hermes/` — persistent worker + shared handlers |
 | Toolset | `dietcode` (includes `broccolidb`, `joyzoning`) in `toolsets.py` |
@@ -163,7 +164,13 @@ cd broccolidb && npm rebuild better-sqlite3
 
 ### JoyZoning governance
 
-Policy and workflow hooks for governed agent runs: unified **`plugins/dietcode/`** plugin (`lib/runtime/governance_hooks.py`, slash commands `/joyzoning` and `/jz`), CLI helper `scripts/joy_check.py`.
+Unified **`plugins/dietcode/`** plugin (`kind: standalone`): governance transform hook
+(`lib/runtime/governance_hooks.py`), JoyZoning lifecycle tools, slash commands `/joyzoning`
+and `/jz`. Core Hermes imports plugin code only through **`agent/governance_bridge.py`**
+and **`agent/joy_zoning_bridge.py`**. Verify with `/dietcode doctor`.
+
+See [docs/dietcode-plugin.md](docs/dietcode-plugin.md) for layout, facades, and config defaults.
+CLI helper: `scripts/joy_check.py`.
 
 ### Kanban ↔ BroccoliQ
 
@@ -217,6 +224,7 @@ Upstream references: [CLI guide](https://hermes-agent.nousresearch.com/docs/user
 
 | Topic | Link |
 |-------|------|
+| DietCode plugin (facades, shims, config) | [docs/dietcode-plugin.md](docs/dietcode-plugin.md) |
 | BroccoliDB native RPC & throughput | [docs/broccolidb-native-execution-throughput.md](docs/broccolidb-native-execution-throughput.md) |
 | Benchmark results (p50/p95, cold/warm) | [docs/broccolidb-throughput-benchmark-results.md](docs/broccolidb-throughput-benchmark-results.md) |
 | Reinstall / dev setup | [Developing this fork](#developing-this-fork) below |

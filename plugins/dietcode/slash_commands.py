@@ -16,6 +16,18 @@ from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
 )
 
 
+def _validate_slash_file_path(raw: str) -> str | None:
+    """Reject paths unsafe to embed in generated TypeScript snippets."""
+    path = (raw or "").strip()
+    if not path:
+        return "path is required"
+    if "\n" in path or "\r" in path or "\0" in path or "`" in path:
+        return "path contains invalid characters"
+    if ".." in path.replace("\\", "/"):
+        return "path must not contain '..'"
+    return None
+
+
 def run_joyzoning_gate(files: List[str]) -> Dict[str, Any]:
     """Run JoyZoning policy checks on governable source files only."""
     return run_governance_validation_gate(files)
@@ -168,6 +180,9 @@ def _handle_joyzoning(raw_args: str) -> Optional[str]:
         if len(argv) < 2:
             return "Usage: /joyzoning check <file>"
         target = argv[1]
+        bad = _validate_slash_file_path(target)
+        if bad:
+            return f"❌ Invalid path: {bad}"
         skip = governance_skip_reason(target)
         if skip:
             return (
@@ -188,6 +203,9 @@ def _handle_joyzoning(raw_args: str) -> Optional[str]:
         if len(argv) < 2:
             return "Usage: /joyzoning suggest <file>"
         target = argv[1]
+        bad = _validate_slash_file_path(target)
+        if bad:
+            return f"❌ Invalid path: {bad}"
         skip = governance_skip_reason(target)
         if skip:
             return (
@@ -210,6 +228,9 @@ def _handle_joyzoning(raw_args: str) -> Optional[str]:
         if len(argv) < 2:
             return "Usage: /joyzoning refactor <file>"
         target = argv[1]
+        bad = _validate_slash_file_path(target)
+        if bad:
+            return f"❌ Invalid path: {bad}"
         skip = governance_skip_reason(target)
         if skip:
             return (

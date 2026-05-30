@@ -8,7 +8,7 @@ description: >
   repo-root broccolidb/), run `cd broccolidb && npm ci`. Add `dietcode` to toolsets in
   config.yaml. Verify with `/dietcode doctor`.
 author: DietCode
-kind: backend
+kind: standalone
 provides_hooks:
   - on_session_start
   - on_session_end

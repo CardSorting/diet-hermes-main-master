@@ -2,6 +2,7 @@
 """Central DietCode hook wiring — single registration surface for production."""
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Callable
 
@@ -16,6 +17,26 @@ _ON_SESSION_END: tuple[Callable[..., Any], ...] = ()
 _POST_TOOL_CALL: tuple[Callable[..., Any], ...] = ()
 _PRE_TOOL_CALL: tuple[Callable[..., Any], ...] = ()
 _TRANSFORM_TOOL_RESULT: tuple[Callable[..., Any], ...] = ()
+
+
+def _joyzoning_enabled_safe() -> bool:
+    try:
+        from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config
+
+        return bool(get_joyzoning_config().enabled)
+    except Exception:
+        return False
+
+
+def _governance_enabled_safe() -> bool:
+    try:
+        from plugins.dietcode.lib.agent.governance_exemptions import (
+            is_governance_enforcement_enabled,
+        )
+
+        return bool(is_governance_enforcement_enabled())
+    except Exception:
+        return False
 
 
 def _ensure_handlers() -> None:
@@ -63,6 +84,10 @@ def _run_pre_tool_call(handlers: tuple[Callable[..., Any], ...]) -> Callable[...
                 result = handler(**kwargs)
             except Exception as exc:
                 logger.warning("DietCode pre_tool_call (%s) failed: %s", handler.__name__, exc)
+                if _joyzoning_enabled_safe():
+                    from plugins.dietcode.lib.agent.joyzoning.convergence_gate import block_dict
+
+                    return block_dict(f"Convergence gate unavailable: {exc}")
                 continue
             if isinstance(result, dict) and result.get("action") == "block":
                 return result
@@ -70,6 +95,21 @@ def _run_pre_tool_call(handlers: tuple[Callable[..., Any], ...]) -> Callable[...
 
     _wrapped.__name__ = "dietcode_pre_tool_call"
     return _wrapped
+
+
+def _governance_unavailable_payload(exc: Exception) -> str:
+    return json.dumps(
+        {
+            "success": False,
+            "error": "[GOVERNANCE FAULT] Governance enforcement unavailable.",
+            "detail": str(exc),
+            "recovery_plan": (
+                "Retry once after fixing the underlying error. If this persists, "
+                "set joyzoning.governance.enabled: false or disable the DietCode plugin."
+            ),
+        },
+        ensure_ascii=False,
+    )
 
 
 def _run_transform(handlers: tuple[Callable[..., Any], ...]) -> Callable[..., Any]:
@@ -80,6 +120,8 @@ def _run_transform(handlers: tuple[Callable[..., Any], ...]) -> Callable[..., An
                 result = handler(**kwargs)
             except Exception as exc:
                 logger.warning("DietCode transform_tool_result (%s) failed: %s", handler.__name__, exc)
+                if _governance_enabled_safe():
+                    return _governance_unavailable_payload(exc)
                 continue
             if isinstance(result, str) and result.strip():
                 return result

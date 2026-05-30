@@ -85,26 +85,29 @@ def resolve_jz_executable() -> str:
         if (seed / "scripts" / "joyzoning").is_file():
             return str((seed / "scripts" / "joyzoning").resolve())
 
-    downloads = Path.home() / "Desktop" / "JoyZoning" / "scripts" / "joyzoning"
-    if downloads.is_file():
-        return str(downloads.resolve())
-
-    sibling = Path.home() / "Downloads" / "diet-hermes-main-master"
-    for repo in (Path.home() / "Desktop" / "JoyZoning", sibling.parent / "JoyZoning"):
-        script = repo / "scripts" / "joyzoning"
-        if script.is_file():
-            return str(script.resolve())
-
     for name in ("jz", "joyzoning"):
         found = _which(name)
         if found:
             return found
 
     raise JsdpHarnessError(
-        "JoyZoning CLI not found. Install JoyZoning (Desktop setup or clone) — "
-        "the agent needs scripts/joyzoning on PATH or under Desktop/JoyZoning. "
-        "JoyZoning kanban dispatch sets this up automatically."
+        "JoyZoning CLI not found. Set joyzoning.jsdp.harness.jz_cli, JOYZONING_JZ_CLI, "
+        "JOYZONING_MONOREPO_ROOT, or install jz on PATH."
     )
+
+
+def _jsdp_subprocess_env(workspace: str) -> dict[str, str]:
+    """Scoped env for jz subprocess — no full os.environ inheritance."""
+    env: dict[str, str] = {}
+    for key in ("PATH", "HOME", "USER", "LANG", "LC_ALL", "TZ"):
+        val = os.environ.get(key, "").strip()
+        if val:
+            env[key] = val
+    for key, val in os.environ.items():
+        if key.startswith(("HERMES_", "JOYZONING_", "JZ_")) and val:
+            env[key] = val
+    env["JOYZONING_WORKSPACE_ROOT"] = workspace
+    return env
 
 
 def _which(name: str) -> Optional[str]:
@@ -126,7 +129,7 @@ def run_jsdp(
     root = resolve_workspace_root(workspace)
     jz = resolve_jz_executable()
     cmd = [jz, "jsdp", *subcommand, "--json"]
-    env = {**os.environ, "JOYZONING_WORKSPACE_ROOT": root}
+    env = _jsdp_subprocess_env(root)
 
     try:
         proc = subprocess.run(

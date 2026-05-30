@@ -55,8 +55,3 @@ def format_runtime_stream(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for e in events
     ]
-
-
-# Back-compat aliases (removed Habitat control-plane mirror).
-emit_habitat_event = emit_runtime_event
-format_habitat_stream = format_runtime_stream

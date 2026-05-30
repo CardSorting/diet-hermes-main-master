@@ -903,7 +903,7 @@ def _check_file_staleness(filepath: str, task_id: str) -> str | None:
 
 def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> None:
     try:
-        from plugins.dietcode.lib.agent.joy_zoning import generate_layer_comment, get_path_layer, parse_layer_tag
+        from agent.joy_zoning_bridge import generate_layer_comment, get_path_layer, parse_layer_tag
         # Read the file content from the terminal environment using file_ops
         read_res = file_ops.read_file_raw(filepath)
         if not read_res.error and read_res.content:
@@ -919,7 +919,11 @@ def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> N
                 and not parse_layer_tag(content)
             ):
                 layer = get_path_layer(resolved_abs_path)
+                if layer is None:
+                    return
                 new_content = generate_layer_comment(resolved_abs_path, layer, content)
+                if new_content is None:
+                    return
                 file_ops.write_file(filepath, new_content)
                 _invalidate_dedup_for_path(filepath, task_id)
     except Exception as e:
@@ -932,7 +936,7 @@ def _run_joy_zoning_audit(filepath: str, result_dict: dict) -> None:
     if not _should_auto_inject_layer_tags():
         return
     try:
-        from plugins.dietcode.lib.agent.joy_zoning import validate_joy_zoning
+        from agent.joy_zoning_bridge import validate_joy_zoning
         resolved = str(_resolve_path(filepath))
         if not result_dict.get("error") and os.path.exists(resolved):
             with open(resolved, "r", encoding="utf-8", errors="ignore") as f:
@@ -940,7 +944,7 @@ def _run_joy_zoning_audit(filepath: str, result_dict: dict) -> None:
             if not _is_governance_subject_path(resolved, content):
                 return
             audit = validate_joy_zoning(resolved, content, require_layer_tags=True)
-            if not audit["success"]:
+            if audit and not audit["success"]:
                 violations = audit["errors"]
                 short = " | ".join(str(v)[:120] for v in violations[:3])
                 result_dict["_hint"] = (
@@ -976,7 +980,7 @@ def write_file_tool(path: str, content: str, task_id: str = "default",
         )
     # Autonomous header tag injection:
     try:
-        from plugins.dietcode.lib.agent.joy_zoning import generate_layer_comment, get_path_layer, parse_layer_tag
+        from agent.joy_zoning_bridge import generate_layer_comment, get_path_layer, parse_layer_tag
         try:
             resolved_abs_path = str(_resolve_path_for_task(path, task_id))
         except Exception:
@@ -988,7 +992,10 @@ def write_file_tool(path: str, content: str, task_id: str = "default",
             and not parse_layer_tag(content)
         ):
             layer = get_path_layer(resolved_abs_path)
-            content = generate_layer_comment(resolved_abs_path, layer, content)
+            if layer is not None:
+                injected = generate_layer_comment(resolved_abs_path, layer, content)
+                if injected is not None:
+                    content = injected
     except Exception as e:
         logger.debug("Failed to auto-generate layer comment: %s", e)
     try:

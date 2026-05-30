@@ -115,21 +115,53 @@ def check_requirements() -> bool:
 
 
 _TS_DB_PREAMBLE = """\
-import { setDbPath } from './infrastructure/db/Config.js';
+import { setDbPath } from '../infrastructure/db/Config.js';
 const __hermesDb = process.env.HERMES_BROCCOLIDB_DB;
 if (__hermesDb) setDbPath(__hermesDb);
 """
 
 
-def _get_env() -> dict:
-    """Build an isolated subprocess environment.
+_ENV_ALLOWLIST_EXACT = frozenset({
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "NODE_PATH",
+    "NODE_OPTIONS",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "CI",
+    "NONINTERACTIVE",
+})
 
-    Forwards required keys (PATH, HOME, NODE_PATH) while preventing
-    accidental leakage of sensitive env vars.
-    """
+_ENV_ALLOWLIST_PREFIXES = (
+    "HERMES_",
+    "JOYZONING_",
+    "TERMINAL_",
+    "BROCCOLI",
+)
+
+
+def _get_env(*, extra: Optional[dict[str, str]] = None) -> dict:
+    """Build a scoped subprocess environment (allowlist — no full os.environ copy)."""
     import shutil
 
-    env = os.environ.copy()
+    env: dict[str, str] = {}
+    for key, val in os.environ.items():
+        if not val:
+            continue
+        if key in _ENV_ALLOWLIST_EXACT:
+            env[key] = val
+        elif any(key.startswith(prefix) for prefix in _ENV_ALLOWLIST_PREFIXES):
+            env[key] = val
+
+    if extra:
+        env.update({k: v for k, v in extra.items() if v})
+
     root = resolve_broccolidb_root()
     node = shutil.which("node")
     if node:
@@ -143,12 +175,10 @@ def _get_env() -> dict:
     if db_path:
         env.setdefault("HERMES_BROCCOLIDB_DB", db_path)
     root = _broccolidb_root()
-    # Ensure Node can find broccolidb's dependencies
     node_path = os.path.join(os.path.abspath(root), "node_modules")
     if os.path.isdir(node_path):
         existing = env.get("NODE_PATH", "")
         env["NODE_PATH"] = f"{node_path}:{existing}" if existing else node_path
-    # Suppress interactive prompts from npm/npx
     env["CI"] = "1"
     env["NONINTERACTIVE"] = "1"
     return env
@@ -203,7 +233,12 @@ def _make_result(success: bool, output: str = "", error: str = "",
     return json.dumps(result, ensure_ascii=False)
 
 
-def run_cli(args: list, timeout: int = _DEFAULT_TIMEOUT) -> str:
+def run_cli(
+    args: list,
+    timeout: int = _DEFAULT_TIMEOUT,
+    *,
+    extra_env: Optional[dict[str, str]] = None,
+) -> str:
     """Execute a BroccoliDB CLI command and return structured JSON.
 
     Args:
@@ -222,7 +257,7 @@ def run_cli(args: list, timeout: int = _DEFAULT_TIMEOUT) -> str:
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=_get_env(),
+            env=_get_env(extra=extra_env),
         )
         duration_ms = int((time.monotonic() - start) * 1000)
         if result.returncode != 0:
@@ -255,7 +290,12 @@ def run_cli(args: list, timeout: int = _DEFAULT_TIMEOUT) -> str:
         return _make_result(False, error=str(e), error_code="SUBPROCESS_ERROR")
 
 
-def run_ts_script(script_content: str, timeout: int = _DEFAULT_TIMEOUT) -> str:
+def run_ts_script(
+    script_content: str,
+    timeout: int = _DEFAULT_TIMEOUT,
+    *,
+    db_preamble: bool = True,
+) -> str:
     """Execute an inline TypeScript script inside the BroccoliDB context.
 
     Writes a temp file in broccolidb/scratch/, executes via tsx with
@@ -268,7 +308,7 @@ def run_ts_script(script_content: str, timeout: int = _DEFAULT_TIMEOUT) -> str:
     scratch_dir = os.path.join(root, "scratch")
     os.makedirs(scratch_dir, exist_ok=True)
 
-    if "setDbPath" not in script_content:
+    if db_preamble and "setDbPath" not in script_content:
         script_content = _TS_DB_PREAMBLE + "\n" + script_content
 
     temp_path = None
@@ -337,7 +377,13 @@ def run_ts_script(script_content: str, timeout: int = _DEFAULT_TIMEOUT) -> str:
                 pass
 
 
-def run_cli_interactive(args: list, stdin_input: str = "n\n", timeout: int = _DEFAULT_TIMEOUT) -> str:
+def run_cli_interactive(
+    args: list,
+    stdin_input: str = "n\n",
+    timeout: int = _DEFAULT_TIMEOUT,
+    *,
+    extra_env: Optional[dict[str, str]] = None,
+) -> str:
     """Execute a BroccoliDB CLI command that requires stdin interaction.
 
     Args:
@@ -359,7 +405,7 @@ def run_cli_interactive(args: list, stdin_input: str = "n\n", timeout: int = _DE
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=_get_env(),
+            env=_get_env(extra=extra_env),
         )
         stdout, stderr = process.communicate(input=stdin_input, timeout=timeout)
         duration_ms = int((time.monotonic() - start) * 1000)
@@ -576,7 +622,7 @@ def run_standalone_script(body: str, timeout: int = _DEFAULT_TIMEOUT) -> str:
     Faster startup since it skips DB initialization.
     """
     script = _TS_STANDALONE.replace("%BODY%", body)
-    return run_ts_script(script, timeout=timeout)
+    return run_ts_script(script, timeout=timeout, db_preamble=False)
 
 
 def run_agent_context_script(body: str, timeout: int = _BOOTSTRAP_TIMEOUT) -> str:

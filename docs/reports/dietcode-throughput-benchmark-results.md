@@ -12,9 +12,11 @@
 | **Benchmark artifact** | `docs/reports/dietcode-throughput-20260526.json` |
 | **Pytest wrapper** | `scripts/run_tests.sh` (CI-parity, 4 workers) |
 
----
+> **Architecture note (2026-05):** This report predates consolidation into `plugins/dietcode/`.
+> References to `joyzoning_governance` mean the unified DietCode plugin’s governance hook
+> (`plugins/dietcode/lib/runtime/governance_hooks.py`), not the removed legacy shim plugin.
 
-## 1. Executive Summary
+---
 
 This report documents DietCode throughput after the **JoyZoning plugin + governance hardening** pass and **agent-loop I/O** optimizations (deferred session persist, compression preflight off, light governance validation, mtime gate cache).
 
@@ -31,7 +33,7 @@ Two verification layers:
 | SessionDB batched writes | **20,069 msg/s** vs **4,627 msg/s** single-row; **4.34×** speedup | Pass |
 | Config load | Median **0.58 ms** (50 iterations) | Fast |
 | Memory prefetch skip | Median **0.1 µs** (builtin-only) | Pass |
-| `transform_tool_result` hook check | Median **0.2 µs** (joyzoning_governance registered) | Pass |
+| `transform_tool_result` hook check | Median **0.2 µs** (`plugins/dietcode` registered) | Pass |
 | Governance — tool error skip | Median **2.2 µs** (no gate / disk read) | Pass |
 | Governance — cold light validate | Median **2.51 ms** per `write_file` | Acceptable on mutation path |
 | Governance — mtime cache hit | Median **6.9 µs** (~**363×** vs cold) | Pass — repeat writes cheap |
@@ -52,10 +54,10 @@ Optimizations and behavior covered by this benchmark and test suite:
 | **Compression** | `compression.threshold: 0.75`; `check_after_tools: false`; `preflight_enabled: false` |
 | **Memory** | `cli_skip_background_prefetch` / `cli_skip_turn_prefetch`; `queue_prefetch_all` no-op without external provider |
 | **Tool guardrails** | `warnings_enabled: false`; governance-fault fast path |
-| **JoyZoning plugin** | Bundled `joyzoning_governance` (`kind: backend`, auto-loads); `governance.enabled: true`; `layer_tags_required: false`; `validation_mode: auto` → **light** (skips smell heuristics) |
+| **JoyZoning plugin** | Unified `plugins/dietcode` (`kind: standalone`); `governance.enabled: true`; `layer_tags_required: false`; `validation_mode: auto` → **light** (skips smell heuristics) |
 | **Governance hot path** | Skip gate on failed tool JSON; in-memory `write_file` content; per-file mtime pass cache; path LRU (`resolve_governance_path_kind`) |
 | **Plugins / hooks** | `has_hook_callbacks` before `invoke_hook` on `pre_tool_call` / `transform_tool_result` |
-| **Dashboard** | `hermes_cli/dietcode_broccolidb.py` bridge |
+| **Dashboard** | `hermes_cli/dietcode_broccolidb.py` → `hermes_cli/dietcode_bridge.py` |
 
 ### 2.2 Out of scope
 
@@ -188,7 +190,7 @@ With `session_persist_incremental: false`, production agents should flush once p
 | `load_config` × 50 | **0.58** | ms | |
 | `queue_prefetch_all` (builtin-only) | **0.1** | µs | No external memory provider |
 | `pre_tool_call` hook check | **2.0** | µs | Hooks registered on bench host |
-| `transform_tool_result` hook check | **0.2** | µs | `joyzoning_governance` active |
+| `transform_tool_result` hook check | **0.2** | µs | `plugins/dietcode` governance hook active |
 
 ### 5.4 JoyZoning governance transform hook
 
@@ -226,7 +228,7 @@ Measured on a single governed `src/domain/bench.ts` with light validation (`vali
 | `memory` | `cli_skip_background_prefetch` | `true` | Skip post-turn prefetch threads on CLI/TUI |
 | `memory` | `cli_skip_turn_prefetch` | `true` | Skip turn-start external prefetch on CLI/TUI |
 | `joyzoning` | `enabled` | `false` | Convergence/journal plugin path off |
-| `joyzoning.governance` | `enabled` | **`true`** | **`joyzoning_governance` transform hook on** |
+| `joyzoning.governance` | `enabled` | **`true`** | **`plugins/dietcode` transform hook on** |
 | `joyzoning.governance` | `layer_tags_required` | `false` | No mandatory `[LAYER: TYPE]` / PGA spirals |
 | `joyzoning.governance` | `validation_mode` | `auto` | Light validate when tags optional |
 | `tool_loop_guardrails` | `warnings_enabled` | `false` | Hot-path guardrail fingerprinting off |

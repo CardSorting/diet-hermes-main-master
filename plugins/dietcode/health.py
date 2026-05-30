@@ -152,8 +152,8 @@ def _jsdp_health() -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
-def build_status_report(*, strict: bool = False) -> dict[str, Any]:
-    load = get_load_report()
+def build_status_report(*, strict: bool = False, refresh: bool = False) -> dict[str, Any]:
+    load = get_load_report(force=refresh)
     contract = validate_runtime_contract(strict=strict)
     return {
         "plugin": "dietcode",
@@ -178,8 +178,13 @@ def build_status_report(*, strict: bool = False) -> dict[str, Any]:
     }
 
 
-def format_status_report(report: Optional[dict[str, Any]] = None, *, doctor: bool = False) -> str:
-    data = report if report is not None else build_status_report(strict=doctor)
+def format_status_report(
+    report: Optional[dict[str, Any]] = None,
+    *,
+    doctor: bool = False,
+    refresh: bool = False,
+) -> str:
+    data = report if report is not None else build_status_report(strict=doctor, refresh=refresh)
     lines = ["🥤 DietCode integration status", ""]
 
     if data.get("registered"):
@@ -291,10 +296,10 @@ def handle_dietcode_command(raw_args: str) -> Optional[str]:
 
     sub = argv[0].lower()
     if sub in ("status", "doctor"):
-        return format_status_report(doctor=(sub == "doctor"))
+        return format_status_report(doctor=(sub == "doctor"), refresh=(sub == "doctor"))
 
     if sub == "tools":
-        load = get_load_report()
+        load = get_load_report(force=True)
         payload = {
             "loaded": load.loaded,
             "failed": load.failed,

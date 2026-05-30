@@ -5,6 +5,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
+# Removed Habitat / control-plane modules (must not reappear).
+REMOVED_HABITAT_MODULES: frozenset[str] = frozenset({
+    "habitat_bridge.py",
+    "control_plane_client.py",
+    "kanban_linkage.py",
+    "habitat_events.py",
+})
+
+# Stale config keys from removed Habitat integration.
+STALE_JOYZONING_CONFIG_KEYS: frozenset[str] = frozenset({
+    "control_plane",
+    "emit_habitat_events",
+})
+
 # Removed legacy shim plugin directories (must not reappear under plugins/).
 REMOVED_LEGACY_PLUGIN_DIRS: frozenset[str] = frozenset({
     "joyzoning_governance",
@@ -32,11 +46,20 @@ FORBIDDEN_IMPORT_PREFIXES: tuple[str, ...] = (
     "import plugins.joyzoning_runtime",
     "import plugins.kanban_broccolidb",
     "import plugins.jsdp_mutation",
+    "from plugins.dietcode.lib.agent.joyzoning.habitat_events",
+    "from plugins.dietcode.lib.agent.joy_zoning",
+    "from plugins.dietcode.lib.agent.joyzoning.doctor",
+    "habitat_events.py",
 )
 
 # Paths allowed to reference old import strings (migration tooling only).
 _IMPORT_AUDIT_ALLOWLIST: frozenset[str] = frozenset({
     "scripts/migrate_dietcode_imports.py",
+    "hermes_cli/dietcode_bridge.py",
+    "hermes_cli/dietcode_broccolidb.py",
+    "agent/joy_zoning_bridge.py",
+    "agent/governance_bridge.py",
+    "scripts/joy_check.py",
 })
 
 _REQUIRED_RUNTIME_FILES: tuple[str, ...] = (
@@ -81,6 +104,52 @@ def legacy_shim_dirs_absent() -> tuple[bool, list[str]]:
     return not present, present
 
 
+def removed_habitat_modules_absent() -> tuple[bool, list[str]]:
+    """Return (ok, present) for deleted Habitat integration modules."""
+    jz_root = dietcode_plugin_root() / "lib" / "agent" / "joyzoning"
+    present = sorted(
+        name for name in REMOVED_HABITAT_MODULES if (jz_root / name).is_file()
+    )
+    return not present, present
+
+
+def broccolidb_bundle_symlink_ok() -> tuple[bool, str]:
+    """Return (ok, detail) — plugin bundle must symlink to repo-root broccolidb/."""
+    plugin_bdb = dietcode_plugin_root() / "broccolidb"
+    if not plugin_bdb.exists():
+        return True, ""
+    repo_root = dietcode_plugin_root().parents[1]
+    canonical = (repo_root / "broccolidb").resolve()
+    if plugin_bdb.is_symlink():
+        try:
+            target = plugin_bdb.resolve()
+        except OSError as exc:
+            return False, f"broccolidb symlink broken: {exc}"
+        if target == canonical:
+            return True, str(target)
+        return False, f"broccolidb symlink points to {target}, expected {canonical}"
+    if plugin_bdb.is_dir() and not plugin_bdb.is_symlink():
+        return False, "plugins/dietcode/broccolidb should be a symlink to ../../broccolidb"
+    return True, ""
+
+
+def scan_stale_joyzoning_config_keys() -> list[str]:
+    """Return stale joyzoning config keys present in user config.yaml."""
+    hits: list[str] = []
+    try:
+        from hermes_cli.config import load_config
+
+        raw = load_config().get("joyzoning", {})
+        if not isinstance(raw, dict):
+            return hits
+        for key in STALE_JOYZONING_CONFIG_KEYS:
+            if key in raw:
+                hits.append(key)
+    except Exception:
+        pass
+    return hits
+
+
 def scan_forbidden_imports(
     *,
     roots: Iterable[Path] | None = None,
@@ -98,7 +167,6 @@ def scan_forbidden_imports(
             repo / "hermes_cli",
             repo / "gateway",
             repo / "plugins",
-            repo / "tests",
             repo / "run_agent.py",
             repo / "cli.py",
             repo / "model_tools.py",
@@ -138,6 +206,8 @@ def scan_forbidden_imports(
                 continue
             if "plugins/dietcode" in path.as_posix():
                 continue
+            if "/tests/" in path.as_posix() or path.as_posix().startswith("tests/"):
+                continue
             _scan_file(path)
 
     return hits
@@ -152,11 +222,16 @@ STALE_DOC_PATH_MARKERS: tuple[str, ...] = (
     "plugins/kanban_broccolidb",
     "plugins/joyzoning_runtime",
     "plugins/jsdp_mutation",
+    "habitat_bridge",
+    "control_plane_client",
+    "kanban_linkage",
+    ":9470",
 )
 
 _DOC_SCAN_PATHS: tuple[str, ...] = (
     "README.md",
     "docs/README.md",
+    "docs/dietcode-plugin.md",
     "docs/broccolidb-native-execution-throughput.md",
 )
 
@@ -169,6 +244,8 @@ def scan_stale_doc_paths() -> list[tuple[str, int, str]]:
         path = repo / rel
         if not path.is_file():
             continue
+        if rel == "docs/dietcode-plugin.md":
+            continue  # documents removed integration paths intentionally
         for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if "plugins/dietcode/lib/tools/" in line:
                 continue

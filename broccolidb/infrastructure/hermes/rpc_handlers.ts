@@ -50,9 +50,29 @@ export interface KanbanHiveSyncPayload {
 	signal_events?: string[];
 	run_id?: string | null;
 	tenant?: string | null;
+	/** @deprecated use joyzoning_scope */
 	habitat_task?: string;
 	joyzoning_scope?: string;
 	convergence_state?: string;
+}
+
+function resolveJoyzoningScope(payload: KanbanHiveSyncPayload): string | null {
+	return (
+		payload.joyzoning_scope?.trim() ||
+		payload.habitat_task?.trim() ||
+		null
+	);
+}
+
+function joyzoningForensicJson(payload: KanbanHiveSyncPayload): string | null {
+	const scope = resolveJoyzoningScope(payload);
+	if (!scope && !payload.convergence_state) {
+		return null;
+	}
+	return JSON.stringify({
+		joyzoning_scope: scope,
+		convergence_state: payload.convergence_state ?? null,
+	});
 }
 
 export interface HiveDriftPayload {
@@ -200,14 +220,7 @@ export async function runHiveSync(
 		.where("task_id", "=", taskId)
 		.executeTakeFirst();
 
-	const forensic =
-		payload.habitat_task || payload.joyzoning_scope || payload.convergence_state
-			? JSON.stringify({
-					habitat_task: payload.habitat_task ?? null,
-					joyzoning_scope: payload.joyzoning_scope ?? null,
-					convergence_state: payload.convergence_state ?? null,
-				})
-			: null;
+	const forensic = joyzoningForensicJson(payload);
 
 	const merged = {
 		id: existing?.id ?? hiveId,
@@ -277,8 +290,7 @@ export async function runHiveSync(
 					assignee: payload.assignee,
 					run_id: payload.run_id ?? null,
 					tenant: payload.tenant ?? null,
-					habitat_task: payload.habitat_task ?? null,
-					joyzoning_scope: payload.joyzoning_scope ?? null,
+					joyzoning_scope: resolveJoyzoningScope(payload),
 					convergence_state: payload.convergence_state ?? null,
 				}),
 				status: "pending",
@@ -305,8 +317,7 @@ export async function runHiveSync(
 				event: payload.event,
 				assignee: payload.assignee,
 				tenant: payload.tenant,
-				habitat_task: payload.habitat_task ?? null,
-				joyzoning_scope: payload.joyzoning_scope ?? null,
+				joyzoning_scope: resolveJoyzoningScope(payload),
 				convergence_state: payload.convergence_state ?? null,
 			}),
 			timestamp: now,

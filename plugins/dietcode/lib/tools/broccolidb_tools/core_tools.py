@@ -5,7 +5,6 @@ These are the foundational CLI-driven tools that wrap the
 BroccoliDB CLI commands (init, status, audit, refactor).
 """
 import json
-import os
 from tools.registry import registry
 from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
     check_requirements,
@@ -19,9 +18,13 @@ from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
 
 def broccolidb_init(api_key: str = None, task_id: str = None) -> str:
     """Initialize and index the current repository with BroccoliDB."""
-    if api_key:
-        os.environ["GEMINI_API_KEY"] = api_key
-    return run_cli_interactive(["init"], stdin_input="n\n", timeout=120)
+    extra_env = {"GEMINI_API_KEY": api_key} if api_key else None
+    return run_cli_interactive(
+        ["init"],
+        stdin_input="n\n",
+        timeout=120,
+        extra_env=extra_env,
+    )
 
 
 def broccolidb_status(task_id: str = None) -> str:

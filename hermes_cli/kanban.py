@@ -1679,12 +1679,12 @@ def _cmd_joyzoning_doctor(args: argparse.Namespace) -> int:
     """JoyZoning production health checks (journal, scope env, JSDP harness)."""
     import json as _json
 
-    from plugins.dietcode.lib.agent.joyzoning.doctor import run_checks
+    from hermes_cli.dietcode_bridge import run_joyzoning_doctor
 
     scope = getattr(args, "scope", None) or os.environ.get("JOYZONING_SCOPE_ID", "").strip()
     if not scope:
         scope = os.environ.get("HERMES_KANBAN_TASK", "").strip() or None
-    report = run_checks(scope_id=scope)
+    report = run_joyzoning_doctor(scope_id=scope)
     if getattr(args, "json", False):
         print(_json.dumps(report, indent=2, default=str))
     else:

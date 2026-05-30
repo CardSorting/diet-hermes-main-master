@@ -52,8 +52,8 @@ _DIETCODE_TOOL_PREFIXES = (
     "kanban_broccolidb_",
     "mutation_",
     "convergence_",
+    "runtime_",
     "jsdp_",
-    "habitat_",
 )
 _DIETCODE_TOOL_NAMES = frozenset({"joyzoning", "jsdp", "jsdp_horizon"})
 
@@ -67,6 +67,12 @@ class LoadReport:
 
 
 _CACHED_REPORT: LoadReport | None = None
+
+
+def invalidate_load_cache() -> None:
+    """Clear cached tool load report (e.g. after fixing imports without restart)."""
+    global _CACHED_REPORT
+    _CACHED_REPORT = None
 
 
 def _is_dietcode_tool(name: str, toolset: str) -> bool:

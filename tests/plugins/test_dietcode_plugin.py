@@ -7,6 +7,15 @@ import json
 import pytest
 
 
+def test_dietcode_plugin_is_standalone_opt_in():
+    from hermes_cli.plugins import discover_plugins, get_plugin_manager
+
+    discover_plugins(force=True)
+    plugin = get_plugin_manager()._plugins["dietcode"]
+    assert plugin.manifest.kind == "standalone"
+    assert plugin.enabled is True
+
+
 def test_dietcode_plugin_loads_and_registers_tools():
     from hermes_cli.plugins import discover_plugins, get_plugin_manager
 

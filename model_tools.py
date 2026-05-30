@@ -200,13 +200,9 @@ except Exception as e:
     logger.warning("Plugin discovery failed: %s", e)
 
 try:
-    from plugins.dietcode.guard import dietcode_startup_expected, is_dietcode_plugin_registered
+    from hermes_cli.dietcode_bridge import warn_if_dietcode_expected_but_missing
 
-    if dietcode_startup_expected() and not is_dietcode_plugin_registered():
-        logger.warning(
-            "DietCode is enabled in config but the plugin did not register — "
-            "run `/dietcode doctor` or check plugins.disabled / import errors"
-        )
+    warn_if_dietcode_expected_but_missing()
 except ImportError:
     pass
 except Exception as e:

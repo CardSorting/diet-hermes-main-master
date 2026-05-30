@@ -3113,11 +3113,14 @@ def complete_task(
     now = int(time.time())
 
     try:
-        from plugins.dietcode.lib.agent.joyzoning.convergence_gate import assert_kanban_completion_allowed
+        from hermes_cli.dietcode_bridge import (
+            assert_kanban_completion_allowed,
+            joyzoning_completion_blocked_type,
+        )
         assert_kanban_completion_allowed(task_id)
     except Exception as exc:
-        from plugins.dietcode.lib.agent.joyzoning.convergence_gate import JoyZoningCompletionBlocked
-        if isinstance(exc, JoyZoningCompletionBlocked):
+        blocked_type = joyzoning_completion_blocked_type()
+        if blocked_type is not None and isinstance(exc, blocked_type):
             with write_txn(conn):
                 _append_event(
                     conn, task_id, "completion_blocked_convergence",
@@ -6003,50 +6006,15 @@ def _worker_terminal_timeout_env(
 
 
 def _inject_joyzoning_env(env: dict, task: "Task", *, board: Optional[str] = None) -> None:
-    """Pin JoyZoning scope ids so workers, journal, and BroccoliQ hive align."""
-    try:
-        from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config
-        if not get_joyzoning_config().enabled:
-            return
-    except ImportError:
-        return
+    from hermes_cli.dietcode_bridge import inject_joyzoning_worker_env
 
-    env["JOYZONING_SCOPE_ID"] = task.id
-    env["HERMES_KANBAN_TASK"] = task.id
-
-    try:
-        from plugins.dietcode.lib.agent.joyzoning.scope_registry import register_scope_aliases
-        scopes = [task.id]
-        if task.session_id:
-            scopes.append(task.session_id)
-        register_scope_aliases(*scopes)
-    except Exception:
-        pass
+    inject_joyzoning_worker_env(env, task, board=board)
 
 
 def _inject_broccolidb_env(env: dict) -> None:
-    """Pin BroccoliDB paths for kanban workers when broccolidb is discoverable."""
-    try:
-        from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
-            resolve_broccolidb_db_path,
-            resolve_broccolidb_root,
-        )
-    except ImportError:
-        return
+    from hermes_cli.dietcode_bridge import inject_broccolidb_worker_env
 
-    try:
-        from plugins.dietcode.lib.tools.kanban_broccolidb_bridge import broccolidb_enabled
-        if not broccolidb_enabled():
-            return
-    except ImportError:
-        pass
-
-    root = resolve_broccolidb_root()
-    if root:
-        env["HERMES_BROCCOLIDB_ROOT"] = root
-    db_path = resolve_broccolidb_db_path(root)
-    if db_path:
-        env["HERMES_BROCCOLIDB_DB"] = db_path
+    inject_broccolidb_worker_env(env)
 
 
 def _default_spawn(

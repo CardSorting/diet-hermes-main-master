@@ -4,16 +4,16 @@ from unittest.mock import patch
 
 import pytest
 
-_RUNNER = "plugins.dietcode.lib.tools.broccolidb_tools.runner"
+_BRIDGE = "hermes_cli.dietcode_broccolidb"
 
 
 class TestDietcodeBroccolidbHealth:
     def test_health_when_tree_missing(self, _isolate_hermes_home):
         from hermes_cli.dietcode_broccolidb import get_health
 
-        with patch(f"{_RUNNER}.check_requirements", return_value=False), patch(
-            f"{_RUNNER}.resolve_broccolidb_root", return_value=None
-        ), patch(f"{_RUNNER}.resolve_broccolidb_db_path", return_value=None):
+        with patch(f"{_BRIDGE}.check_broccolidb_requirements", return_value=False), patch(
+            f"{_BRIDGE}.resolve_broccolidb_root", return_value=None
+        ), patch(f"{_BRIDGE}.resolve_broccolidb_db_path", return_value=None):
             health = get_health()
 
         assert health["enabled"] is True
@@ -27,9 +27,11 @@ class TestDietcodeBroccolidbHealth:
         db = tmp_path / "broccolidb.db"
         db.write_bytes(b"sqlite")
 
-        with patch(f"{_RUNNER}.check_requirements", return_value=True), patch(
-            f"{_RUNNER}.resolve_broccolidb_root", return_value=str(tmp_path / "broccolidb")
-        ), patch(f"{_RUNNER}.resolve_broccolidb_db_path", return_value=str(db)), patch(
+        with patch(f"{_BRIDGE}.check_broccolidb_requirements", return_value=True), patch(
+            f"{_BRIDGE}.resolve_broccolidb_root", return_value=str(tmp_path / "broccolidb")
+        ), patch(f"{_BRIDGE}.resolve_broccolidb_db_path", return_value=str(db)), patch(
+            f"{_BRIDGE}.broccolidb_rpc_available", return_value=False
+        ), patch(
             "shutil.which", return_value="/usr/bin/npx"
         ):
             health = get_health()

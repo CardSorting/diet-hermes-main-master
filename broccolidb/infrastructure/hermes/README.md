@@ -6,6 +6,7 @@ Persistent BroccoliDB/BroccoliQ worker used by DietCode / Hermes Python tools.
 
 | Doc | Contents |
 |-----|----------|
+| [docs/dietcode-plugin.md](../../../docs/dietcode-plugin.md) | Unified plugin, core facades, legacy shim policy |
 | [docs/broccolidb-native-execution-throughput.md](../../../docs/broccolidb-native-execution-throughput.md) | Full architecture, RPC methods, env vars, five implementation passes |
 | [docs/broccolidb-throughput-benchmark-results.md](../../../docs/broccolidb-throughput-benchmark-results.md) | Benchmark p50/p95: oneshot ~1 s → warm RPC ~1–2 ms |
 | [docs/README.md](../../../docs/README.md) | Fork doc index |

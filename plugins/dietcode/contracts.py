@@ -162,9 +162,12 @@ def validate_runtime_contract(*, strict: bool = False) -> ContractReport:
 
     try:
         from plugins.dietcode.audit import (
+            broccolidb_bundle_symlink_ok,
             duplicate_diet_hooks,
             legacy_shim_dirs_absent,
+            removed_habitat_modules_absent,
             runtime_layout_ok,
+            scan_stale_joyzoning_config_keys,
         )
 
         layout_ok, layout_missing = runtime_layout_ok()
@@ -178,6 +181,25 @@ def validate_runtime_contract(*, strict: bool = False) -> ContractReport:
         report.checks["legacy_shim_dirs_present"] = shim_dirs
         if not shims_gone:
             report.add_error(f"Legacy DietCode shim plugins still on disk: {shim_dirs}")
+
+        habitat_gone, habitat_files = removed_habitat_modules_absent()
+        report.checks["habitat_modules_absent"] = habitat_gone
+        report.checks["habitat_modules_present"] = habitat_files
+        if not habitat_gone:
+            report.add_error(f"Removed Habitat modules still present: {habitat_files}")
+
+        symlink_ok, symlink_detail = broccolidb_bundle_symlink_ok()
+        report.checks["broccolidb_bundle_symlink_ok"] = symlink_ok
+        report.checks["broccolidb_bundle_symlink_detail"] = symlink_detail
+        if not symlink_ok:
+            report.add_warning(f"BroccoliDB plugin bundle layout: {symlink_detail}")
+
+        stale_cfg = scan_stale_joyzoning_config_keys()
+        report.checks["stale_joyzoning_config_keys"] = stale_cfg
+        if stale_cfg:
+            report.add_warning(
+                f"config.yaml joyzoning section contains removed keys: {stale_cfg}"
+            )
 
         no_dupes, dupe_issues = duplicate_diet_hooks()
         report.checks["no_duplicate_diet_hooks"] = no_dupes

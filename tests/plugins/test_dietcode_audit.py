@@ -58,6 +58,7 @@ def test_audit_module_listed_in_contract_checks():
     report = validate_runtime_contract(strict=True)
     assert report.checks.get("runtime_layout_ok") is True
     assert report.checks.get("legacy_shim_dirs_absent") is True
+    assert report.checks.get("broccolidb_bundle_symlink_ok") is True
     assert report.checks.get("no_duplicate_diet_hooks") is True
 
 

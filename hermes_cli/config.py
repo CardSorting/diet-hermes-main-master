@@ -1759,13 +1759,16 @@ DEFAULT_CONFIG = {
     },
 
     # JoyZoning cognitive architecture — native Hermes runtime.
-    # Governance hooks, tools, and JSDP wiring ship via plugins/dietcode (kind: backend).
+    # Governance hooks, tools, and JSDP wiring ship via plugins/dietcode (standalone, opt-in).
     "joyzoning": {
-        # Off by default — runtime journal hooks; enable for kanban/convergence.
+        # Off by default — runtime journal + kanban convergence gates. Governance
+        # (joyzoning.governance.enabled) can run independently for write/patch
+        # layering without enabling the full JoyZoning lifecycle.
         "enabled": False,
         # Layer-governance transform hook — wired by plugins/dietcode.
         "governance": {
-            # DietCode: on — dietcode transform_tool_result enforces layering on writes.
+            # DietCode fork: on — transform_tool_result enforces layering on writes
+            # even when joyzoning.enabled is false (throughput default).
             "enabled": True,
             # When false (default), [LAYER: TYPE] headers are optional: no auto-inject,
             # no post-write hints, and governance does not block on missing/misaligned tags.
@@ -2162,6 +2165,10 @@ DEFAULT_CONFIG = {
     "paste_collapse_threshold_fallback": 5,
     "paste_collapse_char_threshold": 2000,
 
+    # DietCode fork: opt-in plugin loader — enable unified BroccoliDB/JoyZoning bundle.
+    "plugins": {
+        "enabled": ["dietcode"],
+    },
 
     # Config schema version - bump this when adding new required fields
     "_config_version": 24,

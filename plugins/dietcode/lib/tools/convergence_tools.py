@@ -114,10 +114,6 @@ def runtime_events_tail(
     })
 
 
-# Back-compat alias for callers/tests.
-habitat_events_tail = runtime_events_tail
-
-
 def jsdp_validate_handoff(text: str) -> str:
     from plugins.dietcode.lib.agent.joyzoning.jsdp_protocol import validate_handoff_sections
     if not text or not text.strip():

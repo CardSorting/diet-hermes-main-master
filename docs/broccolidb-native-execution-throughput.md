@@ -422,7 +422,8 @@ plugins/dietcode/lib/tools/broccolidb_tools/
 ├── queue_tools.py               # → run_db_rpc
 └── structural_tools.py          # heal → run_agent_rpc; rest standalone
 
-hermes_cli/dietcode_broccolidb.py  # Dashboard bridge → run_db_rpc
+hermes_cli/dietcode_broccolidb.py  # Dashboard bridge → dietcode_bridge → run_db_rpc
+hermes_cli/dietcode_bridge.py      # Core ↔ plugin facade (kanban, broccolidb RPC, doctor)
 plugins/dietcode/lib/tools/kanban_broccolidb_bridge.py  # → run_hive_sync / drift
 plugins/dietcode/lib/tools/kanban_broccolidb_tools.py   # batch intel + agent_rpc
 ```

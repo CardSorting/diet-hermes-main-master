@@ -119,15 +119,15 @@ def test_mutation_lifecycle(jz_env):
     assert get_convergence_state("t_mut001") == ConvergenceState.READY_FOR_REVIEW
 
 
-def test_habitat_events_tail_tool(jz_env, monkeypatch):
+def test_runtime_events_tail_tool(jz_env, monkeypatch):
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_evt001")
     import plugins.dietcode.lib.tools.convergence_tools  # noqa: F401
-    from plugins.dietcode.lib.tools.convergence_tools import habitat_events_tail
+    from plugins.dietcode.lib.tools.convergence_tools import runtime_events_tail
 
-    from plugins.dietcode.lib.agent.joyzoning.habitat_events import emit_habitat_event
-    emit_habitat_event("tool.complete", scope_id="t_evt001", payload={"tool": "test"})
+    from plugins.dietcode.lib.agent.joyzoning.runtime_events import emit_runtime_event
+    emit_runtime_event("tool.complete", scope_id="t_evt001", payload={"tool": "test"})
 
-    raw = habitat_events_tail(limit=10)
+    raw = runtime_events_tail(limit=10)
     data = json.loads(raw)
     assert data["success"] is True
     assert len(data["events"]) >= 1
@@ -170,7 +170,7 @@ def test_session_end_uses_scope_context(jz_env, monkeypatch):
         clear_joyzoning_run_vars(tokens)
 
 
-def test_habitat_events_session_id_from_contextvar(jz_env, monkeypatch):
+def test_runtime_events_session_id_from_contextvar(jz_env, monkeypatch):
     home = jz_env
     (home / "config.yaml").write_text(
         "joyzoning:\n  enabled: true\n  execution_journal: true\n"
@@ -179,12 +179,12 @@ def test_habitat_events_session_id_from_contextvar(jz_env, monkeypatch):
     cfg_mod._config_cache = None
 
     from gateway import session_context as sc
-    from plugins.dietcode.lib.agent.joyzoning.habitat_events import emit_habitat_event
+    from plugins.dietcode.lib.agent.joyzoning.runtime_events import emit_runtime_event
 
     monkeypatch.setenv("HERMES_SESSION_ID", "sess-from-env-should-lose")
     token = sc._SESSION_ID.set("sess-from-ctx")
     try:
-        emit_habitat_event("tool.complete", scope_id="t_ctxsess1", payload={"tool": "x"})
+        emit_runtime_event("tool.complete", scope_id="t_ctxsess1", payload={"tool": "x"})
         from plugins.dietcode.lib.agent.joyzoning.journal import get_journal
         rows = get_journal().list_events(limit=5, event_types=["tool.complete"])
         assert rows[-1]["session_id"] == "sess-from-ctx"

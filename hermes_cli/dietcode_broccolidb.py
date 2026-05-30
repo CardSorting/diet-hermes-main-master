@@ -2,7 +2,7 @@
 DietCode dashboard ↔ BroccoliDB bridge.
 
 Exposes health checks and live hive/graph snapshots for the web dashboard.
-Hot paths use native BroccoliDB RPC (plugins/dietcode/lib/tools/broccolidb_tools/db_gateway.py).
+Plugin imports are isolated in ``hermes_cli.dietcode_bridge``.
 """
 from __future__ import annotations
 
@@ -10,7 +10,17 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
+from hermes_cli.dietcode_bridge import (
+    broccolidb_rpc_available,
+    broccolidb_rpc_version,
+    check_broccolidb_requirements,
+    resolve_broccolidb_db_path,
+    resolve_broccolidb_root,
+    run_broccolidb_rpc,
+    warm_broccolidb_rpc,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -35,25 +45,18 @@ def dashboard_broccolidb_enabled() -> bool:
 
 def get_health() -> dict[str, Any]:
     """Connectivity probe — no subprocess when tree is missing."""
-    from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
-        check_requirements,
-        resolve_broccolidb_db_path,
-        resolve_broccolidb_root,
-    )
-
-    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import rpc_available
-    from plugins.dietcode.lib.tools.broccolidb_tools.db_native import RPC_VERSION, warm_db_rpc
-
     root = resolve_broccolidb_root()
     db_path = resolve_broccolidb_db_path()
     db_exists = bool(db_path and Path(db_path).is_file())
     enabled = dashboard_broccolidb_enabled()
-    available = check_requirements()
+    available = check_broccolidb_requirements()
     live = enabled and available and db_exists
-    rpc_ok = rpc_available()
+    rpc_ok = broccolidb_rpc_available()
 
     if live and rpc_ok and dash_warm_rpc_enabled():
-        warm_db_rpc(preload_agent=dash_preload_agent_enabled())
+        warm_broccolidb_rpc(preload_agent=dash_preload_agent_enabled())
+
+    rpc_version = broccolidb_rpc_version()
 
     return {
         "enabled": enabled,
@@ -63,7 +66,7 @@ def get_health() -> dict[str, Any]:
         "db_exists": db_exists,
         "node_ok": shutil.which("npx") is not None,
         "rpc_available": rpc_ok,
-        "rpc_version": RPC_VERSION if rpc_ok else None,
+        "rpc_version": rpc_version if rpc_ok else None,
         "live": live,
         "message": _health_message(enabled, available, db_exists),
     }
@@ -110,10 +113,7 @@ def get_snapshot() -> dict[str, Any]:
             "error": health.get("message") or "BroccoliDB unavailable",
         }
 
-    from plugins.dietcode.lib.tools.broccolidb_tools.runner import run_db_rpc
-
-    # Single RPC round-trip for dashboard poll (graph + queue + hive tables)
-    raw = run_db_rpc("dashboard_snapshot", timeout=45)
+    raw = run_broccolidb_rpc("dashboard_snapshot", timeout=45)
     data = _parse_runner_json(raw)
     data["live"] = bool(data.get("success"))
     data["health"] = health
@@ -134,9 +134,7 @@ def set_proposal_action(proposal_id: str, action: str) -> dict[str, Any]:
     if not pid:
         return {"success": False, "error": "proposal_id required"}
 
-    from plugins.dietcode.lib.tools.broccolidb_tools.runner import run_db_rpc
-
-    raw = run_db_rpc(
+    raw = run_broccolidb_rpc(
         "proposal_action",
         {"proposalId": pid, "action": action_lc},
         timeout=30,
