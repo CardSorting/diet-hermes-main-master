@@ -32,13 +32,12 @@ If `$HERMES_TENANT` is set, the task belongs to a tenant namespace. When reading
 
 ## JoyZoning governed work (diet-hermes)
 
-When `joyzoning` tools are available (auto-injected via `JOYZONING_GUIDANCE`):
+When `joyzoning` tools are available (auto-injected via the DietCode plugin when toolset `dietcode` is enabled):
 
 1. **`joyzoning(action='context')`** at session start.
 2. **`joyzoning(action='begin', goal=...)`** before implementation.
-3. **`joyzoning(action='request_review', summary=...)`** before any merge/complete attempt.
-4. Wait for habitat operator accept-merge — Hermes cannot self-authorize CONVERGED.
-5. Then **`kanban_complete(...)`** (convergence gate enforces this).
+3. **`joyzoning(action='request_review', summary=...)`** before any complete attempt.
+4. Operator runs **`convergence_mark_converged(...)`** after review — then **`kanban_complete(...)`** (convergence gate enforces this).
 
 Load skill `joyzoning-governed-work` for full lifecycle detail and JSDP rules.
 
@@ -52,7 +51,7 @@ When `broccolidb/` is discoverable (repo root, `kanban.broccolidb.root`, or env 
 4. **`kanban_broccolidb_record(summary=...)`** — persist durable decisions before completion so downstream workers can retrieve them.
 5. **`kanban_complete(...)`** — standard handoff.
 
-The `kanban_broccolidb` plugin auto-syncs on session start and lifecycle events (debounced heartbeats; config: `kanban.broccolidb.*`). Use `kanban_broccolidb_sync(event=...)` only when auto-sync is disabled.
+The **DietCode** plugin auto-syncs on session start and lifecycle events (debounced heartbeats; config: `kanban.broccolidb.*`). Use `kanban_broccolidb_sync(event=...)` only when auto-sync is disabled.
 
 ## Good summary + metadata shapes
 

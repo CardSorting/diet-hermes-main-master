@@ -7,30 +7,26 @@ license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [joyzoning, convergence, habitat, kanban, governance]
+    tags: [joyzoning, convergence, kanban, governance]
     category: devops
     related_skills: [kanban-worker, kanban-orchestrator]
 ---
 
 # JoyZoning Governed Work
 
-Use when Hermes runs under JoyZoning supervision (habitat :9470) or when
-`joyzoning` tools are available. Hermes executes; habitat observes; operators
-merge in the Watch/desktop UI.
+Use when `joyzoning` tools are available on a kanban worker or governed API run.
+Hermes owns execution state; operators review out-of-band before complete.
 
 ## When to Use
 
-- Kanban worker spawned with `JOYZONING_SCOPE_ID` / habitat-linked tasks
+- Kanban worker spawned with `JOYZONING_SCOPE_ID` / `HERMES_KANBAN_TASK`
 - JSDP delivery-chain roles (`JOYZONING_JSDP_ROLE` set)
-- API runs with `metadata.JOYZONING_HABITAT_TASK` from habitat dispatch
-- Long-horizon repo mutation with `.jsdp/` — pair with skill **`jsdp-rolling-horizon`** and tool **`jsdp_horizon`**
+- Long-horizon repo mutation with `.jsdp/` — pair with skill **`jsdp-rolling-horizon`** and tool **`jsdp`**
 
 ## Prerequisites
 
-- `joyzoning.enabled: true` in config (default in diet-hermes)
-- Optional: `joyzoning.control_plane.url: http://127.0.0.1:9470`
-- Secrets in `config.yaml` under `joyzoning.control_plane` (`ingest_token`, `bridge_token`)
-  or `.env`: `JOYZONING_INGEST_TOKEN`, `JOYZONING_HABITAT_BRIDGE_TOKEN`
+- `joyzoning.enabled: true` in config (required for lifecycle tools; off in upstream defaults)
+- `dietcode` in `toolsets` (exposes joyzoning / broccolidb tools to the agent)
 
 ## How to Run
 
@@ -39,7 +35,7 @@ merge in the Watch/desktop UI.
 3. Implement with `patch` / `write_file`; `joyzoning(action='patch', …)` after edits
 4. `joyzoning(action='verify', mutation_id=…, report='…')`
 5. `joyzoning(action='request_review', summary='…')` — stop here
-6. Operator accept-merge in habitat (not in Hermes)
+6. Operator calls `convergence_mark_converged(...)` after review
 7. `kanban_complete(...)` — only after convergence allows
 
 ## Quick Reference
@@ -52,8 +48,9 @@ merge in the Watch/desktop UI.
 | After edits | `joyzoning(action='patch', mutation_id=…)` |
 | Tests/checks | `joyzoning(action='verify', …)` |
 | Hand off | `joyzoning(action='request_review', …)` |
+| Mark converged | `convergence_mark_converged(...)` |
 | JSDP role | `joyzoning(action='role_context')` |
-| Rolling horizon | `jsdp_horizon(action='export', nodes=3)` — see `jsdp-rolling-horizon` skill |
+| Rolling horizon | `jsdp(action='start')` — see `jsdp-rolling-horizon` skill |
 
 ## Procedure
 
@@ -65,13 +62,11 @@ Combine with kanban worker flow: `kanban_show()` → `kanban_broccolidb_context(
 
 - Layer governance applies to governable `.ts`/`.js` source only — not `.md`,
   `package.json`, SQL/migrations, or other non-layerable artifacts
-- Do not call tools to self-mark CONVERGED when control plane is configured
-- Do not `kanban_complete` before `request_review` + habitat merge
-- Habitat UI “pet” state is not execution authority
-- `convergence_status` is Hermes journal state, not Watch UI state
+- Do not `kanban_complete` before `request_review` + `convergence_mark_converged`
+- `convergence_status` is Hermes journal state
 
 ## Verification
 
 - `joyzoning(action='context')` shows `convergence_state: ready_for_review` before stopping
-- After habitat merge, `convergence_state: converged` then `kanban_complete` succeeds
-- `joyzoning(action='doctor')` reports control plane healthy when :9470 is up
+- After `convergence_mark_converged`, `convergence_state: converged` then `kanban_complete` succeeds
+- `joyzoning(action='doctor')` reports journal and scope env healthy

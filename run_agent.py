@@ -2097,7 +2097,7 @@ class AIAgent:
         if is_error and not landed:
             preview = _extract_error_preview(result)
             try:
-                from agent.governance_exemptions import (
+                from agent.governance_bridge import (
                     is_governance_fault_error,
                     resolve_governance_path_kind,
                 )

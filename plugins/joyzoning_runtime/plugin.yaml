@@ -1,5 +1,0 @@
-name: joyzoning_runtime
-version: 1.0.0
-description: Hermes-native JoyZoning runtime — convergence, execution journal, habitat event stream.
-author: DietCode
-kind: backend

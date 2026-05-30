@@ -8,8 +8,8 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_joyzoning_singletons():
-    import agent.joyzoning.config as cfg_mod
-    import agent.joyzoning.journal as journal_mod
+    import plugins.dietcode.lib.agent.joyzoning.config as cfg_mod
+    import plugins.dietcode.lib.agent.joyzoning.journal as journal_mod
     from hermes_cli import config as hermes_config_mod
 
     cfg_mod._config_cache = None
@@ -34,8 +34,8 @@ def jz_env(tmp_path, monkeypatch):
     monkeypatch.setenv("DIETCODE_HOME", str(home))
     monkeypatch.setenv("DIETCODE_HOME", str(home))
     monkeypatch.chdir(tmp_path)
-    import agent.joyzoning.config as cfg_mod
-    import agent.joyzoning.journal as journal_mod
+    import plugins.dietcode.lib.agent.joyzoning.config as cfg_mod
+    import plugins.dietcode.lib.agent.joyzoning.journal as journal_mod
 
     cfg_mod._config_cache = None
     journal_mod._journal = None
@@ -45,7 +45,8 @@ def jz_env(tmp_path, monkeypatch):
 
 
 def test_joyzoning_primitive_registered(jz_env):
-    import tools.joyzoning_tools  # noqa: F401
+    import plugins.dietcode.lib.tools.convergence_tools  # noqa: F401
+    import plugins.dietcode.lib.tools.joyzoning_tools  # noqa: F401
     from tools.registry import registry
 
     names = registry.get_tool_names_for_toolset("joyzoning")
@@ -55,8 +56,8 @@ def test_joyzoning_primitive_registered(jz_env):
 
 def test_joyzoning_context_action(jz_env, monkeypatch):
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_ctxprim1")
-    import tools.joyzoning_tools  # noqa: F401
-    from tools.joyzoning_tools import joyzoning
+    import plugins.dietcode.lib.tools.joyzoning_tools  # noqa: F401
+    from plugins.dietcode.lib.tools.joyzoning_tools import joyzoning
 
     raw = joyzoning(action="context")
     data = json.loads(raw)
@@ -68,8 +69,8 @@ def test_joyzoning_context_action(jz_env, monkeypatch):
 
 def test_joyzoning_begin_and_patch(jz_env, monkeypatch):
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_prim002")
-    import tools.joyzoning_tools  # noqa: F401
-    from tools.joyzoning_tools import joyzoning
+    import plugins.dietcode.lib.tools.joyzoning_tools  # noqa: F401
+    from plugins.dietcode.lib.tools.joyzoning_tools import joyzoning
 
     started = json.loads(joyzoning(action="begin", goal="test feature"))
     assert started["success"] is True
@@ -80,8 +81,8 @@ def test_joyzoning_begin_and_patch(jz_env, monkeypatch):
 
 
 def test_joyzoning_doctor(jz_env):
-    import tools.joyzoning_tools  # noqa: F401
-    from tools.joyzoning_tools import joyzoning
+    import plugins.dietcode.lib.tools.joyzoning_tools  # noqa: F401
+    from plugins.dietcode.lib.tools.joyzoning_tools import joyzoning
 
     raw = joyzoning(action="doctor")
     data = json.loads(raw)
@@ -97,13 +98,13 @@ def test_joyzoning_doctor_action(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setenv("DIETCODE_HOME", str(home))
-    import agent.joyzoning.config as cfg_mod
-    import agent.joyzoning.journal as journal_mod
+    import plugins.dietcode.lib.agent.joyzoning.config as cfg_mod
+    import plugins.dietcode.lib.agent.joyzoning.journal as journal_mod
 
     cfg_mod._config_cache = None
     journal_mod._journal = None
-    import tools.joyzoning_tools  # noqa: F401
-    from tools.joyzoning_tools import joyzoning
+    import plugins.dietcode.lib.tools.joyzoning_tools  # noqa: F401
+    from plugins.dietcode.lib.tools.joyzoning_tools import joyzoning
 
     raw = joyzoning(action="doctor")
     data = json.loads(raw)
@@ -119,7 +120,7 @@ def test_inject_joyzoning_env_sets_scope(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setenv("DIETCODE_HOME", str(home))
-    import agent.joyzoning.config as cfg_mod
+    import plugins.dietcode.lib.agent.joyzoning.config as cfg_mod
     cfg_mod._config_cache = None
 
     from hermes_cli.kanban_db import Task, _inject_joyzoning_env

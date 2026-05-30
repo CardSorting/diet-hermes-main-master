@@ -67,8 +67,7 @@ _CRON_AUTO_DELIVER_PLATFORM: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_P
 _CRON_AUTO_DELIVER_CHAT_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_CHAT_ID", default=_UNSET)
 _CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_THREAD_ID", default=_UNSET)
 
-# JoyZoning supervised-run scope (API metadata from habitat dispatch).
-_JOYZONING_HABITAT_TASK: ContextVar = ContextVar("JOYZONING_HABITAT_TASK", default=_UNSET)
+# JoyZoning supervised-run scope (API metadata from kanban dispatch).
 _JOYZONING_SCOPE_ID: ContextVar = ContextVar("JOYZONING_SCOPE_ID", default=_UNSET)
 _HERMES_KANBAN_TASK: ContextVar = ContextVar("HERMES_KANBAN_TASK", default=_UNSET)
 _HERMES_KANBAN_BOARD: ContextVar = ContextVar("HERMES_KANBAN_BOARD", default=_UNSET)
@@ -88,7 +87,6 @@ _VAR_MAP = {
     "HERMES_CRON_AUTO_DELIVER_PLATFORM": _CRON_AUTO_DELIVER_PLATFORM,
     "HERMES_CRON_AUTO_DELIVER_CHAT_ID": _CRON_AUTO_DELIVER_CHAT_ID,
     "HERMES_CRON_AUTO_DELIVER_THREAD_ID": _CRON_AUTO_DELIVER_THREAD_ID,
-    "JOYZONING_HABITAT_TASK": _JOYZONING_HABITAT_TASK,
     "JOYZONING_SCOPE_ID": _JOYZONING_SCOPE_ID,
     "HERMES_KANBAN_TASK": _HERMES_KANBAN_TASK,
     "HERMES_KANBAN_BOARD": _HERMES_KANBAN_BOARD,
@@ -97,7 +95,6 @@ _VAR_MAP = {
 }
 
 _JOYZONING_DISPATCH_VARS = (
-    _JOYZONING_HABITAT_TASK,
     _JOYZONING_SCOPE_ID,
     _HERMES_KANBAN_TASK,
     _HERMES_KANBAN_BOARD,
@@ -108,7 +105,6 @@ _JOYZONING_DISPATCH_VARS = (
 
 def set_joyzoning_run_vars(
     *,
-    habitat_task: str = "",
     scope_id: str = "",
     kanban_task: str = "",
     kanban_board: str = "",
@@ -118,8 +114,6 @@ def set_joyzoning_run_vars(
 ) -> list:
     """Bind JoyZoning↔Hermes scope ids for the current gateway/API run (task-local)."""
     tokens = []
-    if habitat_task:
-        tokens.append(_JOYZONING_HABITAT_TASK.set(habitat_task))
     if scope_id:
         tokens.append(_JOYZONING_SCOPE_ID.set(scope_id))
     if kanban_task:

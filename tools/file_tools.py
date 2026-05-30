@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 def _is_governance_subject_path(path: str, content: str) -> bool:
     """Whether JoyZoning applies (path classifier + content check, no duplicate work)."""
-    from agent.governance_exemptions import (
+    from agent.governance_bridge import (
         is_governance_subject_content,
         resolve_governance_path_kind,
     )
@@ -34,7 +34,7 @@ def _is_governance_subject_path(path: str, content: str) -> bool:
 
 
 def _should_auto_inject_layer_tags() -> bool:
-    from agent.governance_exemptions import is_governance_layer_tags_required
+    from agent.governance_bridge import is_governance_layer_tags_required
 
     return is_governance_layer_tags_required()
 
@@ -903,7 +903,7 @@ def _check_file_staleness(filepath: str, task_id: str) -> str | None:
 
 def _run_autonomous_header_injection(filepath: str, task_id: str, file_ops) -> None:
     try:
-        from agent.joy_zoning import generate_layer_comment, get_path_layer, parse_layer_tag
+        from plugins.dietcode.lib.agent.joy_zoning import generate_layer_comment, get_path_layer, parse_layer_tag
         # Read the file content from the terminal environment using file_ops
         read_res = file_ops.read_file_raw(filepath)
         if not read_res.error and read_res.content:
@@ -932,7 +932,7 @@ def _run_joy_zoning_audit(filepath: str, result_dict: dict) -> None:
     if not _should_auto_inject_layer_tags():
         return
     try:
-        from agent.joy_zoning import validate_joy_zoning
+        from plugins.dietcode.lib.agent.joy_zoning import validate_joy_zoning
         resolved = str(_resolve_path(filepath))
         if not result_dict.get("error") and os.path.exists(resolved):
             with open(resolved, "r", encoding="utf-8", errors="ignore") as f:
@@ -976,7 +976,7 @@ def write_file_tool(path: str, content: str, task_id: str = "default",
         )
     # Autonomous header tag injection:
     try:
-        from agent.joy_zoning import generate_layer_comment, get_path_layer, parse_layer_tag
+        from plugins.dietcode.lib.agent.joy_zoning import generate_layer_comment, get_path_layer, parse_layer_tag
         try:
             resolved_abs_path = str(_resolve_path_for_task(path, task_id))
         except Exception:

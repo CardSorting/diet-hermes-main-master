@@ -1676,10 +1676,10 @@ def _cmd_reassign(args: argparse.Namespace) -> int:
 
 
 def _cmd_joyzoning_doctor(args: argparse.Namespace) -> int:
-    """JoyZoning production health checks (journal, CP, habitat linkage)."""
+    """JoyZoning production health checks (journal, scope env, JSDP harness)."""
     import json as _json
 
-    from agent.joyzoning.doctor import run_checks
+    from plugins.dietcode.lib.agent.joyzoning.doctor import run_checks
 
     scope = getattr(args, "scope", None) or os.environ.get("JOYZONING_SCOPE_ID", "").strip()
     if not scope:

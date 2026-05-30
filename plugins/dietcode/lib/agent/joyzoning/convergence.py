@@ -6,7 +6,7 @@ import time
 from enum import Enum
 from typing import Any, Optional
 
-from agent.joyzoning.config import get_joyzoning_config, resolve_scope_id
+from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config, resolve_scope_id
 
 
 class ConvergenceState(str, Enum):
@@ -48,7 +48,7 @@ _VALID_TRANSITIONS: dict[ConvergenceState, frozenset[ConvergenceState]] = {
 
 
 def get_convergence_state(scope_id: Optional[str] = None) -> ConvergenceState:
-    from agent.joyzoning.journal import get_journal
+    from plugins.dietcode.lib.agent.joyzoning.journal import get_journal
     sid = resolve_scope_id(scope_id)
     row = get_journal().get_convergence(sid)
     if not row:
@@ -68,8 +68,8 @@ def transition_convergence(
     force: bool = False,
 ) -> dict[str, Any]:
     """Transition convergence state with validation and journaling."""
-    from agent.joyzoning.journal import get_journal
-    from agent.joyzoning.habitat_events import emit_habitat_event
+    from plugins.dietcode.lib.agent.joyzoning.journal import get_journal
+    from plugins.dietcode.lib.agent.joyzoning.runtime_events import emit_runtime_event
 
     sid = resolve_scope_id(scope_id)
     current = get_convergence_state(sid)
@@ -100,7 +100,7 @@ def transition_convergence(
         ConvergenceState.PATCHING: "mutation.patched",
     }.get(new_state, "convergence.state_changed")
 
-    emit_habitat_event(
+    emit_runtime_event(
         event_type,
         scope_id=sid,
         payload={
@@ -126,14 +126,14 @@ def require_review_before_complete(scope_id: Optional[str] = None) -> Optional[s
     if not cfg.enabled or not cfg.review_before_complete:
         return None
 
-    from agent.joyzoning.scope_registry import cluster_convergence_state, expand_scope_cluster
+    from plugins.dietcode.lib.agent.joyzoning.scope_registry import cluster_convergence_state, expand_scope_cluster
 
     sid = resolve_scope_id(scope_id)
     state, _ = cluster_convergence_state(expand_scope_cluster(sid))
     if state == ConvergenceState.READY_FOR_REVIEW:
         return (
-            "Convergence gate: task is ready for operator review in JoyZoning. "
-            "Operator accept-merge in the habitat before calling kanban_complete."
+            "Convergence gate: task is ready for review. "
+            "Call convergence_mark_converged (or operator approval flow) before kanban_complete."
         )
 
     if state == ConvergenceState.CONVERGED:
@@ -148,5 +148,6 @@ def require_review_before_complete(scope_id: Optional[str] = None) -> Optional[s
 
     return (
         f"Convergence gate: scope is in state '{state.value}'. "
-        "Complete mutation → verify → convergence_request_review before kanban_complete."
+        "Complete mutation → verify → convergence_request_review → "
+        "convergence_mark_converged before kanban_complete."
     )

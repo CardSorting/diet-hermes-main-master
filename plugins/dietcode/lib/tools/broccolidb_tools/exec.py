@@ -1,23 +1,23 @@
 """
 BroccoliDB/BroccoliQ execution facade — single import surface for tools and CLI.
 
-    from tools.broccolidb_tools.exec import run_db_rpc, run_agent_rpc, warm_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.exec import run_db_rpc, run_agent_rpc, warm_db_rpc
 """
-from tools.broccolidb_tools.agent_rpc import run_agent_rpc
-from tools.broccolidb_tools.db_gateway import (
+from plugins.dietcode.lib.tools.broccolidb_tools.agent_rpc import run_agent_rpc
+from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import (
     rpc_available,
     run_db_rpc,
     run_db_rpc_batch,
     run_oneshot_rpc,
     shutdown_gateway,
 )
-from tools.broccolidb_tools.db_native import (
+from plugins.dietcode.lib.tools.broccolidb_tools.db_native import (
     AGENT_OPS,
     RPC_METHODS,
     RPC_VERSION,
     warm_db_rpc,
 )
-from tools.broccolidb_tools.runner import (
+from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
     check_requirements,
     resolve_broccolidb_db_path,
     resolve_broccolidb_root,

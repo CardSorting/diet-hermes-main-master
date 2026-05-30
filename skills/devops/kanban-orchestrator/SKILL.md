@@ -62,7 +62,7 @@ When `broccolidb/` is present in the repo, call `kanban_broccolidb_board_intel()
 
 Run `kanban_broccolidb_drift()` periodically (or read the `drift` block inside `board_intel`) to catch kanban vs `hive_tasks` mismatches before they compound.
 
-After creating child tasks, the `kanban_broccolidb` plugin auto-syncs rows into `hive_tasks` (config: `kanban.broccolidb.auto_sync`). Workers should call `kanban_broccolidb_context()` after `kanban_show()` and `kanban_broccolidb_record(summary=...)` before `kanban_complete()` so downstream specialists retrieve durable decisions from the knowledge graph.
+After creating child tasks, the **DietCode** plugin auto-syncs rows into `hive_tasks` (config: `kanban.broccolidb.auto_sync`). Workers should call `kanban_broccolidb_context()` after `kanban_show()` and `kanban_broccolidb_record(summary=...)` before `kanban_complete()` so downstream specialists retrieve durable decisions from the knowledge graph.
 
 ### Step 1 — Understand the goal
 

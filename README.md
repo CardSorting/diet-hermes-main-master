@@ -88,16 +88,16 @@ A reviewer-friendly dashboard for bounded, approval-gated code changes:
 | Layer | Paths |
 |-------|--------|
 | TypeScript engine | `broccolidb/` (includes vendored **BroccoliQ** queue/hive under `broccolidb/infrastructure/`) |
-| Python tools | `tools/broccolidb.py`, `tools/broccolidb_tools/` |
+| Python tools | `plugins/dietcode/lib/tools/broccolidb_tools/` |
 | **Native RPC** | `broccolidb/infrastructure/hermes/` — persistent worker + shared handlers |
-| Toolset | `broccolidb` in `toolsets.py` |
+| Toolset | `dietcode` (includes `broccolidb`, `joyzoning`) in `toolsets.py` |
 
 #### Native RPC execution (new)
 
 Hot BroccoliDB/BroccoliQ paths no longer spawn a fresh `npx tsx` subprocess on every tool call. Python talks to a **persistent TypeScript worker** over newline-delimited JSON on stdin/stdout; a unified **oneshot** fallback runs the same handlers when the worker is unavailable.
 
 ```
-Python tools → tools/broccolidb_tools/exec.py
+Python tools → plugins/dietcode/lib/tools/broccolidb_tools/exec.py
             → db_gateway.py (BroccoliDbGateway)
             → hermes_rpc.ts → rpc_handlers.ts → SQLite / AgentContext
             ↳ fallback: hermes_oneshot.ts (same handlers, one process per call)
@@ -163,14 +163,14 @@ cd broccolidb && npm rebuild better-sqlite3
 
 ### JoyZoning governance
 
-Policy and workflow hooks for governed agent runs: `plugins/joyzoning_governance/`, CLI helper `scripts/joy_check.py`.
+Policy and workflow hooks for governed agent runs: unified **`plugins/dietcode/`** plugin (`lib/runtime/governance_hooks.py`, slash commands `/joyzoning` and `/jz`), CLI helper `scripts/joy_check.py`.
 
 ### Kanban ↔ BroccoliQ
 
 | Layer | Paths |
 |-------|--------|
-| Plugin | `plugins/kanban_broccolidb/` |
-| Tools | `tools/kanban_broccolidb_tools.py`, `tools/kanban_broccolidb_bridge.py` |
+| Plugin | `plugins/dietcode/` (`lib/runtime/kanban_hooks.py`, `lib/tools/kanban_broccolidb_*`) |
+| Tools | `plugins/dietcode/lib/tools/kanban_broccolidb_tools.py`, `kanban_broccolidb_bridge.py` |
 
 Kanban hive sync, drift checks, and board intel use the **native RPC** path when `broccolidb/` is present in the workspace (`kanban_broccolidb_board_intel` batches hive metrics + drift in one `run_db_rpc_batch` call). JoyZoning convergence fields are attached to hive sync payloads when scope env vars are set.
 
@@ -276,14 +276,12 @@ git tag diet-integrations-$(date +%Y-%m-%d)   # backup before sync
 
 # Merge or cherry-pick integration paths, then re-apply overlay files:
 git checkout diet-integrations-<date> -- \
-  broccolidb/ tools/broccolidb.py tools/broccolidb_tools/ \
-  plugins/joyzoning_governance/ plugins/kanban_broccolidb/ \
-  tools/kanban_broccolidb_tools.py tools/kanban_broccolidb_bridge.py \
+  broccolidb/ plugins/dietcode/ \
   scripts/joy_check.py web/src/components/dietcode/ web/src/pages/DietCodePage.tsx
 
-# Re-merge toolsets.py broccolidb entries and web/src/App.tsx /dietcode route if conflicts
+# Re-merge toolsets.py dietcode entries and web/src/App.tsx /dietcode route if conflicts
 cd broccolidb && npm ci && cd ..
-python -c "from tools.registry import discover_builtin_tools, registry; discover_builtin_tools(); assert len(registry.get_tool_names_for_toolset('broccolidb')) >= 20"
+python -c "from hermes_cli.plugins import discover_plugins; from tools.registry import registry; discover_plugins(force=True); assert len(registry.get_tool_names_for_toolset('broccolidb')) >= 20"
 ```
 
 ### Fork overlay after every `git merge upstream/main`

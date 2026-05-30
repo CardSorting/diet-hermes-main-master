@@ -97,3 +97,8 @@ docs/superpowers/*
 broccolidb.db
 broccolidb.db-wal
 broccolidb.db-shm
+*_kanban.db
+*_kanban.db-wal
+*_kanban.db-shm
+broccolidb/broccolidb-failed-flush-*.json
+plugins/dietcode/broccolidb/broccolidb-failed-flush-*.json

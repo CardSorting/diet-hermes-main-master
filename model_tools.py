@@ -197,7 +197,20 @@ try:
     from hermes_cli.plugins import discover_plugins
     discover_plugins()
 except Exception as e:
-    logger.debug("Plugin discovery failed: %s", e)
+    logger.warning("Plugin discovery failed: %s", e)
+
+try:
+    from plugins.dietcode.guard import dietcode_startup_expected, is_dietcode_plugin_registered
+
+    if dietcode_startup_expected() and not is_dietcode_plugin_registered():
+        logger.warning(
+            "DietCode is enabled in config but the plugin did not register — "
+            "run `/dietcode doctor` or check plugins.disabled / import errors"
+        )
+except ImportError:
+    pass
+except Exception as e:
+    logger.debug("DietCode startup check skipped: %s", e)
 
 
 # =============================================================================

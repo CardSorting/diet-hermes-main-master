@@ -19,13 +19,13 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from tools.broccolidb_tools.db_native import (
+from plugins.dietcode.lib.tools.broccolidb_tools.db_native import (
     RPC_METHODS,
     RPC_VERSION,
     _HERMES_ONESHOT_SCRIPT,
     _HERMES_RPC_SCRIPT,
 )  # RPC_METHODS synced with rpc_handlers.ts
-from tools.broccolidb_tools.runner import (
+from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
     _DEFAULT_TIMEOUT,
     _extract_json,
     _get_env,

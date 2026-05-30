@@ -2,7 +2,7 @@
 BroccoliQ Tools — Sharded queue, hive integrity, and swarm coordination.
 """
 from tools.registry import registry
-from tools.broccolidb_tools.runner import check_requirements, run_db_rpc
+from plugins.dietcode.lib.tools.broccolidb_tools.runner import check_requirements, run_db_rpc
 
 
 def broccolidb_queue_status(task_id: str = None) -> str:

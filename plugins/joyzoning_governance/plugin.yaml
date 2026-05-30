@@ -1,5 +1,0 @@
-name: joyzoning_governance
-version: 1.0.0
-description: JoyZoning governance gate for governable TS/JS source only; exempts docs, manifests, and DB/ORM artifacts.
-author: Antigravity
-kind: backend

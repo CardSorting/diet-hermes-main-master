@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.governance_exemptions import (
+from plugins.dietcode.lib.agent.governance_exemptions import (
     GOVERNANCE_POLICY_VERSION,
     governance_policy_summary,
     is_governance_artifact_path,

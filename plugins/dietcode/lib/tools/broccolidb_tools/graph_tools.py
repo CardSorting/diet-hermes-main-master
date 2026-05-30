@@ -5,8 +5,8 @@ Uses native AgentContext RPC (persistent worker) when available; falls back to
 one-shot AgentContext bootstrap via run_agent_context_script.
 """
 from tools.registry import registry
-from tools.broccolidb_tools.runner import check_requirements
-from tools.broccolidb_tools.agent_rpc import run_agent_rpc
+from plugins.dietcode.lib.tools.broccolidb_tools.runner import check_requirements
+from plugins.dietcode.lib.tools.broccolidb_tools.agent_rpc import run_agent_rpc
 
 
 def broccolidb_add_knowledge(kb_id: str, type: str, content: str, tags: str = None) -> str:

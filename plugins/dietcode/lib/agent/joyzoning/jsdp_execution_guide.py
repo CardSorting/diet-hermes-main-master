@@ -15,7 +15,7 @@ class JsdpPhase(str, Enum):
     APPLY_PLAN = "apply_plan"  # agent: jsdp(apply, proposal_json=…)
     EXECUTE = "execute"  # agent: jsdp(advance) — run DAG step
     REPAIR = "repair"  # agent: jsdp(advance) — failed node
-    OPERATOR_MERGE = "operator_merge"  # human: jz task complete --yes (habitat/kanban)
+    OPERATOR_MERGE = "operator_merge"  # human: operator review + convergence_mark_converged
 
 
 OPERATOR_PLAYBOOK = """
@@ -67,9 +67,11 @@ def determine_phase(
     cli_ok: bool,
     harness_present: bool,
     horizon: dict[str, Any] | None = None,
-    habitat_linked: bool = False,
 ) -> dict[str, Any]:
     """Return phase, operator_summary, agent_next_call — no jargon."""
+    from plugins.dietcode.lib.agent.joyzoning.config import read_scope_env
+
+    kanban_linked = bool(read_scope_env("HERMES_KANBAN_TASK"))
     if not cli_ok:
         return {
             "phase": JsdpPhase.SETUP_JOYZONING.value,
@@ -134,7 +136,7 @@ def determine_phase(
             "agent_blocked": False,
         }
 
-    if habitat_linked and "complete" in suggested:
+    if kanban_linked and "complete" in suggested:
         return {
             "phase": JsdpPhase.OPERATOR_MERGE.value,
             "setup_required": False,
@@ -162,14 +164,12 @@ def clarity_envelope(
     cli_ok: bool = True,
     harness_present: bool = False,
     horizon: dict[str, Any] | None = None,
-    habitat_linked: bool = False,
 ) -> dict[str, Any]:
     """Attach operator/agent clarity fields to any jsdp tool response."""
     guide = determine_phase(
         cli_ok=cli_ok,
         harness_present=harness_present,
         horizon=horizon or payload.get("horizon") or payload.get("horizon_status"),
-        habitat_linked=habitat_linked,
     )
     return {
         **payload,

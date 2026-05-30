@@ -43,7 +43,7 @@ export class StreamingToolExecutor {
           console.log(`[Executor] ⚠️  Destructive tool '${name}' detected. Ensure audit trail is active.`);
       }
 
-      // 2. Execution with progress reporting (simulated for now, would use onProgress in real impl)
+      // 2. Execution (tool.execute receives ServiceContext for progress/audit hooks)
       const result = await tool.execute(input, this.ctx);
 
       // 3. Response Formatting

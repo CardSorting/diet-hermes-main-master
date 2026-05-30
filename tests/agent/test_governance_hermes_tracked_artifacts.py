@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.governance_exemptions import is_governance_artifact_path, is_governance_subject
+from plugins.dietcode.lib.agent.governance_exemptions import is_governance_artifact_path, is_governance_subject
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

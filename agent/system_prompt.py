@@ -131,6 +131,19 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if tool_guidance:
         stable_parts.append(" ".join(tool_guidance))
 
+    _dietcode_guidance = getattr(agent, "_dietcode_guidance", None)
+    if _dietcode_guidance:
+        stable_parts.append(_dietcode_guidance)
+    elif _dietcode_guidance is None:
+        from agent.prompt_bridge import resolve_plugin_prompt_guidance
+
+        _fallback = resolve_plugin_prompt_guidance(
+            "_dietcode_guidance_builder",
+            agent.valid_tool_names,
+        )
+        if _fallback:
+            stable_parts.append(_fallback)
+
     # Computer-use (macOS) — goes in as its own block rather than being
     # merged into tool_guidance because the content is multi-paragraph.
     if "computer_use" in agent.valid_tool_names:

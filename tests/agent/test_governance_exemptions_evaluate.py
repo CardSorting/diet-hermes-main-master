@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from agent.governance_exemptions import (
+from plugins.dietcode.lib.agent.governance_exemptions import (
     invalidate_governance_path_cache,
     enforce_governance_on_mutation,
     find_recent_governance_fault_payload,
@@ -21,7 +21,7 @@ from agent.governance_exemptions import (
 @pytest.fixture(autouse=True)
 def _enable_governance_enforcement(monkeypatch):
     monkeypatch.setattr(
-        "agent.governance_exemptions.is_governance_enforcement_enabled",
+        "plugins.dietcode.lib.agent.governance_exemptions.is_governance_enforcement_enabled",
         lambda: True,
     )
     invalidate_governance_path_cache()
@@ -222,7 +222,7 @@ def test_gate_pass_cache_skips_repeat_validation(tmp_path):
 
 def test_resolve_validation_mode_auto_is_light_when_tags_optional(monkeypatch):
     monkeypatch.setattr(
-        "agent.governance_exemptions.is_governance_layer_tags_required",
+        "plugins.dietcode.lib.agent.governance_exemptions.is_governance_layer_tags_required",
         lambda: False,
     )
     assert resolve_governance_validation_mode() == "light"

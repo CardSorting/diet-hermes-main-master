@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from agent.joy_zoning import (
+from plugins.dietcode.lib.agent.joy_zoning import (
     generate_layer_comment,
     get_layer,
     get_path_layer,
@@ -14,7 +14,7 @@ from agent.joy_zoning import (
     validate_joy_zoning,
 )
 from agent.tool_guardrails import classify_tool_failure
-from agent.governance_exemptions import is_governance_transform_result
+from plugins.dietcode.lib.agent.governance_exemptions import is_governance_transform_result
 
 
 def test_get_path_layer_recognizes_broccolidb_core():

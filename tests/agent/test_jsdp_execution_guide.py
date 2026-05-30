@@ -1,7 +1,7 @@
 """Phase clarity for autonomous JSDP."""
 from __future__ import annotations
 
-from agent.joyzoning.jsdp_execution_guide import JsdpPhase, determine_phase
+from plugins.dietcode.lib.agent.joyzoning.jsdp_execution_guide import JsdpPhase, determine_phase
 
 
 def test_phase_setup_when_no_cli():

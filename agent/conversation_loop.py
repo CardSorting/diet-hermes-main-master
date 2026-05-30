@@ -3981,7 +3981,7 @@ def run_conversation(
                     m.get("role") == "tool" for m in messages[-6:]  # recent tools
                 ):
                     try:
-                        from agent.governance_exemptions import (
+                        from agent.governance_bridge import (
                             find_recent_governance_fault_payload,
                             format_governance_recovery_terminal_response,
                             looks_like_governance_suppression_response,
@@ -4092,7 +4092,7 @@ def run_conversation(
                     _gov_payload = None
                     if _prior_was_tool:
                         try:
-                            from agent.governance_exemptions import (
+                            from agent.governance_bridge import (
                                 find_recent_governance_fault_payload,
                                 format_governance_recovery_terminal_response,
                                 looks_like_governance_suppression_response,
@@ -4229,7 +4229,7 @@ def run_conversation(
                     )
                     if _truly_empty and (not _has_structured or _prefill_exhausted) and agent._empty_content_retries < 3:
                         try:
-                            from agent.governance_exemptions import (
+                            from agent.governance_bridge import (
                                 find_recent_governance_fault_payload,
                                 format_governance_recovery_terminal_response,
                             )

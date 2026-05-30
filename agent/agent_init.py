@@ -936,6 +936,13 @@ def init_agent(
         KANBAN_GUIDANCE if "kanban_show" in agent.valid_tool_names else ""
     )
 
+    from agent.prompt_bridge import resolve_plugin_prompt_guidance
+
+    agent._dietcode_guidance = resolve_plugin_prompt_guidance(
+        "_dietcode_guidance_builder",
+        agent.valid_tool_names,
+    )
+
     # Check tool requirements
     if agent.tools and not agent.quiet_mode:
         requirements = _ra().check_toolset_requirements()

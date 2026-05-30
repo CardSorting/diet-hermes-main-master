@@ -824,7 +824,7 @@ def _detect_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str]
     data = safe_json_loads(result)
     if tool_name in FILE_MUTATING_TOOL_NAMES and isinstance(data, dict):
         try:
-            from agent.governance_exemptions import is_governance_transform_result
+            from agent.governance_bridge import is_governance_transform_result
 
             if is_governance_transform_result(data):
                 return True, " [governance]"

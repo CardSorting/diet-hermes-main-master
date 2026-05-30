@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.governance_exemptions import (
+from plugins.dietcode.lib.agent.governance_exemptions import (
     GOVERNANCE_POLICY_VERSION,
     _governance_path_context,
     enforce_governance_on_mutation,
@@ -22,13 +22,13 @@ from agent.governance_exemptions import (
     resolve_governance_path_kind,
     run_governance_validation_gate,
 )
-from agent.joy_zoning import validate_joy_zoning
+from plugins.dietcode.lib.agent.joy_zoning import validate_joy_zoning
 
 
 @pytest.fixture(autouse=True)
 def _enable_governance_enforcement(monkeypatch):
     monkeypatch.setattr(
-        "agent.governance_exemptions.is_governance_enforcement_enabled",
+        "plugins.dietcode.lib.agent.governance_exemptions.is_governance_enforcement_enabled",
         lambda: True,
     )
     invalidate_governance_path_cache()

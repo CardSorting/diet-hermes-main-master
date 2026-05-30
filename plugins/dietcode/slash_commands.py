@@ -1,62 +1,24 @@
 # -*- coding: utf-8 -*-
-"""JoyZoning Governance Gate Plugin — Industrial-grade architectural firewall & BroccoliDB firstclass skills.
-
-Provides the ultimate codebase governance:
-1. Observational/Transformation Hook: Automatic validation of all files edited/created during tool execution.
-2. Slash Command `/joyzoning` (alias `/jz`): Status, audit, check, suggest, refactor.
-3. Slash Command `/broccolidb` (alias `/bdb`): Status, query, audit, heal.
-4. Slash Command `/broccoliq` (alias `/bq`): Sharded queue, shard health, hive integrity.
-"""
+"""DietCode slash commands — JoyZoning, BroccoliDB, and BroccoliQ consoles."""
 from __future__ import annotations
 
-import sys
 import json
 import shlex
-from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, List, Optional
 
-from agent.governance_exemptions import (
-    enforce_governance_on_mutation,
+from plugins.dietcode.lib.agent.governance_exemptions import (
     governance_skip_reason,
     run_governance_validation_gate,
 )
+from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
+    run_agent_context_script,
+    run_standalone_script,
+)
 
-# Safely resolve parent path to import core tool runners
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-try:
-    from tools.broccolidb_tools.runner import run_standalone_script, run_agent_context_script
-except ImportError:
-    # Fallback to direct imports if pathing differs
-    from ...tools.broccolidb_tools.runner import run_standalone_script, run_agent_context_script
-
-# ---------------------------------------------------------------------------
-# Core JoyZoning Policy Checker (Subprocess Standalone Runner)
-# ---------------------------------------------------------------------------
 
 def run_joyzoning_gate(files: List[str]) -> Dict[str, Any]:
     """Run JoyZoning policy checks on governable source files only."""
     return run_governance_validation_gate(files)
-
-
-# ---------------------------------------------------------------------------
-# transform_tool_result Hook - Mandatory Governance Gate
-# ---------------------------------------------------------------------------
-
-def _on_transform_tool_result(
-    tool_name: str = "",
-    args: Optional[Dict[str, Any]] = None,
-    result: Any = None,
-    **_: Any,
-) -> Optional[str]:
-    """Intercept tool outputs, scan modified files, and block architectural leaks."""
-    if not isinstance(args, dict):
-        args = {}
-    # Fast bail before partition/IO when governance is toggled off in config.
-    from agent.governance_exemptions import is_governance_enforcement_enabled
-
-    if not is_governance_enforcement_enabled():
-        return None
-    return enforce_governance_on_mutation(tool_name, args, result)
 
 
 # ---------------------------------------------------------------------------
@@ -567,53 +529,3 @@ def _handle_broccoliq(raw_args: str) -> Optional[str]:
             return f"❌ Integrity audit failed: {e}"
 
     return f"Unknown subcommand: {sub}\n\n{_BQ_HELP}"
-
-
-# ---------------------------------------------------------------------------
-# Plugin Registration Entrypoint
-# ---------------------------------------------------------------------------
-
-def register(ctx) -> None:
-    """Register hooks and slash commands for governance and BroccoliDB integration."""
-    ctx.register_hook("transform_tool_result", _on_transform_tool_result)
-
-    # First-class JoyZoning Commands
-    ctx.register_command(
-        "joyzoning",
-        handler=_handle_joyzoning,
-        description="Audit the workspace for JoyZoning architectural layering compliance.",
-        args_hint="[status|check <file>|suggest <file>|refactor <file>]",
-    )
-    ctx.register_command(
-        "jz",
-        handler=_handle_joyzoning,
-        description="Audit the workspace for JoyZoning architectural layering compliance (alias).",
-        args_hint="[status|check <file>|suggest <file>|refactor <file>]",
-    )
-
-    # First-class BroccoliDB Commands
-    ctx.register_command(
-        "broccolidb",
-        handler=_handle_broccolidb,
-        description="Query or manage the BroccoliDB epistemic database.",
-        args_hint="[status|query <term>|audit|heal]",
-    )
-    ctx.register_command(
-        "bdb",
-        handler=_handle_broccolidb,
-        description="Query or manage the BroccoliDB epistemic database (alias).",
-        args_hint="[status|query <term>|audit|heal]",
-    )
-
-    ctx.register_command(
-        "broccoliq",
-        handler=_handle_broccoliq,
-        description="Inspect BroccoliQ sharded queue and hive infrastructure.",
-        args_hint="[queue|shards|integrity]",
-    )
-    ctx.register_command(
-        "bq",
-        handler=_handle_broccoliq,
-        description="Inspect BroccoliQ sharded queue and hive infrastructure (alias).",
-        args_hint="[queue|shards|integrity]",
-    )

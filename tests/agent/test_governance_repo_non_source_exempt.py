@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from agent.governance_exemptions import resolve_governance_path_kind
+from plugins.dietcode.lib.agent.governance_exemptions import resolve_governance_path_kind
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Directories whose TS/JS is real source (must NOT be blanket-exempt).
-_SOURCE_ROOTS = ("broccolidb/", "herm-tui/src/", "agent/", "run_agent.py", "cli.py")
+_SOURCE_ROOTS = ("broccolidb/", "herm-tui/src/", "plugins/dietcode/lib/agent/", "run_agent.py", "cli.py")
 
 
 def _git_ls_files() -> list[str]:

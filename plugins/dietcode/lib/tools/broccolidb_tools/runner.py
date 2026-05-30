@@ -37,56 +37,13 @@ _MAX_OUTPUT_BYTES = 512 * 1024  # 512KB
 
 
 def resolve_broccolidb_root() -> Optional[str]:
-    """Locate broccolidb/ for the active process (workspace-aware).
-
-    Resolution order:
-      1. ``HERMES_BROCCOLIDB_ROOT`` env (set by kanban dispatcher)
-      2. ``kanban.broccolidb.root`` in config.yaml
-      3. Walk parents from ``HERMES_KANBAN_WORKSPACE`` then ``cwd``
-      4. Relative ``broccolidb/`` when cwd already contains it
-    """
-    env_root = os.environ.get("HERMES_BROCCOLIDB_ROOT", "").strip()
-    if env_root:
-        candidate = Path(env_root).expanduser()
-        if (candidate / "package.json").is_file() and (candidate / "core").is_dir():
-            return str(candidate.resolve())
-
+    """Locate broccolidb/ — delegates to ``plugins.dietcode.paths`` when present."""
     try:
-        from hermes_cli.config import load_config
-        cfg = load_config()
-        kanban_cfg = cfg.get("kanban", {}) if isinstance(cfg, dict) else {}
-        bdb = kanban_cfg.get("broccolidb", {})
-        if isinstance(bdb, dict):
-            cfg_root = str(bdb.get("root") or "").strip()
-            if cfg_root:
-                candidate = Path(cfg_root).expanduser()
-                if not candidate.is_absolute():
-                    candidate = Path.cwd() / candidate
-                if (candidate / "package.json").is_file() and (candidate / "core").is_dir():
-                    return str(candidate.resolve())
-    except Exception:
+        from plugins.dietcode.paths import resolve_broccolidb_root as _plugin_resolve
+
+        return _plugin_resolve()
+    except ImportError:
         pass
-
-    seeds = []
-    ws = os.environ.get("HERMES_KANBAN_WORKSPACE", "").strip()
-    if ws:
-        seeds.append(Path(ws))
-    seeds.append(Path.cwd())
-
-    seen: set[str] = set()
-    for seed in seeds:
-        try:
-            resolved_seed = seed.resolve()
-        except OSError:
-            continue
-        for parent in [resolved_seed, *resolved_seed.parents]:
-            key = str(parent)
-            if key in seen:
-                continue
-            seen.add(key)
-            candidate = parent / "broccolidb"
-            if (candidate / "package.json").is_file() and (candidate / "core").is_dir():
-                return str(candidate.resolve())
 
     rel = Path(_BROCCOLIDB_ROOT)
     if (rel / "package.json").is_file() and (rel / "core").is_dir():
@@ -569,7 +526,7 @@ def _run_kanban_ts_module(
 
 def run_hive_sync(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> str:
     """Execute Kanban-to-hive sync (native RPC when available)."""
-    from tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
 
     if rpc_available():
         return run_db_rpc("hive_sync", payload, timeout=timeout)
@@ -584,7 +541,7 @@ def run_hive_sync(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> s
 
 def run_hive_drift(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> str:
     """Fetch hive_tasks statuses for kanban drift detection."""
-    from tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
 
     if rpc_available():
         return run_db_rpc("hive_drift", payload, timeout=timeout)
@@ -599,7 +556,7 @@ def run_hive_drift(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> 
 
 def run_hive_board_intel(payload: dict[str, Any], timeout: int = _DEFAULT_TIMEOUT) -> str:
     """Fetch bounded BroccoliQ queue/hive metrics for orchestrator board intel."""
-    from tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
 
     if rpc_available():
         return run_db_rpc("hive_board_intel", payload, timeout=timeout)
@@ -643,7 +600,7 @@ def run_db_rpc(
     Prefer this over inline ``run_ts_script`` for hot read/write paths — see
     ``rpc_handlers.ts`` for the canonical method list.
     """
-    from tools.broccolidb_tools.db_gateway import run_db_rpc as _rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import run_db_rpc as _rpc
 
     return _rpc(method, params, timeout=timeout)
 
@@ -654,6 +611,6 @@ def run_db_rpc_batch(
     timeout: int = _DEFAULT_TIMEOUT,
 ) -> str:
     """Batch multiple native RPC calls in one worker round-trip."""
-    from tools.broccolidb_tools.db_gateway import run_db_rpc_batch as _batch
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import run_db_rpc_batch as _batch
 
     return _batch(calls, timeout=timeout)

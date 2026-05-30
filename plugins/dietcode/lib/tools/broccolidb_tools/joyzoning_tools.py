@@ -20,7 +20,7 @@ These tools are DISTINCT from the generic audit:
 """
 import json
 from tools.registry import registry
-from tools.broccolidb_tools.runner import (
+from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
     check_requirements,
     run_standalone_script,
     _AUDIT_TIMEOUT,

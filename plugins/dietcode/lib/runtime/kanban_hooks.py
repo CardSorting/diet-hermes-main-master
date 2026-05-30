@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Kanban ↔ BroccoliQ lifecycle plugin (production-hardened)."""
+"""Kanban ↔ BroccoliQ lifecycle hooks."""
 from __future__ import annotations
 
 import json
@@ -10,12 +10,12 @@ logger = logging.getLogger(__name__)
 
 
 def _on_session_start(*, session_id: str = "", **_: Any) -> None:
-    """Hive sync + scope aliases for kanban dispatcher workers (joyzoning_runtime handles API runs)."""
+    """Hive sync + scope aliases for kanban dispatcher workers."""
     try:
-        from tools.kanban_broccolidb_bridge import sync_on_worker_start
+        from plugins.dietcode.lib.tools.kanban_broccolidb_bridge import sync_on_worker_start
         sync_on_worker_start()
     except Exception as exc:
-        logger.warning("kanban_broccolidb on_session_start: %s", exc)
+        logger.warning("dietcode.kanban on_session_start: %s", exc)
 
 
 def _extract_task_id_from_result(result: Any) -> str | None:
@@ -25,7 +25,7 @@ def _extract_task_id_from_result(result: Any) -> str | None:
         data = json.loads(result)
     except (json.JSONDecodeError, TypeError):
         return None
-    from tools.kanban_broccolidb_bridge import validate_task_id
+    from plugins.dietcode.lib.tools.kanban_broccolidb_bridge import validate_task_id
     return validate_task_id(data.get("task_id"))
 
 
@@ -37,7 +37,7 @@ def _on_post_tool_call(
     **_: Any,
 ) -> None:
     try:
-        from tools.kanban_broccolidb_bridge import (
+        from plugins.dietcode.lib.tools.kanban_broccolidb_bridge import (
             maybe_auto_sync_tool,
             resolve_board_slug,
             schedule_sync,
@@ -56,9 +56,4 @@ def _on_post_tool_call(
                     force=True,
                 )
     except Exception as exc:
-        logger.warning("kanban_broccolidb post_tool_call (%s): %s", tool_name, exc)
-
-
-def register(ctx) -> None:
-    ctx.register_hook("on_session_start", _on_session_start)
-    ctx.register_hook("post_tool_call", _on_post_tool_call)
+        logger.warning("dietcode.kanban post_tool_call (%s): %s", tool_name, exc)

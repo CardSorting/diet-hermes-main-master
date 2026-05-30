@@ -3113,10 +3113,10 @@ def complete_task(
     now = int(time.time())
 
     try:
-        from agent.joyzoning.convergence_gate import assert_kanban_completion_allowed
+        from plugins.dietcode.lib.agent.joyzoning.convergence_gate import assert_kanban_completion_allowed
         assert_kanban_completion_allowed(task_id)
     except Exception as exc:
-        from agent.joyzoning.convergence_gate import JoyZoningCompletionBlocked
+        from plugins.dietcode.lib.agent.joyzoning.convergence_gate import JoyZoningCompletionBlocked
         if isinstance(exc, JoyZoningCompletionBlocked):
             with write_txn(conn):
                 _append_event(
@@ -6005,7 +6005,7 @@ def _worker_terminal_timeout_env(
 def _inject_joyzoning_env(env: dict, task: "Task", *, board: Optional[str] = None) -> None:
     """Pin JoyZoning scope ids so workers, journal, and BroccoliQ hive align."""
     try:
-        from agent.joyzoning.config import get_joyzoning_config
+        from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config
         if not get_joyzoning_config().enabled:
             return
     except ImportError:
@@ -6014,42 +6014,9 @@ def _inject_joyzoning_env(env: dict, task: "Task", *, board: Optional[str] = Non
     env["JOYZONING_SCOPE_ID"] = task.id
     env["HERMES_KANBAN_TASK"] = task.id
 
-    habitat = env.get("JOYZONING_HABITAT_TASK", "").strip()
-    if not habitat:
-        try:
-            from agent.joyzoning.kanban_linkage import resolve_habitat_task_id
-            habitat = resolve_habitat_task_id(
-                body=task.body,
-                idempotency_key=getattr(task, "idempotency_key", None),
-            ) or ""
-            if not habitat:
-                conn = connect(board=board or env.get("HERMES_KANBAN_BOARD"))
-                row = conn.execute(
-                    "SELECT body, idempotency_key FROM tasks WHERE id = ?",
-                    (task.id,),
-                ).fetchone()
-                if row:
-                    habitat = resolve_habitat_task_id(
-                        body=row["body"] if "body" in row.keys() else None,
-                        idempotency_key=row["idempotency_key"] if "idempotency_key" in row.keys() else None,
-                    ) or ""
-                if not habitat:
-                    run = conn.execute(
-                        "SELECT metadata FROM task_runs WHERE task_id = ? ORDER BY id DESC LIMIT 1",
-                        (task.id,),
-                    ).fetchone()
-                    if run and run["metadata"]:
-                        habitat = resolve_habitat_task_id(metadata=run["metadata"]) or ""
-        except Exception:
-            pass
-    if habitat:
-        env["JOYZONING_HABITAT_TASK"] = habitat
-
     try:
-        from agent.joyzoning.scope_registry import register_scope_aliases
+        from plugins.dietcode.lib.agent.joyzoning.scope_registry import register_scope_aliases
         scopes = [task.id]
-        if habitat:
-            scopes.append(habitat)
         if task.session_id:
             scopes.append(task.session_id)
         register_scope_aliases(*scopes)
@@ -6060,7 +6027,7 @@ def _inject_joyzoning_env(env: dict, task: "Task", *, board: Optional[str] = Non
 def _inject_broccolidb_env(env: dict) -> None:
     """Pin BroccoliDB paths for kanban workers when broccolidb is discoverable."""
     try:
-        from tools.broccolidb_tools.runner import (
+        from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
             resolve_broccolidb_db_path,
             resolve_broccolidb_root,
         )
@@ -6068,7 +6035,7 @@ def _inject_broccolidb_env(env: dict) -> None:
         return
 
     try:
-        from tools.kanban_broccolidb_bridge import broccolidb_enabled
+        from plugins.dietcode.lib.tools.kanban_broccolidb_bridge import broccolidb_enabled
         if not broccolidb_enabled():
             return
     except ImportError:

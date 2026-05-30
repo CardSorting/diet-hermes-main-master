@@ -228,7 +228,7 @@ def bench_transform_tool_result_hook(*, iterations: int) -> dict[str, Any]:
 
 
 def bench_governance_path_classification(*, iterations: int) -> dict[str, Any]:
-    from agent.governance_exemptions import (
+    from plugins.dietcode.lib.agent.governance_exemptions import (
         invalidate_governance_path_cache,
         resolve_governance_path_kind,
     )
@@ -263,7 +263,7 @@ def bench_governance_mutation_gate(*, iterations: int) -> list[dict[str, Any]]:
     """JoyZoning transform-hook hot paths (light validation, cache, failure skip)."""
     import json
 
-    from agent.governance_exemptions import (
+    from plugins.dietcode.lib.agent.governance_exemptions import (
         enforce_governance_on_mutation,
         invalidate_governance_path_cache,
     )
@@ -384,8 +384,8 @@ def bench_broccolidb_snapshot() -> dict[str, Any] | None:
         row["note"] = "snapshot skipped — broccolidb.db not live (run broccolidb_init)"
         return row
 
-    from tools.broccolidb_tools.db_native import warm_db_rpc
-    from tools.broccolidb_tools.runner import run_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_native import warm_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.runner import run_db_rpc
 
     warm_db_rpc(block=True)
 

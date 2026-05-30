@@ -14,8 +14,8 @@ import argparse
 # Ensure project root is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from agent.joy_zoning import get_layer, find_workspace_root
-from agent.governance_exemptions import (
+from plugins.dietcode.lib.agent.joy_zoning import get_layer, find_workspace_root
+from plugins.dietcode.lib.agent.governance_exemptions import (
     _joy_zoning_validate,
     iter_governance_subject_files,
 )

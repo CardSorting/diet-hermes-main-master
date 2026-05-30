@@ -29,20 +29,6 @@ from typing import List, Dict, Any, Set, Optional
 # Shared tool list for CLI and all messaging platform toolsets.
 # Edit this once to update all platforms simultaneously.
 _HERMES_CORE_TOOLS = [
-    # BroccoliDB Forensic Ecosystem & Architectural Reality Anchoring
-    "broccolidb_init", "broccolidb_audit", "broccolidb_refactor", "broccolidb_status",
-    # JoyZoning layer enforcement & targeted validation
-    "broccolidb_joyzoning_audit", "broccolidb_joyzoning_refactor",
-    "broccolidb_validate_file", "broccolidb_suggest_layer", "broccolidb_check_layering",
-    # Structural analysis (blast radius, entropy, cycles, integrity, violations)
-    "broccolidb_blast_radius", "broccolidb_study_pack", "broccolidb_entropy",
-    "broccolidb_detect_cycles", "broccolidb_verify_integrity", "broccolidb_heal",
-    "broccolidb_violations",
-    # Knowledge graph & shared memory
-    "broccolidb_add_knowledge", "broccolidb_query_graph", "broccolidb_get_task_context",
-    "broccolidb_append_shared_memory", "broccolidb_verify_sovereignty",
-    # BroccoliQ sharded queue & hive integrity
-    "broccolidb_queue_status", "broccolidb_shard_status", "broccolidb_hive_integrity",
     # Web
     "web_search", "web_extract",
     # Terminal + process management
@@ -82,15 +68,6 @@ _HERMES_CORE_TOOLS = [
     "kanban_complete", "kanban_block", "kanban_heartbeat",
     "kanban_comment", "kanban_create", "kanban_link",
     "kanban_unblock",
-    # BroccoliQ hive orchestration (gated: kanban mode + broccolidb in workspace)
-    "kanban_broccolidb_context", "kanban_broccolidb_sync", "kanban_broccolidb_record",
-    "kanban_broccolidb_board_intel", "kanban_broccolidb_drift",
-    # JoyZoning runtime (governed-work primitive + lifecycle + habitat stream)
-    "joyzoning",
-    "convergence_status", "mutation_begin", "mutation_record_patch", "mutation_verify",
-    "convergence_request_review", "convergence_mark_converged", "habitat_events_tail",
-    "jsdp_validate_handoff", "jsdp_role_context",
-    "jsdp", "jsdp_horizon",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
 ]
@@ -151,12 +128,29 @@ TOOLSETS = {
             "mutation_verify",
             "convergence_request_review",
             "convergence_mark_converged",
-            "habitat_events_tail",
+            "runtime_events_tail",
             "jsdp_validate_handoff",
             "jsdp_role_context",
             "jsdp",
+            "jsdp_horizon",
         ],
         "includes": [],
+    },
+
+    # DietCode plugin bundle — BroccoliDB + BroccoliQ + JoyZoning (not in upstream _HERMES_CORE_TOOLS).
+    "dietcode": {
+        "description": (
+            "BroccoliDB, BroccoliQ hive queue, JoyZoning governed-work runtime, "
+            "and JSDP rolling-horizon delivery (plugins/dietcode)."
+        ),
+        "tools": [
+            "kanban_broccolidb_context",
+            "kanban_broccolidb_sync",
+            "kanban_broccolidb_record",
+            "kanban_broccolidb_board_intel",
+            "kanban_broccolidb_drift",
+        ],
+        "includes": ["broccolidb", "joyzoning"],
     },
     
     "search": {
@@ -336,10 +330,6 @@ TOOLSETS = {
             "kanban_heartbeat", "kanban_comment",
             "kanban_create", "kanban_link",
             "kanban_unblock",
-            # BroccoliQ hive orchestration
-            "kanban_broccolidb_context", "kanban_broccolidb_sync",
-            "kanban_broccolidb_record", "kanban_broccolidb_board_intel",
-            "kanban_broccolidb_drift",
         ],
         "includes": [],
     },

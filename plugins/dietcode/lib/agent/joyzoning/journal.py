@@ -53,7 +53,7 @@ _journal_lock = threading.Lock()
 
 def _default_journal_path() -> Path:
     try:
-        from agent.joyzoning.config import get_joyzoning_config
+        from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config
         cfg = get_joyzoning_config()
         if cfg.journal_path:
             return Path(cfg.journal_path).expanduser()

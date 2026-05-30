@@ -7,7 +7,7 @@ BroccoliDB CLI commands (init, status, audit, refactor).
 import json
 import os
 from tools.registry import registry
-from tools.broccolidb_tools.runner import (
+from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
     check_requirements,
     run_cli,
     run_cli_interactive,

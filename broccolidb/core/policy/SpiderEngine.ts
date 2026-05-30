@@ -19,9 +19,9 @@ import { isGovernanceSubject, validateJoyZoning } from "../../utils/joy-zoning.j
 
 export type { SpiderNode, SpiderEntropyReport, SpiderViolation, SpiderSnapshot, SpiderRegistryPayload }
 
-// Stubs for integrity services not present in BroccoliDB
-type AnomalyRegistry = any
-type StabilityMonitor = any
+// Optional integrity services (not wired in standalone BroccoliDB deployments)
+type AnomalyRegistry = unknown
+type StabilityMonitor = unknown
 
 export interface RebuildRegistryOptions {
 	isCancelled?: () => boolean

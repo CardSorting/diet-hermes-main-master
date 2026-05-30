@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tools.broccolidb_tools.runner import run_agent_context_script, run_db_rpc
+from plugins.dietcode.lib.tools.broccolidb_tools.runner import run_agent_context_script, run_db_rpc
 
 _AGENT_CONTEXT_TIMEOUT = 120
 
@@ -21,7 +21,7 @@ def run_agent_rpc(
     flush: bool = True,
 ) -> str:
     """Execute an AgentContext operation (native RPC when available)."""
-    from tools.broccolidb_tools.db_gateway import rpc_available as _rpc_available
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import rpc_available as _rpc_available
 
     payload_args = dict(args or {})
     if _rpc_available():
@@ -115,7 +115,7 @@ def _fallback_agent_context_script(op: str, args: dict[str, Any], *, timeout: in
 """
     else:
         import json
-        from tools.broccolidb_tools.runner import _make_result
+        from plugins.dietcode.lib.tools.broccolidb_tools.runner import _make_result
 
         return _make_result(False, error=f"unknown agent op: {op}", error_code="UNKNOWN_AGENT_OP")
 

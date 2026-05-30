@@ -1,8 +1,8 @@
 """JoyZoning — first-class governed-work primitive for Hermes agents.
 
-Single entry point ``joyzoning`` wraps convergence, mutation lifecycle, habitat
-context, and control-plane discovery. Granular ``convergence_*`` / ``mutation_*``
-tools remain for explicit calls; prefer ``joyzoning`` when unsure.
+Single entry point ``joyzoning`` wraps convergence, mutation lifecycle, and
+JSDP context. Granular ``convergence_*`` / ``mutation_*`` tools remain for
+explicit calls; prefer ``joyzoning`` when unsure.
 """
 from __future__ import annotations
 
@@ -22,13 +22,12 @@ _ACTIONS = frozenset({
     "events",
     "role_context",
     "validate_handoff",
-    "manifest",
 })
 
 
 def _joyzoning_enabled() -> bool:
     try:
-        from agent.joyzoning.config import get_joyzoning_config
+        from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config
         return get_joyzoning_config().enabled
     except Exception:
         return False
@@ -47,7 +46,7 @@ def joyzoning(
     limit: int = 50,
     text: str = "",
 ) -> str:
-    """Unified JoyZoning primitive — governed mutation + habitat supervision."""
+    """Unified JoyZoning primitive — governed mutation lifecycle."""
     act = (action or "").strip().lower()
     if act not in _ACTIONS:
         return tool_error(
@@ -55,22 +54,22 @@ def joyzoning(
         )
 
     if act == "context":
-        from agent.joyzoning.workflow import build_operational_context
+        from plugins.dietcode.lib.agent.joyzoning.workflow import build_operational_context
         return json.dumps(build_operational_context(scope_id=scope_id))
 
     if act == "doctor":
         return json.dumps(_joyzoning_doctor(scope_id=scope_id))
 
     if act == "status":
-        from tools.convergence_tools import convergence_status
+        from plugins.dietcode.lib.tools.convergence_tools import convergence_status
         return convergence_status(scope_id=scope_id)
 
     if act == "begin":
-        from tools.convergence_tools import mutation_begin
+        from plugins.dietcode.lib.tools.convergence_tools import mutation_begin
         return mutation_begin(goal=goal, scope_id=scope_id)
 
     if act == "patch":
-        from tools.convergence_tools import mutation_record_patch
+        from plugins.dietcode.lib.tools.convergence_tools import mutation_record_patch
         return mutation_record_patch(
             mutation_id=mutation_id,
             summary=summary,
@@ -78,7 +77,7 @@ def joyzoning(
         )
 
     if act == "verify":
-        from tools.convergence_tools import mutation_verify
+        from plugins.dietcode.lib.tools.convergence_tools import mutation_verify
         return mutation_verify(
             mutation_id=mutation_id,
             report=report,
@@ -87,33 +86,26 @@ def joyzoning(
         )
 
     if act == "request_review":
-        from tools.convergence_tools import convergence_request_review
+        from plugins.dietcode.lib.tools.convergence_tools import convergence_request_review
         return convergence_request_review(summary=summary, scope_id=scope_id)
 
     if act == "events":
-        from tools.convergence_tools import habitat_events_tail
-        return habitat_events_tail(since=since, scope_id=scope_id, limit=limit)
+        from plugins.dietcode.lib.tools.convergence_tools import runtime_events_tail
+        return runtime_events_tail(since=since, scope_id=scope_id, limit=limit)
 
     if act == "role_context":
-        from tools.convergence_tools import jsdp_role_context
+        from plugins.dietcode.lib.tools.convergence_tools import jsdp_role_context
         return jsdp_role_context(scope_id=scope_id)
 
     if act == "validate_handoff":
-        from tools.convergence_tools import jsdp_validate_handoff
+        from plugins.dietcode.lib.tools.convergence_tools import jsdp_validate_handoff
         return jsdp_validate_handoff(text=text)
-
-    if act == "manifest":
-        from agent.joyzoning.control_plane_client import ControlPlaneClient
-        cfg = __import__("agent.joyzoning.config", fromlist=["get_joyzoning_config"]).get_joyzoning_config()
-        if not cfg.control_plane_url:
-            return tool_error("control_plane.url not configured — cannot fetch habitat manifest")
-        return json.dumps(ControlPlaneClient().agent_manifest())
 
     return tool_error("unreachable")
 
 
 def _joyzoning_doctor(*, scope_id: Optional[str] = None) -> dict[str, Any]:
-    from agent.joyzoning.doctor import run_checks
+    from plugins.dietcode.lib.agent.joyzoning.doctor import run_checks
     return run_checks(scope_id=scope_id)
 
 
@@ -126,8 +118,8 @@ registry.register(
         "name": "joyzoning",
         "description": (
             "JoyZoning governed-work primitive. Start with action=context. "
-            "Lifecycle: begin → patch → verify → request_review → (habitat merge) → kanban_complete. "
-            "Hermes executes; JoyZoning habitat supervises; never self-authorize merge."
+            "Lifecycle: begin → patch → verify → request_review → convergence_mark_converged → kanban_complete. "
+            "Hermes owns execution state; call convergence_mark_converged after operator review."
         ),
         "parameters": {
             "type": "object",
@@ -138,7 +130,7 @@ registry.register(
                     "description": (
                         "context=where am I; doctor=health; status=convergence; "
                         "begin|patch|verify|request_review=lifecycle; events=journal tail; "
-                        "role_context|validate_handoff|manifest=JSDP/habitat; "
+                        "role_context|validate_handoff=JSDP; "
                         "rolling horizon=use jsdp tool (prepare/commit/step), not joyzoning"
                     ),
                 },
@@ -147,7 +139,7 @@ registry.register(
                 "summary": {"type": "string", "description": "Patch or review summary"},
                 "report": {"type": "string", "description": "Verification report (action=verify)"},
                 "passed": {"type": "boolean", "default": True},
-                "scope_id": {"type": "string", "description": "Override scope (default: kanban/habitat env)"},
+                "scope_id": {"type": "string", "description": "Override scope (default: kanban env)"},
                 "since": {"type": "number", "description": "Events tail unix timestamp"},
                 "limit": {"type": "integer", "default": 50},
                 "text": {"type": "string", "description": "Handoff text (validate_handoff)"},

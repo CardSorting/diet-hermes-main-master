@@ -40,7 +40,7 @@ Expect: one `{"ready":true,…}` line, then one `{"id":1,"ok":true,…}` line. L
 ## Python usage
 
 ```python
-from tools.broccolidb_tools.exec import run_db_rpc, run_agent_rpc, warm_db_rpc
+from plugins.dietcode.lib.tools.broccolidb_tools.exec import run_db_rpc, run_agent_rpc, warm_db_rpc
 
 warm_db_rpc(block=True)
 raw = run_db_rpc("queue_status")

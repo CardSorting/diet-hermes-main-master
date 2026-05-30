@@ -41,7 +41,7 @@ _HERMES_ONESHOT_SCRIPT = "infrastructure/hermes/hermes_oneshot.ts"
 
 def warm_db_rpc(*, block: bool = False, preload_agent: bool = False) -> bool:
     """Pre-start the persistent RPC worker (dashboard poll / kanban sync latency)."""
-    from tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import rpc_available, run_db_rpc
 
     if not rpc_available():
         return False

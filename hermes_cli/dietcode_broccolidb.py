@@ -2,7 +2,7 @@
 DietCode dashboard ↔ BroccoliDB bridge.
 
 Exposes health checks and live hive/graph snapshots for the web dashboard.
-Hot paths use native BroccoliDB RPC (tools/broccolidb_tools/db_gateway.py).
+Hot paths use native BroccoliDB RPC (plugins/dietcode/lib/tools/broccolidb_tools/db_gateway.py).
 """
 from __future__ import annotations
 
@@ -35,14 +35,14 @@ def dashboard_broccolidb_enabled() -> bool:
 
 def get_health() -> dict[str, Any]:
     """Connectivity probe — no subprocess when tree is missing."""
-    from tools.broccolidb_tools.runner import (
+    from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
         check_requirements,
         resolve_broccolidb_db_path,
         resolve_broccolidb_root,
     )
 
-    from tools.broccolidb_tools.db_gateway import rpc_available
-    from tools.broccolidb_tools.db_native import RPC_VERSION, warm_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import rpc_available
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_native import RPC_VERSION, warm_db_rpc
 
     root = resolve_broccolidb_root()
     db_path = resolve_broccolidb_db_path()
@@ -110,7 +110,7 @@ def get_snapshot() -> dict[str, Any]:
             "error": health.get("message") or "BroccoliDB unavailable",
         }
 
-    from tools.broccolidb_tools.runner import run_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.runner import run_db_rpc
 
     # Single RPC round-trip for dashboard poll (graph + queue + hive tables)
     raw = run_db_rpc("dashboard_snapshot", timeout=45)
@@ -134,7 +134,7 @@ def set_proposal_action(proposal_id: str, action: str) -> dict[str, Any]:
     if not pid:
         return {"success": False, "error": "proposal_id required"}
 
-    from tools.broccolidb_tools.runner import run_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.runner import run_db_rpc
 
     raw = run_db_rpc(
         "proposal_action",

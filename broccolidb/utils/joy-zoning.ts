@@ -197,7 +197,7 @@ export function getPathLayer(filePath: string): Layer {
 	return "infrastructure"
 }
 
-/** Keep in sync with agent/governance_exemptions.py (policy v16+) */
+/** Keep in sync with agent/governance_exemptions.py (policy v20+) */
 const GOVERNANCE_EXEMPT_BASENAMES = new Set([
 	"package.json",
 	"package-lock.json",
@@ -445,7 +445,7 @@ const GOVERNANCE_EXEMPT_SEGMENT_PREFIXES = [
 	"target/",
 	".cache/",
 	".turbo/",
-	"tmp/",
+	"temp/",
 	"logs/",
 	"mocks/",
 	"__mocks__/",
@@ -516,6 +516,15 @@ function isEditorRcBasename(basename: string): boolean {
 	return false
 }
 
+function isRepoRootTmpDir(normalized: string): boolean {
+	return normalized.startsWith("tmp/")
+}
+
+/** Ephemeral Hermes scratch only — not all of ``/tmp`` or pytest temps under ``/private/tmp/``. */
+function isHermesScratchTemp(normalized: string): boolean {
+	return normalized.startsWith("/tmp/hermes") || normalized.includes("/tmp/hermes-")
+}
+
 export function isGovernanceArtifactPath(filePath: string): boolean {
 	if (!filePath || !String(filePath).trim()) return true
 	const normalized = normalizeGovernancePath(filePath).toLowerCase()
@@ -524,6 +533,7 @@ export function isGovernanceArtifactPath(filePath: string): boolean {
 	if (isLockfileBasename(basename) || isEditorRcBasename(basename)) return true
 	if (isEnvFileBasename(basename) || isMakefileVariant(basename) || isReleaseDocBasename(basename)) return true
 	if (isCompoundExemptPath(normalized)) return true
+	if (isRepoRootTmpDir(normalized) || isHermesScratchTemp(normalized)) return true
 	for (const suffix of GOVERNANCE_EXEMPT_BASENAME_SUFFIXES) {
 		if (basename.endsWith(suffix)) return true
 	}

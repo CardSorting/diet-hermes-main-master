@@ -1233,7 +1233,7 @@ DEFAULT_CONFIG = {
         # TUI: "new" emits tool.start/complete only (no per-chunk progress RPCs).
         "tool_progress": "new",
         "show_cost": False,       # Show $ cost in the status bar (off by default)
-        "skin": "dietcode",
+        "skin": "default",
         # UI language for static user-facing messages (approval prompts, a
         # handful of gateway slash-command replies).  Does NOT affect agent
         # responses, log lines, tool outputs, or slash-command descriptions.
@@ -1758,16 +1758,14 @@ DEFAULT_CONFIG = {
         "max_parallel_jobs": None,
     },
 
-    # JoyZoning cognitive architecture — native Hermes runtime (NOT habitat UI).
-    # JoyZoning (desktop :9470) observes/supervises; Hermes owns execution state.
-    # JSDP mutation provider is plugins/jsdp_mutation + joyzoning.jsdp config.
+    # JoyZoning cognitive architecture — native Hermes runtime.
+    # Governance hooks, tools, and JSDP wiring ship via plugins/dietcode (kind: backend).
     "joyzoning": {
-        # Off by default — per-tool plugin hooks; enable for kanban/convergence.
+        # Off by default — runtime journal hooks; enable for kanban/convergence.
         "enabled": False,
-        # Layer-governance transform hook (joyzoning_governance plugin — bundled backend,
-        # auto-loads without plugins.enabled). Keep enabled for DietCode; tune validation_mode.
+        # Layer-governance transform hook — wired by plugins/dietcode.
         "governance": {
-            # DietCode: on — joyzoning_governance transform hook enforces layering on writes.
+            # DietCode: on — dietcode transform_tool_result enforces layering on writes.
             "enabled": True,
             # When false (default), [LAYER: TYPE] headers are optional: no auto-inject,
             # no post-write hints, and governance does not block on missing/misaligned tags.
@@ -1781,18 +1779,9 @@ DEFAULT_CONFIG = {
         # Off by default — per-tool SQLite commits add noticeable latency.
         "execution_journal": False,
         "journal_path": "",
-        "emit_habitat_events": True,
         "scope_id": "",
         "convergence": {
             "review_before_complete": True,
-        },
-        "control_plane": {
-            # Set to http://127.0.0.1:9470 when JoyZoning habitat is running.
-            "url": "",
-            "observe_only": True,
-            # Mirror with ControlPlane:InternalToken on habitat (:9470).
-            "ingest_token": "",
-            "bridge_token": "",
         },
         "jsdp": {
             "enabled": False,
@@ -2743,35 +2732,9 @@ OPTIONAL_ENV_VARS = {
         "password": True,
         "category": "tool",
     },
-    "JOYZONING_CONTROL_PLANE_URL": {
-        "description": "JoyZoning habitat control plane URL (default local :9470)",
-        "prompt": "JoyZoning control plane URL",
-        "url": "http://127.0.0.1:9470",
-        "password": False,
-        "category": "tool",
-    },
-    "JOYZONING_INGEST_TOKEN": {
-        "description": "Token for Hermes→habitat observation ingest (X-JoyZoning-Internal-Token)",
-        "prompt": "JoyZoning ingest token",
-        "password": True,
-        "category": "tool",
-    },
-    "JOYZONING_HABITAT_BRIDGE_TOKEN": {
-        "description": "Shared secret for habitat accept-merge → Hermes CONVERGED bridge",
-        "prompt": "JoyZoning habitat bridge token",
-        "password": True,
-        "category": "tool",
-    },
     "JOYZONING_SCOPE_ID": {
-        "description": "Active JoyZoning mutation scope (usually kanban task or habitat GUID)",
+        "description": "Active JoyZoning mutation scope (usually kanban task id)",
         "prompt": "JoyZoning scope id",
-        "password": False,
-        "category": "tool",
-        "advanced": True,
-    },
-    "JOYZONING_HABITAT_TASK": {
-        "description": "JoyZoning habitat task GUID linked to this Hermes run",
-        "prompt": "JoyZoning habitat task id",
         "password": False,
         "category": "tool",
         "advanced": True,

@@ -7,13 +7,13 @@ from unittest.mock import patch
 
 import pytest
 
-from agent.governance_exemptions import (
+from plugins.dietcode.lib.agent.governance_exemptions import (
     extract_governance_tool_paths,
     invalidate_governance_path_cache,
     is_governance_artifact_path,
     is_governance_subject,
 )
-from plugins.joyzoning_governance import (
+from plugins.dietcode.public import (
     _handle_joyzoning,
     _on_transform_tool_result,
     run_joyzoning_gate,
@@ -23,7 +23,7 @@ from plugins.joyzoning_governance import (
 @pytest.fixture(autouse=True)
 def _enable_governance_enforcement(monkeypatch):
     monkeypatch.setattr(
-        "agent.governance_exemptions.is_governance_enforcement_enabled",
+        "plugins.dietcode.lib.agent.governance_exemptions.is_governance_enforcement_enabled",
         lambda: True,
     )
     invalidate_governance_path_cache()
@@ -120,7 +120,7 @@ def test_transform_hook_does_not_block_readme_write(tmp_path, monkeypatch):
         return {"success": True, "singleResults": []}
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("agent.governance_exemptions.run_governance_validation_gate", fake_gate)
+    monkeypatch.setattr("plugins.dietcode.lib.agent.governance_exemptions.run_governance_validation_gate", fake_gate)
 
     blocked = _on_transform_tool_result(
         tool_name="write_file",
@@ -136,7 +136,7 @@ def test_transform_hook_does_not_block_package_json_patch(tmp_path, monkeypatch)
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "agent.governance_exemptions.run_governance_validation_gate",
+        "plugins.dietcode.lib.agent.governance_exemptions.run_governance_validation_gate",
         lambda files, **_kwargs: {"success": False, "singleResults": [{"file": "x", "errors": ["x"]}]},
     )
 
@@ -155,7 +155,7 @@ def test_transform_hook_blocks_governed_ts_with_violations(tmp_path, monkeypatch
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "agent.governance_exemptions.run_governance_validation_gate",
+        "plugins.dietcode.lib.agent.governance_exemptions.run_governance_validation_gate",
         lambda files, **_kwargs: {
             "success": False,
             "singleResults": [
@@ -211,7 +211,7 @@ def test_transform_hook_v4a_only_gates_governable_files(tmp_path, monkeypatch):
         gated.extend(files)
         return {"success": True, "singleResults": []}
 
-    monkeypatch.setattr("agent.governance_exemptions.run_governance_validation_gate", fake_gate)
+    monkeypatch.setattr("plugins.dietcode.lib.agent.governance_exemptions.run_governance_validation_gate", fake_gate)
 
     body = (
         f"*** Update File: {ts_file}\n@@\n+x\n"

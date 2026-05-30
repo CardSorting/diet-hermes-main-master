@@ -4,10 +4,10 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
-from agent.joyzoning.convergence import ConvergenceState, transition_convergence
-from agent.joyzoning.config import resolve_scope_id
-from agent.joyzoning.habitat_events import emit_habitat_event
-from agent.joyzoning.journal import get_journal
+from plugins.dietcode.lib.agent.joyzoning.convergence import ConvergenceState, transition_convergence
+from plugins.dietcode.lib.agent.joyzoning.config import resolve_scope_id
+from plugins.dietcode.lib.agent.joyzoning.runtime_events import emit_runtime_event
+from plugins.dietcode.lib.agent.joyzoning.journal import get_journal
 
 
 def _latest_mutation_state(scope_id: str) -> Optional[str]:
@@ -41,7 +41,7 @@ def _assert_mutation_scope(mutation_id: str, scope_id: str) -> Optional[dict[str
             "mutation_id": mutation_id,
         }
     owner = str(row["scope_id"] or "").strip()
-    from agent.joyzoning.scope_registry import expand_scope_cluster
+    from plugins.dietcode.lib.agent.joyzoning.scope_registry import expand_scope_cluster
     cluster = expand_scope_cluster(scope_id)
     if owner not in cluster:
         return {
@@ -87,7 +87,7 @@ def record_verification(
         goal=report[:500],
         metadata={"passed": passed},
     )
-    emit_habitat_event(
+    emit_runtime_event(
         "mutation.verified",
         scope_id=sid,
         payload={"mutation_id": mutation_id, "passed": passed, "report": report[:2000]},
@@ -109,7 +109,7 @@ def record_verification(
 
 def request_review(summary: str, *, scope_id: Optional[str] = None) -> dict[str, Any]:
     sid = resolve_scope_id(scope_id)
-    from agent.joyzoning.convergence import get_convergence_state
+    from plugins.dietcode.lib.agent.joyzoning.convergence import get_convergence_state
 
     conv = get_convergence_state(sid)
     mut_state = _latest_mutation_state(sid)
@@ -125,16 +125,16 @@ def request_review(summary: str, *, scope_id: Optional[str] = None) -> dict[str,
             "convergence_state": conv.value,
         }
 
-    emit_habitat_event(
+    emit_runtime_event(
         "convergence.review_requested",
         scope_id=sid,
         payload={"summary": summary},
     )
     try:
-        from agent.joyzoning.jsdp_protocol import validate_handoff_sections
+        from plugins.dietcode.lib.agent.joyzoning.jsdp_protocol import validate_handoff_sections
         handoff = validate_handoff_sections(summary)
         if handoff.get("success"):
-            emit_habitat_event(
+            emit_runtime_event(
                 "jsdp.handoff_validated",
                 scope_id=sid,
                 payload={"sections": handoff.get("found_sections", [])},

@@ -1024,21 +1024,29 @@ export class BroccoliDBMCP {
 
       this.server.tool(
         'broccolidb_embed_knowledge',
-        "Force (re-)embed a specific knowledge node using Gemini Embedding 2. Updates the node's embedding vector in-place.",
+        "Force (re-)embed a specific knowledge node using the local embedding engine. Updates the node's embedding vector in-place.",
         {
           kbId: z.string().describe('The Knowledge Base item ID to embed'),
         },
         async (args) => {
           try {
-            const node = await context.getKnowledge(args.kbId);
-            await context.updateKnowledge(args.kbId, { content: node.content });
-            const updated = await context.getKnowledge(args.kbId);
-            const dims = updated.embedding ? updated.embedding.length : 0;
+            const result = await context.embedKnowledge(args.kbId);
+            if (!result.embedded) {
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `Could not embed node ${args.kbId} — empty content or embedding unavailable.`,
+                  },
+                ],
+                isError: true,
+              };
+            }
             return {
               content: [
                 {
                   type: 'text',
-                  text: `Successfully embedded node ${args.kbId}. Vector dimensions: ${dims}`,
+                  text: `Successfully embedded node ${args.kbId}. Vector dimensions: ${result.dimensions}`,
                 },
               ],
             };
@@ -1051,7 +1059,7 @@ export class BroccoliDBMCP {
 
       this.server.tool(
         'broccolidb_semantic_search',
-        'Search the knowledge graph by natural language. Auto-embeds the query using Gemini Embedding 2 and ranks results by cosine similarity.',
+        'Search the knowledge graph by natural language. Auto-embeds the query locally and ranks results by cosine similarity (substring fallback when no embeddings exist).',
         {
           query: z.string().describe('Natural language search query'),
           tags: z.string().optional().describe('Comma-separated tags to filter by'),
@@ -1095,7 +1103,7 @@ export class BroccoliDBMCP {
 
       this.server.tool(
         'broccolidb_reembed_all',
-        'Batch re-embed all knowledge nodes using Gemini Embedding 2. Useful when migrating to a new embedding model.',
+        'Batch re-embed all knowledge nodes using the local embedding engine. Useful when migrating embedding dimensions or refreshing stale vectors.',
         {},
         async () => {
           try {

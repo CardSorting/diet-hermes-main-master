@@ -31,3 +31,6 @@ env/
 broccolidb.db
 broccolidb.db-wal
 broccolidb.db-shm
+.broccolidb/
+broccolidb-failed-flush-*.json
+scratch/

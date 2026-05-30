@@ -14,8 +14,8 @@ Design principles (mirroring industry standards):
 """
 import json
 from tools.registry import registry
-from tools.broccolidb_tools.agent_rpc import run_agent_rpc
-from tools.broccolidb_tools.runner import (
+from plugins.dietcode.lib.tools.broccolidb_tools.agent_rpc import run_agent_rpc
+from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
     check_requirements,
     run_standalone_script,
     _AUDIT_TIMEOUT,

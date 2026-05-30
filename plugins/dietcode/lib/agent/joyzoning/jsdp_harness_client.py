@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
-from agent.joyzoning.config import get_joyzoning_config, read_scope_env
+from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config, read_scope_env
 
 
 class JsdpHarnessError(Exception):
@@ -25,7 +25,6 @@ def resolve_workspace_root(explicit: Optional[str] = None) -> str:
     for key in (
         "JOYZONING_WORKSPACE_ROOT",
         "HERMES_KANBAN_WORKSPACE",
-        "JOYZONING_HABITAT_WORKSPACE",
     ):
         val = read_scope_env(key) or os.environ.get(key, "").strip()
         if val:

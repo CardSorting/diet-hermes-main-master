@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from agent.joyzoning.config import read_scope_env
-from agent.joyzoning.jsdp_execution_guide import clarity_envelope
-from agent.joyzoning.jsdp_harness_client import (
+from plugins.dietcode.lib.agent.joyzoning.config import read_scope_env
+from plugins.dietcode.lib.agent.joyzoning.jsdp_execution_guide import clarity_envelope
+from plugins.dietcode.lib.agent.joyzoning.jsdp_harness_client import (
     JsdpHarnessError,
     horizon_export,
     horizon_prompt,
@@ -51,9 +51,11 @@ class BootstrapResult:
 
 def probe_jsdp_available() -> bool:
     """Whether the jsdp tool should be offered (permissive — bootstrap on first use)."""
-    if read_scope_env("HERMES_KANBAN_TASK") or read_scope_env("JOYZONING_HABITAT_TASK"):
-        return True
-    if read_scope_env("HERMES_KANBAN_WORKSPACE") or read_scope_env("JOYZONING_WORKSPACE_ROOT"):
+    if (
+        read_scope_env("HERMES_KANBAN_TASK")
+        or read_scope_env("HERMES_KANBAN_WORKSPACE")
+        or read_scope_env("JOYZONING_WORKSPACE_ROOT")
+    ):
         return True
     try:
         probe_jz_cli()
@@ -172,9 +174,8 @@ def _fixes_for_error(message: str) -> list[str]:
 
 def session_brief(*, workspace: Optional[str] = None) -> dict[str, Any]:
     """Lightweight snapshot for session start (no init side effects)."""
-    from agent.joyzoning.jsdp_execution_guide import determine_phase
+    from plugins.dietcode.lib.agent.joyzoning.jsdp_execution_guide import determine_phase
 
-    habitat = bool(read_scope_env("JOYZONING_HABITAT_TASK"))
     try:
         root = resolve_workspace_root(workspace)
         cli_ok = True
@@ -190,7 +191,6 @@ def session_brief(*, workspace: Optional[str] = None) -> dict[str, Any]:
             cli_ok=cli_ok,
             harness_present=harness_present,
             horizon=horizon if isinstance(horizon, dict) else None,
-            habitat_linked=habitat,
         )
         return clarity_envelope(
             {
@@ -202,14 +202,12 @@ def session_brief(*, workspace: Optional[str] = None) -> dict[str, Any]:
             cli_ok=cli_ok,
             harness_present=harness_present,
             horizon=horizon if isinstance(horizon, dict) else None,
-            habitat_linked=habitat,
         )
     except JsdpHarnessError as exc:
         return clarity_envelope(
             {"success": False, "error": str(exc)},
             cli_ok=False,
             harness_present=False,
-            habitat_linked=habitat,
         )
 
 
@@ -227,7 +225,6 @@ def prepare_planning(
             {**out, "next_action": "jsdp(action='guide') for diagnostics"},
             cli_ok=False,
             harness_present=boot.harness_present,
-            habitat_linked=bool(read_scope_env("JOYZONING_HABITAT_TASK")),
         )
 
     n = max(3, min(5, int(nodes)))
@@ -272,7 +269,6 @@ def prepare_planning(
         cli_ok=True,
         harness_present=True,
         horizon=out.get("horizon_context") if isinstance(out.get("horizon_context"), dict) else None,
-        habitat_linked=bool(read_scope_env("JOYZONING_HABITAT_TASK")),
     )
 
 
@@ -285,7 +281,7 @@ def commit_proposal(
     force: bool = False,
 ) -> dict[str, Any]:
     """Validate, diff, dry-run import, and import a horizon proposal."""
-    from agent.joyzoning.jsdp_harness_client import (
+    from plugins.dietcode.lib.agent.joyzoning.jsdp_harness_client import (
         horizon_diff,
         horizon_import,
         horizon_validate,
@@ -299,7 +295,6 @@ def commit_proposal(
             result,
             cli_ok=bool(boot.jz_cli),
             harness_present=boot.harness_present,
-            habitat_linked=bool(read_scope_env("JOYZONING_HABITAT_TASK")),
         )
 
     # Ensure export context exists for validate
@@ -320,7 +315,6 @@ def commit_proposal(
             result,
             cli_ok=True,
             harness_present=True,
-            habitat_linked=bool(read_scope_env("JOYZONING_HABITAT_TASK")),
         )
 
     result["diff"] = horizon_diff(path, nodes=n, workspace=boot.workspace_root)
@@ -350,21 +344,18 @@ def commit_proposal(
         cli_ok=True,
         harness_present=True,
         horizon=horizon if isinstance(horizon, dict) else None,
-        habitat_linked=bool(read_scope_env("JOYZONING_HABITAT_TASK")),
     )
 
 
 def autonomous_step(*, workspace: Optional[str] = None) -> dict[str, Any]:
     """Run the next harness command based on current DAG state (no guessing by the agent)."""
     boot = bootstrap(workspace=workspace)
-    habitat = bool(read_scope_env("JOYZONING_HABITAT_TASK"))
     out: dict[str, Any] = {"bootstrap": boot.to_dict(), "success": False}
     if not boot.success:
         return clarity_envelope(
             out,
             cli_ok=bool(boot.jz_cli),
             harness_present=boot.harness_present,
-            habitat_linked=habitat,
         )
 
     hstatus = horizon_status(workspace=boot.workspace_root)
@@ -383,7 +374,7 @@ def autonomous_step(*, workspace: Optional[str] = None) -> dict[str, Any]:
         out["success"] = True
         out["next_action"] = "Repair failed node, then jsdp(action='advance')"
         return clarity_envelope(
-            out, cli_ok=True, harness_present=True, horizon=hstatus, habitat_linked=habitat
+            out, cli_ok=True, harness_present=True, horizon=hstatus
         )
 
     if "continue" in suggested.lower() or "repair" in suggested.lower():
@@ -392,14 +383,14 @@ def autonomous_step(*, workspace: Optional[str] = None) -> dict[str, Any]:
         out["success"] = True
         out["next_action"] = "jsdp(action='advance') after repair"
         return clarity_envelope(
-            out, cli_ok=True, harness_present=True, horizon=hstatus, habitat_linked=habitat
+            out, cli_ok=True, harness_present=True, horizon=hstatus
         )
 
     if "export" in suggested.lower() and "re-export" in suggested.lower():
         out["ran"] = "none"
         out["next_action"] = "jsdp(action='start') — context stale"
         return clarity_envelope(
-            out, cli_ok=True, harness_present=True, horizon=hstatus, habitat_linked=habitat
+            out, cli_ok=True, harness_present=True, horizon=hstatus
         )
 
     if "next" in suggested.lower():
@@ -408,7 +399,7 @@ def autonomous_step(*, workspace: Optional[str] = None) -> dict[str, Any]:
         out["success"] = True
         out["next_action"] = "Implement node prompt, then jsdp(action='advance')"
         return clarity_envelope(
-            out, cli_ok=True, harness_present=True, horizon=hstatus, habitat_linked=habitat
+            out, cli_ok=True, harness_present=True, horizon=hstatus
         )
 
     verify_result = run_jsdp(["verify"], workspace=boot.workspace_root)
@@ -418,7 +409,7 @@ def autonomous_step(*, workspace: Optional[str] = None) -> dict[str, Any]:
         out["success"] = True
         out["next_action"] = "jsdp(action='advance') or jsdp(action='start') for next horizon"
         return clarity_envelope(
-            out, cli_ok=True, harness_present=True, horizon=hstatus, habitat_linked=habitat
+            out, cli_ok=True, harness_present=True, horizon=hstatus
         )
 
     out["ran"] = "next"
@@ -430,7 +421,6 @@ def autonomous_step(*, workspace: Optional[str] = None) -> dict[str, Any]:
         cli_ok=True,
         harness_present=True,
         horizon=hstatus if isinstance(hstatus, dict) else None,
-        habitat_linked=bool(read_scope_env("JOYZONING_HABITAT_TASK")),
     )
 
 
@@ -444,7 +434,6 @@ def operational_status(*, workspace: Optional[str] = None) -> dict[str, Any]:
         result["jz_cli"] = jz
         result["harness_present"] = Path(root).joinpath(".jsdp").is_dir()
         result["kanban_task"] = read_scope_env("HERMES_KANBAN_TASK") or None
-        result["habitat_task"] = read_scope_env("JOYZONING_HABITAT_TASK") or None
     except JsdpHarnessError as exc:
         return clarity_envelope(
             {
@@ -454,10 +443,8 @@ def operational_status(*, workspace: Optional[str] = None) -> dict[str, Any]:
             },
             cli_ok=False,
             harness_present=False,
-            habitat_linked=bool(read_scope_env("JOYZONING_HABITAT_TASK")),
         )
 
-    habitat = bool(read_scope_env("JOYZONING_HABITAT_TASK"))
     horizon = None
     if result["harness_present"]:
         try:
@@ -479,5 +466,4 @@ def operational_status(*, workspace: Optional[str] = None) -> dict[str, Any]:
         cli_ok=True,
         harness_present=result["harness_present"],
         horizon=horizon if isinstance(horizon, dict) else None,
-        habitat_linked=habitat,
     )

@@ -13,14 +13,14 @@ from tools.kanban_tools import (
     _enforce_worker_task_ownership,
     _require_orchestrator_tool,
 )
-from tools.kanban_broccolidb_bridge import (
+from plugins.dietcode.lib.tools.kanban_broccolidb_bridge import (
     broccolidb_available,
     compute_drift,
     sync_kanban_task_id,
     validate_task_id,
 )
-from tools.broccolidb_tools.agent_rpc import run_agent_rpc
-from tools.broccolidb_tools.runner import (
+from plugins.dietcode.lib.tools.broccolidb_tools.agent_rpc import run_agent_rpc
+from plugins.dietcode.lib.tools.broccolidb_tools.runner import (
     resolve_broccolidb_root,
     run_db_rpc_batch,
 )
@@ -192,7 +192,7 @@ def kanban_broccolidb_board_intel(board: str = None, limit: int = 25) -> str:
     except Exception as exc:
         return tool_error(f"kanban board read failed: {exc}")
 
-    from tools.kanban_broccolidb_bridge import get_config
+    from plugins.dietcode.lib.tools.kanban_broccolidb_bridge import get_config
 
     cfg = get_config()
     intel_params = {
@@ -256,7 +256,7 @@ def kanban_broccolidb_drift(board: str = None, limit: int = 200) -> str:
 
 registry.register(
     name="kanban_broccolidb_context",
-    toolset="kanban",
+    toolset="dietcode",
     schema={
         "name": "kanban_broccolidb_context",
         "description": (
@@ -281,7 +281,7 @@ registry.register(
 
 registry.register(
     name="kanban_broccolidb_sync",
-    toolset="kanban",
+    toolset="dietcode",
     schema={
         "name": "kanban_broccolidb_sync",
         "description": "Force-sync a kanban task into BroccoliQ hive_tasks (bypasses debounce).",
@@ -306,7 +306,7 @@ registry.register(
 
 registry.register(
     name="kanban_broccolidb_record",
-    toolset="kanban",
+    toolset="dietcode",
     schema={
         "name": "kanban_broccolidb_record",
         "description": (
@@ -336,7 +336,7 @@ registry.register(
 
 registry.register(
     name="kanban_broccolidb_board_intel",
-    toolset="kanban",
+    toolset="dietcode",
     schema={
         "name": "kanban_broccolidb_board_intel",
         "description": (
@@ -360,7 +360,7 @@ registry.register(
 
 registry.register(
     name="kanban_broccolidb_drift",
-    toolset="kanban",
+    toolset="dietcode",
     schema={
         "name": "kanban_broccolidb_drift",
         "description": (

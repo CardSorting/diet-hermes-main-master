@@ -3082,55 +3082,6 @@ class APIServerAdapter(BasePlatformAdapter):
             )
         return job_id, None
 
-    @staticmethod
-    def _joyzoning_habitat_ack_is_loopback(request: "web.Request") -> bool:
-        """Internal bridge must not be reachable off-host."""
-        peer = (request.remote or "").strip()
-        if not peer:
-            return True
-        if peer in {"127.0.0.1", "::1"}:
-            return True
-        if peer.startswith("127."):
-            return True
-        return False
-
-    async def _handle_joyzoning_habitat_ack(self, request: "web.Request") -> "web.Response":
-        """POST /api/internal/joyzoning/habitat-ack — habitat accept-merge → CONVERGED."""
-        if not self._joyzoning_habitat_ack_is_loopback(request):
-            return web.json_response(
-                {"success": False, "error": "forbidden", "message": "habitat-ack is loopback-only"},
-                status=403,
-            )
-        try:
-            body = await request.json()
-        except Exception:
-            return web.json_response({"success": False, "error": "invalid_json"}, status=400)
-        if not isinstance(body, dict):
-            return web.json_response({"success": False, "error": "invalid_body"}, status=400)
-
-        scope_id = str(body.get("scope_id") or body.get("scope") or "").strip()
-        if not scope_id:
-            return web.json_response({"success": False, "error": "scope_id required"}, status=400)
-
-        extra: list[str] = []
-        for key in ("kanban_task", "hermes_session", "extra_scope_ids"):
-            val = body.get(key)
-            if isinstance(val, list):
-                extra.extend(str(v).strip() for v in val if v)
-            elif val and str(val).strip():
-                extra.append(str(val).strip())
-
-        from agent.joyzoning.habitat_bridge import mark_operator_merge_accepted
-
-        result = mark_operator_merge_accepted(
-            scope_id,
-            extra_scope_ids=extra,
-            token=str(body.get("token") or request.headers.get("X-JoyZoning-Bridge-Token", "")),
-            summary=str(body.get("summary") or ""),
-        )
-        status = 200 if result.get("success") else 409
-        return web.json_response(result, status=status)
-
     async def _handle_list_jobs(self, request: "web.Request") -> "web.Response":
         """GET /api/jobs — list all cron jobs."""
         auth_err = self._check_auth(request)
@@ -3719,7 +3670,6 @@ class APIServerAdapter(BasePlatformAdapter):
                     from gateway.session_context import clear_joyzoning_run_vars, set_joyzoning_run_vars
 
                     joyzoning_tokens = set_joyzoning_run_vars(
-                        habitat_task=str(metadata.get("JOYZONING_HABITAT_TASK") or ""),
                         scope_id=str(metadata.get("JOYZONING_SCOPE_ID") or ""),
                         kanban_task=str(metadata.get("HERMES_KANBAN_TASK") or ""),
                         kanban_board=str(metadata.get("HERMES_KANBAN_BOARD") or ""),
@@ -4141,10 +4091,6 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_post("/api/jobs/{job_id}/pause", self._handle_pause_job)
             self._app.router.add_post("/api/jobs/{job_id}/resume", self._handle_resume_job)
             self._app.router.add_post("/api/jobs/{job_id}/run", self._handle_run_job)
-            self._app.router.add_post(
-                "/api/internal/joyzoning/habitat-ack",
-                self._handle_joyzoning_habitat_ack,
-            )
             # Structured event streaming
             self._app.router.add_post("/v1/runs", self._handle_runs)
             self._app.router.add_get("/v1/runs/{run_id}", self._handle_get_run)

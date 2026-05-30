@@ -121,7 +121,7 @@ def get_config() -> BroccolidbKanbanConfig:
 
 
 def _scope_env(key: str) -> str:
-    from agent.joyzoning.config import read_scope_env
+    from plugins.dietcode.lib.agent.joyzoning.config import read_scope_env
     return read_scope_env(key)
 
 
@@ -148,7 +148,7 @@ def broccolidb_available() -> bool:
     if not broccolidb_enabled():
         return False
     global _requirements_ok, _requirements_at, _requirements_key
-    from tools.broccolidb_tools.runner import check_requirements, resolve_broccolidb_root
+    from plugins.dietcode.lib.tools.broccolidb_tools.runner import check_requirements, resolve_broccolidb_root
 
     # Cache key must be sensitive to common test/workspace switches within one
     # Python process (xdist workers). Tool registry caching doesn't cover this.
@@ -181,20 +181,17 @@ def validate_task_id(task_id: Optional[str]) -> Optional[str]:
 
 
 def _joyzoning_forensic_fields() -> dict[str, Any]:
-    """Scope linkage for BroccoliQ hive rows (habitat GUID ↔ kanban t_…)."""
+    """Scope linkage for BroccoliQ hive rows (kanban task + convergence state)."""
     fields: dict[str, Any] = {}
-    habitat = _scope_env("JOYZONING_HABITAT_TASK")
     scope = _scope_env("JOYZONING_SCOPE_ID")
-    if habitat:
-        fields["habitat_task"] = habitat
     if scope:
         fields["joyzoning_scope"] = scope
-    if not (habitat or scope or _scope_env("HERMES_KANBAN_TASK")):
+    if not (scope or _scope_env("HERMES_KANBAN_TASK")):
         return fields
     try:
-        from agent.joyzoning.config import resolve_scope_id
-        from agent.joyzoning.convergence import get_convergence_state
-        sid = resolve_scope_id(_scope_env("HERMES_KANBAN_TASK") or scope or habitat)
+        from plugins.dietcode.lib.agent.joyzoning.config import resolve_scope_id
+        from plugins.dietcode.lib.agent.joyzoning.convergence import get_convergence_state
+        sid = resolve_scope_id(_scope_env("HERMES_KANBAN_TASK") or scope)
         if sid and sid != "default":
             fields["convergence_state"] = get_convergence_state(sid).value
     except Exception:
@@ -338,7 +335,7 @@ def _mark_sync(task_id: str) -> None:
 
 def sync_task_payload(payload: dict[str, Any], *, force: bool = False) -> str:
     """Upsert a kanban task snapshot into ``hive_tasks`` via hive_sync.ts."""
-    from tools.broccolidb_tools.runner import run_hive_sync
+    from plugins.dietcode.lib.tools.broccolidb_tools.runner import run_hive_sync
 
     if not broccolidb_enabled():
         return _skip_result("disabled in config")
@@ -510,7 +507,7 @@ def sync_on_worker_start() -> None:
     if not task_id:
         return
     try:
-        from agent.joyzoning.scope_registry import register_from_scope_env
+        from plugins.dietcode.lib.agent.joyzoning.scope_registry import register_from_scope_env
         register_from_scope_env()
     except Exception as exc:
         logger.warning("kanban_broccolidb scope alias registration failed: %s", exc)
@@ -519,7 +516,7 @@ def sync_on_worker_start() -> None:
 
 def compute_drift(board: Optional[str] = None, limit: int = 200) -> dict[str, Any]:
     """Compare kanban.db tasks with hive_tasks rows (orchestrator diagnostics)."""
-    from tools.broccolidb_tools.runner import run_hive_drift
+    from plugins.dietcode.lib.tools.broccolidb_tools.runner import run_hive_drift
 
     if not broccolidb_available():
         return {"success": False, "skipped": True, "reason": "broccolidb unavailable"}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.governance_exemptions import (
+from plugins.dietcode.lib.agent.governance_exemptions import (
     GOVERNANCE_POLICY_VERSION,
     _is_editor_rc_basename,
     _is_lockfile_basename,

@@ -6,14 +6,14 @@ import json
 
 import pytest
 
-import agent.governance_exemptions as governance_exemptions
-from agent.joy_zoning import validate_joy_zoning
+import plugins.dietcode.lib.agent.governance_exemptions as governance_exemptions
+from plugins.dietcode.lib.agent.joy_zoning import validate_joy_zoning
 
 
 @pytest.fixture
 def layer_tags_optional(monkeypatch):
     monkeypatch.setattr(
-        "agent.governance_exemptions.is_governance_layer_tags_required",
+        "plugins.dietcode.lib.agent.governance_exemptions.is_governance_layer_tags_required",
         lambda: False,
     )
     monkeypatch.setattr(
@@ -28,7 +28,7 @@ def layer_tags_optional(monkeypatch):
 @pytest.fixture
 def layer_tags_required(monkeypatch):
     monkeypatch.setattr(
-        "agent.governance_exemptions.is_governance_layer_tags_required",
+        "plugins.dietcode.lib.agent.governance_exemptions.is_governance_layer_tags_required",
         lambda: True,
     )
     monkeypatch.setattr(
@@ -51,11 +51,11 @@ def test_layer_tags_optional_by_default_in_config():
 
 def test_governance_enforcement_disabled_skips_mutation_gate(monkeypatch):
     monkeypatch.setattr(
-        "agent.governance_exemptions.is_governance_enforcement_enabled",
+        "plugins.dietcode.lib.agent.governance_exemptions.is_governance_enforcement_enabled",
         lambda: False,
     )
     governance_exemptions.invalidate_governance_path_cache()
-    from agent.governance_exemptions import enforce_governance_on_mutation
+    from plugins.dietcode.lib.agent.governance_exemptions import enforce_governance_on_mutation
 
     out = enforce_governance_on_mutation(
         "write_file",

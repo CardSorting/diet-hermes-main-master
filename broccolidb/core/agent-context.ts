@@ -37,6 +37,8 @@ import type {
   TraversalFilter,
 } from './agent-context/types.js';
 import { LRUCache } from './lru-cache.js';
+import { AiService as LocalEmbeddingService } from './embedding.js';
+import { cosineSimilarity } from './math-utils.js';
 import type { Workspace } from './workspace.js';
 
 /**
@@ -67,6 +69,7 @@ export class AgentContext {
   private readonly _scratchpadService: ScratchpadService;
   private readonly _storageService: StorageService;
   private readonly _teammates: Set<string> = new Set();
+  private _cachedEmbedder: { embedText: (text: string) => Promise<number[] | null> } | null = null;
 
   public readonly userId: string;
 
@@ -80,9 +83,16 @@ export class AgentContext {
     this.userId = (userId || workspace.userId).trim();
     this._kbCache = new LRUCache<string, KnowledgeBaseItem>(2000);
 
+    const workspaceAi = (workspace as { aiService?: { embedText?: (text: string) => Promise<number[] | null> } })
+      .aiService;
+    const embeddingAi =
+      workspaceAi && typeof workspaceAi.embedText === 'function'
+        ? workspaceAi
+        : new LocalEmbeddingService();
+
     this._serviceContext = {
       db: this._db,
-      aiService: (workspace as any).aiService || null,
+      aiService: embeddingAi as ServiceContext['aiService'],
       kbCache: this._kbCache,
       workspace: workspace,
       userId: this.userId,
@@ -434,19 +444,64 @@ export class AgentContext {
     query: string,
     tags?: string[],
     limit = 20,
-    _queryEmbedding?: number[],
+    queryEmbedding?: number[],
     options: { augmentWithGraph?: boolean; skipVerification?: boolean } = {}
   ): Promise<KnowledgeBaseItem[]> {
-    const results = await this._graphService.traverseGraph('HEAD', limit, {
-      direction: 'both',
-      minWeight: 0.1,
-    });
+    const rows = await this._db.selectWhere('knowledge', [{ column: 'userId', value: this.userId }]);
+    const items: KnowledgeBaseItem[] = [];
+    for (const row of rows) {
+      try {
+        items.push(await this.getKnowledge(row.id as string));
+      } catch {
+        // Skip orphaned rows
+      }
+    }
 
-    let filtered = results.filter((r) =>
-      (r.content || '').toLowerCase().includes(query.toLowerCase())
-    );
+    let filtered = items;
     if (tags && tags.length > 0) {
       filtered = filtered.filter((r) => tags.every((t) => (r.tags || []).includes(t)));
+    }
+
+    let queryVec = queryEmbedding;
+    if (!queryVec?.length && query.trim()) {
+      const embedder = await this._resolveEmbedder();
+      queryVec = (await embedder.embedText(query)) ?? undefined;
+    }
+
+    if (queryVec?.length) {
+      const embedded = filtered.filter((r) => r.embedding && r.embedding!.length > 0);
+      if (embedded.length > 0) {
+        filtered = embedded
+          .map((r) => ({ item: r, score: cosineSimilarity(queryVec!, r.embedding!) }))
+          .sort((a, b) => b.score - a.score)
+          .map((x) => x.item);
+      } else if (query.trim()) {
+        filtered = filtered.filter((r) =>
+          (r.content || '').toLowerCase().includes(query.toLowerCase())
+        );
+      }
+    } else if (query.trim()) {
+      filtered = filtered.filter((r) =>
+        (r.content || '').toLowerCase().includes(query.toLowerCase())
+      );
+    }
+
+    if (options.augmentWithGraph && filtered.length > 0) {
+      const seen = new Set(filtered.map((f) => f.itemId));
+      const augmented = [...filtered];
+      for (const node of filtered.slice(0, Math.min(3, filtered.length))) {
+        for (const edge of node.edges || []) {
+          if (seen.has(edge.targetId)) continue;
+          try {
+            const neighbor = await this.getKnowledge(edge.targetId);
+            augmented.push(neighbor);
+            seen.add(edge.targetId);
+          } catch {
+            // Ignore broken edges
+          }
+        }
+      }
+      filtered = augmented;
     }
 
     if (!options.skipVerification) {
@@ -497,8 +552,70 @@ export class AgentContext {
     }
     return { decayedCount: rows.length };
   }
-  async reembedAll() {
-    return { embeddedCount: 0, skippedCount: 0 }; // Placeholder for migration
+
+  private async _resolveEmbedder(): Promise<{ embedText: (text: string) => Promise<number[] | null> }> {
+    if (this._cachedEmbedder) {
+      return this._cachedEmbedder;
+    }
+    const svc = this._serviceContext.aiService as {
+      embedText?: (text: string) => Promise<number[] | null>;
+    } | null;
+    if (svc?.embedText) {
+      this._cachedEmbedder = { embedText: (text) => svc.embedText!(text) };
+      return this._cachedEmbedder;
+    }
+    const local = new LocalEmbeddingService();
+    this._cachedEmbedder = { embedText: (text) => local.embedText(text) };
+    return this._cachedEmbedder;
+  }
+
+  private async _hydrateKnowledgeContent(rawContent: string): Promise<string> {
+    if (!rawContent.startsWith('CAS:')) {
+      return rawContent;
+    }
+    const hash = rawContent.substring(4);
+    const hydrated = await this._serviceContext.storage.readBlob(hash);
+    return hydrated ? hydrated.toString('utf8') : '';
+  }
+
+  async embedKnowledge(kbId: string): Promise<{ embedded: boolean; dimensions: number }> {
+    const node = await this.getKnowledge(kbId);
+    const embedder = await this._resolveEmbedder();
+    const embedding = await embedder.embedText(node.content);
+    if (!embedding) {
+      return { embedded: false, dimensions: 0 };
+    }
+    await this.updateKnowledge(kbId, { embedding });
+    return { embedded: true, dimensions: embedding.length };
+  }
+
+  async reembedAll(): Promise<{ embeddedCount: number; skippedCount: number }> {
+    const embedder = await this._resolveEmbedder();
+    const rows = await this._db.selectWhere('knowledge', [{ column: 'userId', value: this.userId }]);
+
+    let embeddedCount = 0;
+    let skippedCount = 0;
+
+    for (const row of rows) {
+      const kbId = row.id as string;
+      let content = (row.content as string) || '';
+      if (content.startsWith('CAS:')) {
+        content = await this._hydrateKnowledgeContent(content);
+      }
+      if (!content.trim()) {
+        skippedCount++;
+        continue;
+      }
+      const embedding = await embedder.embedText(content);
+      if (!embedding) {
+        skippedCount++;
+        continue;
+      }
+      await this.updateKnowledge(kbId, { embedding });
+      embeddedCount++;
+    }
+
+    return { embeddedCount, skippedCount };
   }
   getCacheStats() {
     return {

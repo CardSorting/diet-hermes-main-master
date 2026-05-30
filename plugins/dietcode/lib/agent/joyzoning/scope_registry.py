@@ -1,4 +1,4 @@
-"""Scope alias registry — links habitat task GUIDs to Hermes kanban task ids."""
+"""Scope alias registry — links kanban task ids and session scopes."""
 from __future__ import annotations
 
 from typing import Iterable
@@ -19,15 +19,15 @@ def _ensure_alias_schema(conn) -> None:
 
 
 def register_from_scope_env() -> None:
-    """Link habitat GUID, JoyZoning scope, and kanban task id when ≥2 are present."""
-    from agent.joyzoning.config import read_scope_env
+    """Link JoyZoning scope and kanban task id when both are present."""
+    from plugins.dietcode.lib.agent.joyzoning.config import read_scope_env
 
     ids = [
         x
         for x in (
             read_scope_env("HERMES_KANBAN_TASK"),
-            read_scope_env("JOYZONING_HABITAT_TASK"),
             read_scope_env("JOYZONING_SCOPE_ID"),
+            read_scope_env("HERMES_SESSION_ID"),
         )
         if x
     ]
@@ -42,7 +42,7 @@ def register_scope_aliases(*scope_ids: str) -> None:
     if len(unique) < 2:
         return
 
-    from agent.joyzoning.journal import get_journal
+    from plugins.dietcode.lib.agent.joyzoning.journal import get_journal
 
     conn = get_journal()._conn()
     _ensure_alias_schema(conn)
@@ -66,7 +66,7 @@ def expand_scope_cluster(scope_id: str) -> list[str]:
     if not sid:
         return ["default"]
 
-    from agent.joyzoning.journal import get_journal
+    from plugins.dietcode.lib.agent.joyzoning.journal import get_journal
 
     conn = get_journal()._conn()
     _ensure_alias_schema(conn)
@@ -88,7 +88,7 @@ def expand_scope_cluster(scope_id: str) -> list[str]:
 
 def cluster_convergence_state(scope_ids: Iterable[str]):
     """Best convergence state across a scope cluster (prefer most advanced)."""
-    from agent.joyzoning.convergence import ConvergenceState, get_convergence_state
+    from plugins.dietcode.lib.agent.joyzoning.convergence import ConvergenceState, get_convergence_state
 
     order = [
         ConvergenceState.CONVERGED,

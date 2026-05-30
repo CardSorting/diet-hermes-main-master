@@ -7,7 +7,7 @@ Files that cannot carry ``[LAYER: TYPE]`` headers (docs, manifests, DB/ORM,
 generated/vendor trees) must never be blocked by the governance transform hook
 or flagged by the file-mutation verifier as layering failures.
 
-Python gates, ``joyzoning_governance``, ``file_tools`` audits, and
+Python gates, the DietCode governance hook, ``file_tools`` audits, and
 ``scripts/joy_check.py`` all import from this module.
 
 Central pipeline::
@@ -29,7 +29,7 @@ import re
 from typing import Any, Callable, Dict, Iterator, List, Literal, NamedTuple, Optional, Set, Tuple
 
 # Bump when exemption policy changes (tests assert monotonic awareness).
-GOVERNANCE_POLICY_VERSION = 18
+GOVERNANCE_POLICY_VERSION = 20
 
 GovernancePathKind = Literal["exempt", "subject", "ineligible"]
 
@@ -335,8 +335,8 @@ GOVERNANCE_EXEMPT_PATH_MARKERS = (
     "/patches/", "/.pnpm-store/", "/.pnpm/", "/.yarn/",
     # Monorepo / tooling caches
     "/.turbo/", "/.moon/", "/.changeset/", "/.rush/", "/.nx/",
-    # Temp / logs / local state
-    "/tmp/", "/temp/", "/.tmp/", "/logs/", "/log/",
+    # Temp / logs / local state (Hermes scratch under /tmp/hermes-* via _is_hermes_scratch_temp)
+    "/temp/", "/.tmp/", "/logs/", "/log/",
     # Legal / compliance dirs
     "/legal/", "/licenses/", "/license/",
     # API / contract artifacts (dirs — not ``src/.../schema`` TS modules)
@@ -397,7 +397,7 @@ GOVERNANCE_EXEMPT_SEGMENT_PREFIXES = (
     ".github/", ".gitlab/", ".circleci/", ".travis/", ".buildkite/",
     "out/", "target/", ".output/", ".cache/", ".turbo/", ".next/", ".nuxt/", ".svelte-kit/",
     ".moon/", ".nx/", ".rush/",
-    "tmp/", "temp/", ".tmp/", "logs/", "log/",
+    "temp/", ".tmp/", "logs/", "log/",
     "mocks/", "__mocks__/", "stubs/", "fakes/", "doubles/", "test-utils/",
     "proto/", "protos/", ".changeset/", ".pnpm/", ".yarn/", ".pnpm-store/",
     "docs/", "documentation/", "reports/", "website/", "wiki/", "blog/",
@@ -405,7 +405,7 @@ GOVERNANCE_EXEMPT_SEGMENT_PREFIXES = (
     "fixtures/", "__fixtures__/", "testdata/", "test-data/", "snapshots/", "__snapshots__/",
     "generated/", "__generated__/", "vendor/", "third_party/", "third-party/",
     "e2e/", "cypress/", "playwright/", ".storybook/", "storybook-static/",
-    "terraform/", "k8s/", "helm/", "charts/", "deploy/", "infra/",
+    "terraform/", "k8s/", "helm/", "charts/", "deploy/", "infra/", "docker/",
     "grafana/", "prometheus/", "alertmanager/", "datadog/",
     "optional-skills/", "design-tokens/", "cms/", "sanity/",
     "android/", "ios/", "legal/", "licenses/",
@@ -420,10 +420,14 @@ def _build_infix_path_markers() -> Tuple[str, ...]:
     """Merge path markers + segment prefixes into one substring scan (except ``skills/``)."""
     seen: Set[str] = set(GOVERNANCE_EXEMPT_PATH_MARKERS)
     ordered: List[str] = list(GOVERNANCE_EXEMPT_PATH_MARKERS)
+    # ``tmp/`` at repo root is checked in _basename_exempt_heuristics (not infix — avoids /tmp/ mount).
+    skip_abs_forms = frozenset({"temp/", ".tmp/"})
     for seg in GOVERNANCE_EXEMPT_SEGMENT_PREFIXES:
         if seg == "skills/":
             continue
         for form in (seg, f"/{seg}"):
+            if seg in skip_abs_forms and form.startswith("/"):
+                continue
             if form not in seen:
                 seen.add(form)
                 ordered.append(form)
@@ -509,7 +513,7 @@ def normalize_governance_path(file_path: str) -> str:
 def _joy_zoning_validate() -> Callable[..., Dict[str, Any]]:
     global _VALIDATE_JOY_ZONING
     if _VALIDATE_JOY_ZONING is None:
-        from agent.joy_zoning import validate_joy_zoning
+        from plugins.dietcode.lib.agent.joy_zoning import validate_joy_zoning
 
         _VALIDATE_JOY_ZONING = validate_joy_zoning
     return _VALIDATE_JOY_ZONING
@@ -518,7 +522,7 @@ def _joy_zoning_validate() -> Callable[..., Dict[str, Any]]:
 def _joy_zoning_get_layer() -> Callable[[str, Optional[str]], str]:
     global _GET_LAYER
     if _GET_LAYER is None:
-        from agent.joy_zoning import get_layer
+        from plugins.dietcode.lib.agent.joy_zoning import get_layer
 
         _GET_LAYER = get_layer
     return _GET_LAYER
@@ -527,7 +531,7 @@ def _joy_zoning_get_layer() -> Callable[[str, Optional[str]], str]:
 def _layer_tag_supported_fn() -> Callable[..., bool]:
     global _LAYER_TAG_SUPPORTED
     if _LAYER_TAG_SUPPORTED is None:
-        from agent.joy_zoning import is_layer_tag_supported
+        from plugins.dietcode.lib.agent.joy_zoning import is_layer_tag_supported
 
         _LAYER_TAG_SUPPORTED = is_layer_tag_supported
     return _LAYER_TAG_SUPPORTED
@@ -621,6 +625,15 @@ def _is_paste_or_local_store(normalized: str) -> bool:
     return "/paste_store/" in normalized or "/.broccolidb/" in normalized
 
 
+def _is_hermes_scratch_temp(normalized_lower: str) -> bool:
+    """Ephemeral agent scratch (``/tmp/hermes-*``) — not all of ``/tmp`` or pytest temps."""
+    return (
+        normalized_lower.startswith("/tmp/hermes")
+        or "/tmp/hermes-" in normalized_lower
+        or normalized_lower.startswith("/tmp/hermes/")
+    )
+
+
 def _is_test_harness_source(normalized: str, basename: str) -> bool:
     """Non-``.test.*`` harness files under test directories (benchmarks, stress)."""
     if not any(m in normalized for m in ("/tests/", "/test/", "/__tests__/", "/benchmarks/")):
@@ -691,6 +704,10 @@ def _basename_exempt_heuristics(basename: str, normalized: str) -> bool:
     ):
         return True
     if _is_repo_root_skills_tree(normalized) or _is_paste_or_local_store(normalized):
+        return True
+    if normalized.startswith("tmp/"):
+        return True
+    if _is_hermes_scratch_temp(normalized):
         return True
     if _is_extensionless_artifact_basename(basename, normalized) or _is_test_harness_source(
         normalized, basename

@@ -2,7 +2,7 @@
 
 
 def test_rpc_methods_include_core_paths():
-    from tools.broccolidb_tools.db_native import RPC_METHODS
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_native import RPC_METHODS
 
     for method in (
         "dashboard_snapshot",
@@ -15,7 +15,7 @@ def test_rpc_methods_include_core_paths():
 
 
 def test_exec_facade_reexports():
-    from tools.broccolidb_tools import exec as bdb_exec
+    from plugins.dietcode.lib.tools.broccolidb_tools import exec as bdb_exec
 
     assert bdb_exec.RPC_VERSION >= 4
     assert callable(bdb_exec.run_db_rpc)

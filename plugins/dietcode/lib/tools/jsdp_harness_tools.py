@@ -28,7 +28,7 @@ _LEGACY_MAP = {
 
 
 def _jsdp_available() -> bool:
-    from agent.joyzoning.jsdp_autonomous import probe_jsdp_available
+    from plugins.dietcode.lib.agent.joyzoning.jsdp_autonomous import probe_jsdp_available
     return probe_jsdp_available()
 
 
@@ -51,7 +51,7 @@ def jsdp(
         )
 
     try:
-        from agent.joyzoning import jsdp_autonomous as auto
+        from plugins.dietcode.lib.agent.joyzoning import jsdp_autonomous as auto
     except ImportError as exc:
         return tool_error(f"JSDP autonomous module unavailable: {exc}")
 
@@ -83,7 +83,7 @@ def jsdp(
 
         return tool_error("unreachable")
     except Exception as exc:
-        from agent.joyzoning.jsdp_harness_client import JsdpHarnessError
+        from plugins.dietcode.lib.agent.joyzoning.jsdp_harness_client import JsdpHarnessError
         if isinstance(exc, JsdpHarnessError):
             return tool_error(str(exc))
         return tool_error(f"jsdp failed: {exc}")

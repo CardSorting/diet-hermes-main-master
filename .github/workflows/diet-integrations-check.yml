@@ -16,12 +16,29 @@ jobs:
           set -euo pipefail
           test -f broccolidb/package.json
           test -d broccolidb/core
-          test -f plugins/joyzoning_governance/plugin.yaml
-          test -f plugins/joyzoning_governance/__init__.py
-          test -f tools/broccolidb_tools/runner.py
-          test -f tools/broccolidb.py
+          test -f plugins/dietcode/plugin.yaml
+          test -f plugins/dietcode/__init__.py
+          test -f plugins/dietcode/contracts.py
+          test -f plugins/dietcode/paths.py
+          test -f plugins/dietcode/prompts.py
+          test -f plugins/dietcode/broccolidb/package.json
+          test -d plugins/dietcode/broccolidb/core
+          test ! -e plugins/joyzoning_governance
+          test ! -e plugins/joyzoning_runtime
+          test ! -e plugins/kanban_broccolidb
+          test ! -e plugins/jsdp_mutation
+          test -f plugins/dietcode/lib/tools/broccolidb.py
+          test -f plugins/dietcode/lib/runtime/governance_hooks.py
+          test -f plugins/dietcode/lib/runtime/joyzoning_hooks.py
+          test -f plugins/dietcode/lib/runtime/kanban_hooks.py
+          test -f plugins/dietcode/lib/runtime/jsdp_hooks.py
+          test -f plugins/dietcode/slash_commands.py
+          test -f plugins/dietcode/audit.py
+          test -f plugins/dietcode/public.py
+          test -f broccolidb/tests/semantic_search.test.ts
+          test ! -e tools/broccolidb.py
           test -f scripts/joy_check.py
-          grep -q 'broccolidb_init' toolsets.py
+          grep -q "'dietcode'" toolsets.py
           grep -q 'broccolidb_check_layering' toolsets.py
           grep -q '"/dietcode"' web/src/App.tsx
 
@@ -29,11 +46,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: BroccoliDB tool registry smoke test
+      - name: BroccoliDB tool registry smoke test (via DietCode plugin)
         run: |
           python -c "
+          from hermes_cli.plugins import discover_plugins
+          from plugins.dietcode.tools_loader import DEFERRED_TOOL_MODULE_STEMS
           from tools.registry import discover_builtin_tools, registry
-          discover_builtin_tools()
+          imported = discover_builtin_tools()
+          assert 'plugins.dietcode.lib.tools.broccolidb' not in imported, imported
+          assert 'broccolidb' in DEFERRED_TOOL_MODULE_STEMS
+          discover_plugins(force=True)
           tools = registry.get_tool_names_for_toolset('broccolidb')
           assert len(tools) >= 23, tools
           print('broccolidb tools:', len(tools))
@@ -47,57 +69,61 @@ jobs:
           test -f broccolidb/infrastructure/db/IntegrityWorker.ts
           test -f broccolidb/infrastructure/db/DatabaseSchema.ts
           test -d broccolidb/infrastructure/db/pool
-          test -f plugins/kanban_broccolidb/plugin.yaml
-          test -f plugins/joyzoning_runtime/plugin.yaml
-          test -f plugins/jsdp_mutation/plugin.yaml
-          test -f agent/joyzoning/journal.py
-          test -f agent/joyzoning/workflow.py
+          test -f plugins/dietcode/lib/runtime/governance_hooks.py
+          test -f plugins/dietcode/slash_commands.py
+          test -f plugins/dietcode/lib/agent/joyzoning/journal.py
+          test -f plugins/dietcode/lib/agent/joyzoning/workflow.py
           test -f skills/devops/joyzoning-governed-work/SKILL.md
-          test -f tools/convergence_tools.py
-          test -f tools/joyzoning_tools.py
-          test -f tools/jsdp_harness_tools.py
-          test -f agent/joyzoning/jsdp_harness_client.py
-          test -f tools/kanban_broccolidb_tools.py
+          test -f plugins/dietcode/lib/tools/convergence_tools.py
+          test -f plugins/dietcode/lib/tools/joyzoning_tools.py
+          test -f plugins/dietcode/lib/tools/jsdp_harness_tools.py
+          test -f plugins/dietcode/lib/tools/kanban_broccolidb_tools.py
+          test -f plugins/dietcode/lib/agent/governance_exemptions.py
+          test -f plugins/dietcode/lib/agent/joyzoning/jsdp_harness_client.py
+          test ! -e tools/broccolidb.py
+          test ! -e tools/joyzoning_tools.py
+          test ! -d agent/joyzoning
           grep -q "'joyzoning'" toolsets.py
           test -f broccolidb/infrastructure/kanban/hive_sync.ts
           test -f broccolidb/infrastructure/kanban/hive_drift.ts
           test -f broccolidb/infrastructure/kanban/hive_board_intel.ts
           grep -q 'kanban_broccolidb_drift' toolsets.py
 
-      - name: JoyZoning governance plugin loads
+      - name: DietCode unified plugin contract
         run: |
           python -c "
           from hermes_cli.plugins import discover_plugins, get_plugin_manager
+          from toolsets import resolve_toolset
+          from plugins.dietcode.contracts import validate_runtime_contract
+          from plugins.dietcode.health import handle_dietcode_command
           discover_plugins(force=True)
           pm = get_plugin_manager()
-          loaded = [k for k in pm._plugins if 'joyzoning' in k]
-          assert loaded, 'joyzoning_governance not discovered'
-          for k in loaded:
-              p = pm._plugins[k]
-              assert p.enabled, f'{k} not enabled: {getattr(p, \"error\", None)}'
-          print('ok:', loaded)
-          "
-
-      - name: Kanban BroccoliQ plugin loads
-        run: |
-          python -c "
-          from hermes_cli.plugins import discover_plugins, get_plugin_manager
-          discover_plugins(force=True)
-          pm = get_plugin_manager()
-          assert 'kanban_broccolidb' in pm._plugins, list(pm._plugins.keys())
-          p = pm._plugins['kanban_broccolidb']
+          assert 'dietcode' in pm._plugins, list(pm._plugins.keys())
+          p = pm._plugins['dietcode']
           assert p.enabled, getattr(p, 'error', None)
-          print('ok: kanban_broccolidb')
+          assert getattr(pm, '_dietcode_guidance_builder', None), 'guidance builder missing'
+          tools = set(resolve_toolset('dietcode'))
+          assert 'jsdp' in tools and 'jsdp_horizon' in tools
+          contract = validate_runtime_contract(strict=True)
+          assert contract.ok, contract.errors
+          status = handle_dietcode_command('doctor')
+          assert status and 'DietCode integration status' in status
+          assert 'Governance transform hook wired' in status
+          print('ok: dietcode contract + jsdp + doctor')
           "
 
-      - name: Kanban BroccoliQ bridge tests
-        run: scripts/run_tests.sh tests/tools/test_kanban_broccolidb_tools.py -q
+      - name: DietCode governance handlers importable
+        run: |
+          python -c "
+          from plugins.dietcode.public import _on_transform_tool_result, run_joyzoning_gate
+          assert callable(_on_transform_tool_result)
+          assert callable(run_joyzoning_gate)
+          print('ok: dietcode public API')
+          "
 
-      - name: JoyZoning runtime tests
-        run: scripts/run_tests.sh tests/agent/test_joyzoning_runtime.py -q
+      - uses: actions/setup-node@39370e3970a2d20f39723739dc3963b332c0dfaf  # v4.1.0
+        with:
+          node-version: "20"
 
-      - name: JoyZoning primitive tool tests
-        run: scripts/run_tests.sh tests/tools/test_joyzoning_tools.py tests/tools/test_jsdp_harness_tools.py -q
-
-      - name: JoyZoning production hardening tests
-        run: scripts/run_tests.sh tests/agent/test_joyzoning_production.py -q
+      - name: DietCode full integration tests
+        run: scripts/run_dietcode_tests.sh

@@ -8,7 +8,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_config_cache():
-    import agent.joyzoning.config as cfg_mod
+    import plugins.dietcode.lib.agent.joyzoning.config as cfg_mod
     from hermes_cli import config as hermes_config_mod
 
     cfg_mod._config_cache = None
@@ -32,18 +32,18 @@ def ws_env(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_KANBAN_WORKSPACE", str(ws))
     monkeypatch.chdir(ws)
     monkeypatch.setattr(
-        "agent.joyzoning.jsdp_autonomous.probe_jz_cli",
+        "plugins.dietcode.lib.agent.joyzoning.jsdp_autonomous.probe_jz_cli",
         lambda: "/fake/jz",
     )
     monkeypatch.setattr(
-        "agent.joyzoning.jsdp_harness_client.resolve_jz_executable",
+        "plugins.dietcode.lib.agent.joyzoning.jsdp_harness_client.resolve_jz_executable",
         lambda: "/fake/jz",
     )
     yield ws
 
 
 def test_jsdp_registered(ws_env):
-    import tools.jsdp_harness_tools  # noqa: F401
+    import plugins.dietcode.lib.tools.jsdp_harness_tools  # noqa: F401
     from tools.registry import registry
 
     assert "jsdp" in registry.get_tool_names_for_toolset("joyzoning")
@@ -51,18 +51,18 @@ def test_jsdp_registered(ws_env):
 
 def test_available_with_kanban_task(ws_env, monkeypatch):
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_auto001")
-    from tools.jsdp_harness_tools import _jsdp_available
+    from plugins.dietcode.lib.tools.jsdp_harness_tools import _jsdp_available
 
     assert _jsdp_available() is True
 
 
 def test_status_without_harness(ws_env, monkeypatch):
     monkeypatch.setattr(
-        "agent.joyzoning.jsdp_harness_client.resolve_jz_executable",
+        "plugins.dietcode.lib.agent.joyzoning.jsdp_harness_client.resolve_jz_executable",
         lambda: "/fake/jz",
     )
-    import tools.jsdp_harness_tools  # noqa: F401
-    from tools.jsdp_harness_tools import jsdp
+    import plugins.dietcode.lib.tools.jsdp_harness_tools  # noqa: F401
+    from plugins.dietcode.lib.tools.jsdp_harness_tools import jsdp
 
     raw = jsdp(action="guide")
     data = json.loads(raw)
@@ -91,19 +91,19 @@ def test_prepare_bootstrap_chain(ws_env, monkeypatch):
             return {"promptPath": str(p)}
         return {"ok": True}
 
-    monkeypatch.setattr("agent.joyzoning.jsdp_harness_client.run_jsdp", fake_run)
-    monkeypatch.setattr("agent.joyzoning.jsdp_autonomous.run_jsdp", fake_run)
+    monkeypatch.setattr("plugins.dietcode.lib.agent.joyzoning.jsdp_harness_client.run_jsdp", fake_run)
+    monkeypatch.setattr("plugins.dietcode.lib.agent.joyzoning.jsdp_autonomous.run_jsdp", fake_run)
     monkeypatch.setattr(
-        "agent.joyzoning.jsdp_harness_client.resolve_jz_executable",
+        "plugins.dietcode.lib.agent.joyzoning.jsdp_harness_client.resolve_jz_executable",
         lambda: "/fake/jz",
     )
     monkeypatch.setattr(
-        "agent.joyzoning.jsdp_autonomous.probe_jz_cli",
+        "plugins.dietcode.lib.agent.joyzoning.jsdp_autonomous.probe_jz_cli",
         lambda: "/fake/jz",
     )
 
-    import tools.jsdp_harness_tools  # noqa: F401
-    from tools.jsdp_harness_tools import jsdp
+    import plugins.dietcode.lib.tools.jsdp_harness_tools  # noqa: F401
+    from plugins.dietcode.lib.tools.jsdp_harness_tools import jsdp
 
     raw = jsdp(action="start", nodes=3)
     data = json.loads(raw)
@@ -115,11 +115,11 @@ def test_prepare_bootstrap_chain(ws_env, monkeypatch):
 
 def test_commit_requires_json(ws_env, monkeypatch):
     monkeypatch.setattr(
-        "agent.joyzoning.jsdp_harness_client.resolve_jz_executable",
+        "plugins.dietcode.lib.agent.joyzoning.jsdp_harness_client.resolve_jz_executable",
         lambda: "/fake/jz",
     )
-    import tools.jsdp_harness_tools  # noqa: F401
-    from tools.jsdp_harness_tools import jsdp
+    import plugins.dietcode.lib.tools.jsdp_harness_tools  # noqa: F401
+    from plugins.dietcode.lib.tools.jsdp_harness_tools import jsdp
 
     raw = jsdp(action="apply")
     assert "error" in raw.lower()
@@ -127,7 +127,7 @@ def test_commit_requires_json(ws_env, monkeypatch):
 
 def test_legacy_export_alias_maps_to_start(ws_env, monkeypatch):
     """Legacy action names route to start/apply/advance/guide without breaking other tests."""
-    from tools.jsdp_harness_tools import _LEGACY_MAP
+    from plugins.dietcode.lib.tools.jsdp_harness_tools import _LEGACY_MAP
 
     assert _LEGACY_MAP["export"] == "start"
     assert _LEGACY_MAP["commit"] == "apply"

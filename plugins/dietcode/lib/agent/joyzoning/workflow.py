@@ -3,13 +3,12 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from agent.joyzoning.convergence import ConvergenceState
-from agent.joyzoning.config import get_joyzoning_config, read_scope_env, resolve_scope_id
+from plugins.dietcode.lib.agent.joyzoning.convergence import ConvergenceState
+from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config, read_scope_env, resolve_scope_id
 
 
 def _scope_bindings() -> dict[str, str]:
     keys = (
-        "JOYZONING_HABITAT_TASK",
         "JOYZONING_SCOPE_ID",
         "HERMES_KANBAN_TASK",
         "HERMES_KANBAN_BOARD",
@@ -59,8 +58,8 @@ def recommended_next_actions(state: ConvergenceState) -> list[str]:
         ]
     if state == ConvergenceState.READY_FOR_REVIEW:
         return [
-            "Stop — operator reviews in JoyZoning habitat (accept-merge)",
-            "Do not kanban_complete until habitat marks converged",
+            "Stop — operator reviews the change out-of-band",
+            "After approval: convergence_mark_converged(...) then kanban_complete(...)",
         ]
     if state == ConvergenceState.CONVERGED:
         return [
@@ -74,8 +73,8 @@ def recommended_next_actions(state: ConvergenceState) -> list[str]:
 
 
 def _resolve_cluster(scope_id: str) -> tuple[ConvergenceState, str, list[str]]:
-    from agent.joyzoning.convergence import get_convergence_state
-    from agent.joyzoning.scope_registry import cluster_convergence_state, expand_scope_cluster
+    from plugins.dietcode.lib.agent.joyzoning.convergence import get_convergence_state
+    from plugins.dietcode.lib.agent.joyzoning.scope_registry import cluster_convergence_state, expand_scope_cluster
 
     cluster = expand_scope_cluster(scope_id)
     state, anchor = cluster_convergence_state(cluster)
@@ -91,26 +90,11 @@ def build_operational_context(*, scope_id: str | None = None) -> dict[str, Any]:
     state, anchor_scope, scope_cluster = _resolve_cluster(sid)
     bindings = _scope_bindings()
 
-    cp_health: dict[str, Any] = {"configured": bool(cfg.control_plane_url)}
-    habitat_context: dict[str, Any] | None = None
-    habitat_manifest: dict[str, Any] | None = None
-
-    if cfg.control_plane_url:
-        from agent.joyzoning.control_plane_client import ControlPlaneClient
-        client = ControlPlaneClient()
-        cp_health = client.health()
-        habitat_context = client.agent_context()
-        if habitat_context.get("success") is not False and not habitat_context.get("error"):
-            try:
-                habitat_manifest = client.agent_manifest()
-            except Exception as exc:
-                habitat_manifest = {"success": False, "error": str(exc)}
-
     journal_row = None
     active_mutation: Optional[dict[str, Any]] = None
     journal_integrity: dict[str, Any] = {"success": True}
     try:
-        from agent.joyzoning.journal import get_journal
+        from plugins.dietcode.lib.agent.joyzoning.journal import get_journal
         journal = get_journal()
         journal_row = journal.get_convergence(anchor_scope)
         active_mutation = journal.get_active_mutation(anchor_scope)
@@ -120,14 +104,14 @@ def build_operational_context(*, scope_id: str | None = None) -> dict[str, Any]:
 
     gate_message = None
     try:
-        from agent.joyzoning.convergence import require_review_before_complete
+        from plugins.dietcode.lib.agent.joyzoning.convergence import require_review_before_complete
         gate_message = require_review_before_complete(anchor_scope)
     except Exception:
         pass
 
     jsdp_harness: dict[str, Any] | None = None
     try:
-        from agent.joyzoning.jsdp_autonomous import session_brief
+        from plugins.dietcode.lib.agent.joyzoning.jsdp_autonomous import session_brief
         jsdp_harness = session_brief()
     except Exception:
         pass
@@ -145,23 +129,18 @@ def build_operational_context(*, scope_id: str | None = None) -> dict[str, Any]:
         "config": {
             "enabled": cfg.enabled,
             "review_before_complete": cfg.review_before_complete,
-            "control_plane_url": cfg.control_plane_url or None,
-            "ingest_token_configured": bool(cfg.ingest_token),
-            "bridge_token_configured": bool(cfg.habitat_bridge_token),
+            "execution_journal": cfg.execution_journal,
             "jsdp_enabled": cfg.jsdp_enabled,
             "jsdp_role": cfg.jsdp_role or None,
             "jsdp_harness_enabled": cfg.jsdp_harness_enabled,
         },
         "jsdp_harness": jsdp_harness,
-        "control_plane": cp_health,
-        "habitat_agent_context": habitat_context,
-        "habitat_agent_manifest": habitat_manifest,
         "convergence_record": journal_row,
         "journal_integrity": journal_integrity,
         "next_actions": _merge_harness_next_actions(recommended_next_actions(state), jsdp_harness),
         "authority": {
             "execution": "hermes",
-            "supervision": "joyzoning_habitat",
-            "merge_gate": "habitat_operator",
+            "convergence": "hermes_journal",
+            "merge_gate": "convergence_mark_converged",
         },
     }

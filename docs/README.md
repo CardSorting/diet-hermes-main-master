@@ -18,7 +18,7 @@ cd broccolidb && npm ci && npm rebuild better-sqlite3 && cd ..
 python scripts/benchmark_broccolidb_native_rpc.py -n 9
 ```
 
-**Python entry points:** `tools/broccolidb_tools/exec.py` (`run_db_rpc`, `run_agent_rpc`, `warm_db_rpc`).
+**Python entry points:** `plugins/dietcode/lib/tools/broccolidb_tools/exec.py` (`run_db_rpc`, `run_agent_rpc`, `warm_db_rpc`).
 
 **TypeScript worker:** `broccolidb/infrastructure/hermes/hermes_rpc.ts` — see [broccolidb/infrastructure/hermes/README.md](../broccolidb/infrastructure/hermes/README.md).
 

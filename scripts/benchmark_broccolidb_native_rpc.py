@@ -53,13 +53,13 @@ def _bench(label: str, fn: Callable[[], None], *, iterations: int = 7) -> dict[s
 
 
 def _shutdown_gateway() -> None:
-    from tools.broccolidb_tools.db_gateway import shutdown_gateway
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import shutdown_gateway
 
     shutdown_gateway()
 
 
 def _require_live() -> bool:
-    from tools.broccolidb_tools.runner import check_requirements, resolve_broccolidb_db_path
+    from plugins.dietcode.lib.tools.broccolidb_tools.runner import check_requirements, resolve_broccolidb_db_path
 
     if not check_requirements():
         return False
@@ -68,9 +68,9 @@ def _require_live() -> bool:
 
 
 def run_benchmarks(*, iterations: int = 7) -> dict[str, Any]:
-    from tools.broccolidb_tools.db_gateway import run_db_rpc_batch, run_oneshot_rpc, shutdown_gateway
-    from tools.broccolidb_tools.db_native import warm_db_rpc
-    from tools.broccolidb_tools.runner import run_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_gateway import run_db_rpc_batch, run_oneshot_rpc, shutdown_gateway
+    from plugins.dietcode.lib.tools.broccolidb_tools.db_native import warm_db_rpc
+    from plugins.dietcode.lib.tools.broccolidb_tools.runner import run_db_rpc
 
     meta: dict[str, Any] = {
         "iterations_per_case": iterations,
@@ -86,7 +86,7 @@ def run_benchmarks(*, iterations: int = 7) -> dict[str, Any]:
         return {"meta": meta, "results": rows}
 
     meta["live"] = True
-    from tools.broccolidb_tools.runner import resolve_broccolidb_db_path
+    from plugins.dietcode.lib.tools.broccolidb_tools.runner import resolve_broccolidb_db_path
 
     meta["db_path"] = resolve_broccolidb_db_path()
 

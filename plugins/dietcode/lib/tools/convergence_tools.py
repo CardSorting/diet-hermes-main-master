@@ -9,17 +9,17 @@ from tools.registry import registry, tool_error
 
 def _joyzoning_enabled() -> bool:
     try:
-        from agent.joyzoning.config import get_joyzoning_config
+        from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config
         return get_joyzoning_config().enabled
     except Exception:
         return False
 
 
 def convergence_status(scope_id: str = None) -> str:
-    from agent.joyzoning.config import resolve_scope_id
-    from agent.joyzoning.convergence import require_review_before_complete
-    from agent.joyzoning.journal import get_journal
-    from agent.joyzoning.workflow import _resolve_cluster
+    from plugins.dietcode.lib.agent.joyzoning.config import resolve_scope_id
+    from plugins.dietcode.lib.agent.joyzoning.convergence import require_review_before_complete
+    from plugins.dietcode.lib.agent.joyzoning.journal import get_journal
+    from plugins.dietcode.lib.agent.joyzoning.workflow import _resolve_cluster
 
     sid = resolve_scope_id(scope_id)
     state, anchor, cluster = _resolve_cluster(sid)
@@ -39,7 +39,7 @@ def convergence_status(scope_id: str = None) -> str:
 
 
 def mutation_begin(goal: str, scope_id: str = None) -> str:
-    from agent.joyzoning.mutation_lifecycle import begin_mutation
+    from plugins.dietcode.lib.agent.joyzoning.mutation_lifecycle import begin_mutation
     if not goal or not goal.strip():
         return tool_error("goal is required")
     return json.dumps(begin_mutation(goal.strip(), scope_id=scope_id))
@@ -50,7 +50,7 @@ def mutation_record_patch(
     summary: str = "",
     scope_id: str = None,
 ) -> str:
-    from agent.joyzoning.mutation_lifecycle import record_patch
+    from plugins.dietcode.lib.agent.joyzoning.mutation_lifecycle import record_patch
     if not mutation_id:
         return tool_error("mutation_id is required")
     return json.dumps(record_patch(mutation_id, summary=summary.strip(), scope_id=scope_id))
@@ -62,7 +62,7 @@ def mutation_verify(
     passed: bool = True,
     scope_id: str = None,
 ) -> str:
-    from agent.joyzoning.mutation_lifecycle import record_verification
+    from plugins.dietcode.lib.agent.joyzoning.mutation_lifecycle import record_verification
     if not mutation_id:
         return tool_error("mutation_id is required")
     if not report or not report.strip():
@@ -76,22 +76,15 @@ def mutation_verify(
 
 
 def convergence_request_review(summary: str, scope_id: str = None) -> str:
-    from agent.joyzoning.mutation_lifecycle import request_review
+    from plugins.dietcode.lib.agent.joyzoning.mutation_lifecycle import request_review
     if not summary or not summary.strip():
         return tool_error("summary is required")
     return json.dumps(request_review(summary.strip(), scope_id=scope_id))
 
 
 def convergence_mark_converged(summary: str = "", scope_id: str = None) -> str:
-    """Mark scope converged after operator review (habitat accept-merge)."""
-    from agent.joyzoning.convergence import ConvergenceState, transition_convergence
-    from agent.joyzoning.config import get_joyzoning_config
-    cfg = get_joyzoning_config()
-    if cfg.control_plane_url and cfg.control_plane_observe_only:
-        return tool_error(
-            "Operator accept-merge must happen in JoyZoning habitat when control_plane is "
-            "configured. Hermes cannot self-authorize convergence."
-        )
+    """Mark scope converged after operator review."""
+    from plugins.dietcode.lib.agent.joyzoning.convergence import ConvergenceState, transition_convergence
     return json.dumps(transition_convergence(
         ConvergenceState.CONVERGED,
         scope_id=scope_id,
@@ -100,14 +93,14 @@ def convergence_mark_converged(summary: str = "", scope_id: str = None) -> str:
     ))
 
 
-def habitat_events_tail(
+def runtime_events_tail(
     since: float = 0.0,
     scope_id: str = None,
     limit: int = 50,
 ) -> str:
-    from agent.joyzoning.config import resolve_scope_id
-    from agent.joyzoning.habitat_events import format_habitat_stream
-    from agent.joyzoning.journal import get_journal
+    from plugins.dietcode.lib.agent.joyzoning.config import resolve_scope_id
+    from plugins.dietcode.lib.agent.joyzoning.runtime_events import format_runtime_stream
+    from plugins.dietcode.lib.agent.joyzoning.journal import get_journal
 
     sid = resolve_scope_id(scope_id) if scope_id else None
     since_ts = float(since or 0.0)
@@ -117,20 +110,24 @@ def habitat_events_tail(
     return json.dumps({
         "success": True,
         "scope_id": sid,
-        "events": format_habitat_stream(events),
+        "events": format_runtime_stream(events),
     })
 
 
+# Back-compat alias for callers/tests.
+habitat_events_tail = runtime_events_tail
+
+
 def jsdp_validate_handoff(text: str) -> str:
-    from agent.joyzoning.jsdp_protocol import validate_handoff_sections
+    from plugins.dietcode.lib.agent.joyzoning.jsdp_protocol import validate_handoff_sections
     if not text or not text.strip():
         return tool_error("text is required")
     return json.dumps(validate_handoff_sections(text))
 
 
 def jsdp_role_context(scope_id: str = None) -> str:
-    from agent.joyzoning.config import get_joyzoning_config, resolve_scope_id
-    from agent.joyzoning.jsdp_protocol import role_context_prompt
+    from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config, resolve_scope_id
+    from plugins.dietcode.lib.agent.joyzoning.jsdp_protocol import role_context_prompt
     cfg = get_joyzoning_config()
     if not cfg.jsdp_enabled and not cfg.jsdp_role:
         return tool_error("JSDP not enabled — set joyzoning.jsdp.enabled or JOYZONING_JSDP_ROLE")
@@ -242,7 +239,7 @@ registry.register(
     toolset="joyzoning",
     schema={
         "name": "convergence_request_review",
-        "description": "Move scope to ready_for_review — stop before kanban_complete; habitat operator reviews.",
+        "description": "Move scope to ready_for_review — stop before kanban_complete; operator reviews.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -261,11 +258,11 @@ registry.register(
 )
 
 registry.register(
-    name="habitat_events_tail",
+    name="runtime_events_tail",
     toolset="joyzoning",
     schema={
-        "name": "habitat_events_tail",
-        "description": "Tail Hermes execution journal as habitat-compatible events (replay/observability).",
+        "name": "runtime_events_tail",
+        "description": "Tail Hermes execution journal events (replay/observability).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -275,7 +272,7 @@ registry.register(
             },
         },
     },
-    handler=lambda args, **kw: habitat_events_tail(
+    handler=lambda args, **kw: runtime_events_tail(
         since=args.get("since", 0.0),
         scope_id=args.get("scope_id"),
         limit=args.get("limit", 50),
@@ -306,10 +303,7 @@ registry.register(
     toolset="joyzoning",
     schema={
         "name": "convergence_mark_converged",
-        "description": (
-            "Mark CONVERGED after operator accept-merge. Blocked when habitat control "
-            "plane is configured — use habitat merge gate instead."
-        ),
+        "description": "Mark CONVERGED after operator review (use after request_review gate).",
         "parameters": {
             "type": "object",
             "properties": {

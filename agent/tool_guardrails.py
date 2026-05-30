@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from utils import safe_json_loads
-from agent.governance_exemptions import parse_tool_result_payload
+from agent.governance_bridge import parse_tool_result_payload
 from agent.tool_result_classification import (
     FILE_MUTATING_TOOL_NAMES,
     file_mutation_result_landed,
@@ -213,7 +213,7 @@ def classify_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str
         data = safe_json_loads(result)
         if isinstance(data, dict):
             try:
-                from agent.governance_exemptions import is_governance_transform_result
+                from agent.governance_bridge import is_governance_transform_result
 
                 if is_governance_transform_result(data):
                     return True, " [governance]"
@@ -320,7 +320,7 @@ class ToolCallGuardrailController:
         if not isinstance(parsed, dict):
             return None
         try:
-            from agent.governance_exemptions import is_governance_transform_result
+            from agent.governance_bridge import is_governance_transform_result
         except ImportError:
             return None
         if not is_governance_transform_result(parsed):
@@ -378,7 +378,7 @@ class ToolCallGuardrailController:
                 parsed = parse_tool_result_payload(result)
                 if isinstance(parsed, dict):
                     try:
-                        from agent.governance_exemptions import is_governance_transform_result
+                        from agent.governance_bridge import is_governance_transform_result
 
                         failed = is_governance_transform_result(parsed)
                     except ImportError:
@@ -525,7 +525,7 @@ def append_toolguard_guidance(result: str, decision: ToolGuardrailDecision) -> s
     try:
         parsed = parse_tool_result_payload(result or "")
         if isinstance(parsed, dict):
-            from agent.governance_exemptions import is_governance_transform_result
+            from agent.governance_bridge import is_governance_transform_result
 
             if is_governance_transform_result(parsed) or parsed.get("governance_fault") is True:
                 files = parsed.get("dirty_files") or []

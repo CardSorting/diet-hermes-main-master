@@ -22,7 +22,10 @@
     "format": "biome format --write .",
     "lint": "biome lint . && eslint .",
     "check": "biome check --write . && eslint .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "tsx tests/reembed_all.test.ts",
+    "test:reembed": "tsx tests/reembed_all.test.ts",
+    "test:semantic": "tsx tests/semantic_search.test.ts",
+    "test:integration": "tsx tests/reembed_all.test.ts && tsx tests/semantic_search.test.ts && tsx tests/gc_sovereignty.test.ts"
   },
   "repository": {
     "type": "git",

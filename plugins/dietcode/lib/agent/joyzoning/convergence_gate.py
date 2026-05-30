@@ -19,8 +19,8 @@ def pre_tool_call_block(
     if tool_name != "kanban_complete":
         return None
     try:
-        from agent.joyzoning.config import get_joyzoning_config, resolve_scope_id
-        from agent.joyzoning.convergence import require_review_before_complete
+        from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config, resolve_scope_id
+        from plugins.dietcode.lib.agent.joyzoning.convergence import require_review_before_complete
 
         if not get_joyzoning_config().enabled:
             return None
@@ -31,7 +31,7 @@ def pre_tool_call_block(
     except Exception as exc:
         if fail_closed:
             try:
-                from agent.joyzoning.config import get_joyzoning_config
+                from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config
                 if get_joyzoning_config().enabled:
                     return block_dict(f"Convergence gate unavailable: {exc}")
             except Exception:
@@ -41,8 +41,8 @@ def pre_tool_call_block(
 
 def assert_kanban_completion_allowed(task_id: str) -> None:
     """Raise when joyzoning convergence policy blocks kanban completion."""
-    from agent.joyzoning.config import get_joyzoning_config
-    from agent.joyzoning.convergence import require_review_before_complete
+    from plugins.dietcode.lib.agent.joyzoning.config import get_joyzoning_config
+    from plugins.dietcode.lib.agent.joyzoning.convergence import require_review_before_complete
 
     if not get_joyzoning_config().enabled:
         return

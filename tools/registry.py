@@ -54,13 +54,25 @@ def _module_registers_tools(module_path: Path) -> bool:
     return any(_is_registry_register_call(stmt) for stmt in tree.body)
 
 
+def _deferred_tool_module_stems() -> frozenset[str]:
+    """Tool modules owned by the DietCode plugin (not core auto-discovery)."""
+    try:
+        from plugins.dietcode.tools_loader import DEFERRED_TOOL_MODULE_STEMS
+
+        return DEFERRED_TOOL_MODULE_STEMS
+    except ImportError:
+        return frozenset()
+
+
 def discover_builtin_tools(tools_dir: Optional[Path] = None) -> List[str]:
     """Import built-in self-registering tool modules and return their module names."""
     tools_path = Path(tools_dir) if tools_dir is not None else Path(__file__).resolve().parent
+    deferred = _deferred_tool_module_stems()
     module_names = [
         f"tools.{path.stem}"
         for path in sorted(tools_path.glob("*.py"))
         if path.name not in {"__init__.py", "registry.py", "mcp_tool.py"}
+        and path.stem not in deferred
         and _module_registers_tools(path)
     ]
 

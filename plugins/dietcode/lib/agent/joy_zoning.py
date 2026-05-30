@@ -9,7 +9,7 @@ import os
 import re
 from typing import Dict, List, Optional, Set, Any, Tuple
 
-from agent.governance_exemptions import (
+from plugins.dietcode.lib.agent.governance_exemptions import (
     GOVERNANCE_EXEMPT_BASENAMES,
     GOVERNANCE_EXEMPT_BASENAME_SUFFIXES,
     GOVERNANCE_EXEMPT_EXTENSIONS,
@@ -464,7 +464,7 @@ def validate_joy_zoning(
 
     if require_layer_tags is None:
         try:
-            from agent.governance_exemptions import is_governance_layer_tags_required
+            from plugins.dietcode.lib.agent.governance_exemptions import is_governance_layer_tags_required
 
             require_layer_tags = is_governance_layer_tags_required()
         except ImportError:

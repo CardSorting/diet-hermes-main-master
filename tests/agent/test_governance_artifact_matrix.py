@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.governance_exemptions import (
+from plugins.dietcode.lib.agent.governance_exemptions import (
     classify_governance_artifact,
     governance_skip_reason,
     is_governance_artifact_path,

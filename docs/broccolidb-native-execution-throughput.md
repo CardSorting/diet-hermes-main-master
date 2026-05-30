@@ -11,10 +11,10 @@ This document describes the **Hermes native RPC execution layer** added to the D
 
 | Area | Location |
 |------|----------|
-| Python facade | `tools/broccolidb_tools/exec.py` |
-| Persistent worker gateway | `tools/broccolidb_tools/db_gateway.py` |
-| Method registry | `tools/broccolidb_tools/db_native.py` |
-| AgentContext RPC | `tools/broccolidb_tools/agent_rpc.py` |
+| Python facade | `plugins/dietcode/lib/tools/broccolidb_tools/exec.py` |
+| Persistent worker gateway | `plugins/dietcode/lib/tools/broccolidb_tools/db_gateway.py` |
+| Method registry | `plugins/dietcode/lib/tools/broccolidb_tools/db_native.py` |
+| AgentContext RPC | `plugins/dietcode/lib/tools/broccolidb_tools/agent_rpc.py` |
 | TS handlers (canonical) | `broccolidb/infrastructure/hermes/rpc_handlers.ts` |
 | Persistent worker | `broccolidb/infrastructure/hermes/hermes_rpc.ts` |
 | Cold one-shot dispatch | `broccolidb/infrastructure/hermes/hermes_oneshot.ts` |
@@ -143,7 +143,7 @@ These are **not** guarantees—Node version, disk, and DB size dominate. Use the
 ### Pass 1 — Native RPC worker
 
 - Introduced `broccolidb/infrastructure/hermes/hermes_rpc.ts` (persistent stdin/stdout worker).
-- Introduced `tools/broccolidb_tools/db_gateway.py` (`BroccoliDbGateway`, `run_db_rpc`).
+- Introduced `plugins/dietcode/lib/tools/broccolidb_tools/db_gateway.py` (`BroccoliDbGateway`, `run_db_rpc`).
 - Routed queue tools and DietCode dashboard snapshot to RPC.
 - Extracted `snapshot_core.ts` for shared dashboard building.
 
@@ -172,7 +172,7 @@ These are **not** guarantees—Node version, disk, and DB size dominate. Use the
 
 - Fixed `_TS_CONTEXT` template: `HERMES_BROCCOLIDB_DB`, no private `ensureDb()`.
 - `heal` op on native RPC; `broccolidb_heal` migrated.
-- `tools/broccolidb_tools/exec.py` unified import surface.
+- `plugins/dietcode/lib/tools/broccolidb_tools/exec.py` unified import surface.
 - Worker optional `HERMES_BROCCOLIDB_PRELOAD_AGENT` for AgentContext warm on first request.
 - One-shot path (`hermes_oneshot.ts`) forces `process.exit(0)` after emitting the JSON result to avoid event-loop hangs from pooled DB timers.
 
@@ -259,7 +259,7 @@ These are **not** guarantees—Node version, disk, and DB size dominate. Use the
 ## Python API (recommended imports)
 
 ```python
-from tools.broccolidb_tools.exec import (
+from plugins.dietcode.lib.tools.broccolidb_tools.exec import (
     run_db_rpc,
     run_db_rpc_batch,
     run_agent_rpc,
@@ -412,7 +412,7 @@ broccolidb/infrastructure/
     ├── hive_drift.ts
     └── hive_board_intel.ts
 
-tools/broccolidb_tools/
+plugins/dietcode/lib/tools/broccolidb_tools/
 ├── exec.py                      # ← preferred Python imports
 ├── db_gateway.py                # BroccoliDbGateway
 ├── db_native.py                 # RPC_VERSION, RPC_METHODS, warm_db_rpc
@@ -423,8 +423,8 @@ tools/broccolidb_tools/
 └── structural_tools.py          # heal → run_agent_rpc; rest standalone
 
 hermes_cli/dietcode_broccolidb.py  # Dashboard bridge → run_db_rpc
-tools/kanban_broccolidb_bridge.py  # → run_hive_sync / drift
-tools/kanban_broccolidb_tools.py   # batch intel + agent_rpc
+plugins/dietcode/lib/tools/kanban_broccolidb_bridge.py  # → run_hive_sync / drift
+plugins/dietcode/lib/tools/kanban_broccolidb_tools.py   # batch intel + agent_rpc
 ```
 
 ---
@@ -434,7 +434,7 @@ tools/kanban_broccolidb_tools.py   # batch intel + agent_rpc
 When adding a new RPC method:
 
 1. Implement handler in `rpc_handlers.ts` and add to `RPC_METHODS` array.
-2. Add the same name to `tools/broccolidb_tools/db_native.py` → `RPC_METHODS`.
+2. Add the same name to `plugins/dietcode/lib/tools/broccolidb_tools/db_native.py` → `RPC_METHODS`.
 3. Bump `RPC_VERSION` in **both** files.
 4. Extend `check_requirements()` if new files are required.
 5. Add a contract test in `tests/tools/test_broccolidb_exec_facade.py` (behavior, not snapshot of DB contents).
@@ -462,6 +462,6 @@ scripts/run_tests.sh tests/tools/test_kanban_broccolidb_tools.py
 | **Queue metrics SQL** | Full table scan | `GROUP BY` aggregation |
 | **Kanban board intel** | 2 subprocesses | 1 batched RPC (when task IDs known) |
 | **Write durability** | Direct Kysely only | Kysely + `dbPool.flush()` after hive sync |
-| **Discoverability** | Scattered `runner` imports | `tools.broccolidb_tools.exec` |
+| **Discoverability** | Scattered `runner` imports | `plugins.dietcode.lib.tools.broccolidb_tools.exec` |
 
 The design goal is simple: **pay startup once, pay SQL many times**—with a safe, centralized cold path when the worker cannot run.
